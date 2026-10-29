@@ -2,7 +2,7 @@
 set -euo pipefail
 pgbin="$(pg_config --bindir)"
 if [[ "${1:-}" == database ]]; then
-  exec "$pgbin/postgres" -D "$PWD/.amp/in/postgres" -h 127.0.0.1 -p 55432
+  exec "$pgbin/postgres" -D "$PWD/.amp/in/postgres" -h 127.0.0.1 -p 55432 -k "$PWD/.amp/in/postgres"
 fi
 for attempt in {1..40}; do
   if "$pgbin/pg_isready" -h 127.0.0.1 -p 55432 -U lastpeek -d lastpeek_orb >/dev/null; then break; fi

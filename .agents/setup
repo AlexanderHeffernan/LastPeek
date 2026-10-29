@@ -22,7 +22,7 @@ fi
 # The private cluster listens only on loopback. Never use this trust setup for a deployed instance.
 started=0
 if ! "$pgbin/pg_ctl" -D "$pgdata" status >/dev/null 2>&1; then
-  "$pgbin/pg_ctl" -D "$pgdata" -l .amp/in/postgres.log -o '-h 127.0.0.1 -p 55432' -w start
+  "$pgbin/pg_ctl" -D "$pgdata" -l .amp/in/postgres.log -o "-h 127.0.0.1 -p 55432 -k '$pgdata'" -w start
   started=1
 fi
 trap 'if [[ "$started" == 1 ]]; then "$pgbin/pg_ctl" -D "$pgdata" -m fast -w stop; fi' EXIT
