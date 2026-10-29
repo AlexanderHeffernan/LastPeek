@@ -209,11 +209,18 @@ test(
       await screenshot(page, "avatar-upload-error");
       await page.getByRole("link", { name: "LastPeek home" }).click();
       await page
-        .getByRole("button", { name: "New draft", exact: true })
+        .getByRole("button", { name: "Write your first draft", exact: true })
         .click();
       await page.getByLabel("Post 1 text", { exact: true }).waitFor();
       await page.waitForLoadState("networkidle");
       const id = page.url().split("/").at(-1)!;
+      await page.getByRole("link", { name: "LastPeek home" }).click();
+      await page
+        .getByRole("button", { name: "New draft", exact: true })
+        .click();
+      await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+      assert.notEqual(page.url().split("/").at(-1), id);
+      await page.goto(`${baseURL}/drafts/${id}`);
       assert.equal(
         await page.getByRole("button", { name: "Save", exact: true }).count(),
         0,

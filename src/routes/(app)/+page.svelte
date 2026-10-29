@@ -33,7 +33,7 @@
   {#if !data.drafts.length}<div class="empty">
       <div class="empty-icon"><Icon name="edit" size={25} /></div>
       <h2>Start something worth sharing.</h2>
-      <form method="POST" action="?/create">
+      <form method="POST" action="?/create" use:enhance>
         <Button variant="default" type="submit">Write your first draft</Button>
       </form>
     </div>{:else}<div class="draft-list">
