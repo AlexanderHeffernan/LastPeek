@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "X Draft",
+  "version": "0.1.0",
+  "description": "Share an unpublished X draft as a standalone HTML attachment in Messages.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["https://x.com/*", "https://pbs.twimg.com/*", "https://video.twimg.com/*"],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [{
+    "matches": ["https://x.com/*"],
+    "js": ["preview.js", "capture.js", "content.js"]
+  }],
+  "action": { "default_title": "Share X draft" }
+}
