@@ -16,9 +16,10 @@
     "db:seed": "node --env-file-if-exists=.env --import tsx scripts/seed.ts",
     "maintenance": "node --env-file-if-exists=.env --import tsx scripts/maintenance.ts",
     "account:reset": "node --env-file-if-exists=.env --import tsx scripts/reset-password.ts",
+    "operator": "node --env-file-if-exists=.env --import tsx scripts/operator.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts",
+    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts",
     "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts"
   },
   "devDependencies": {
@@ -41,6 +42,7 @@
     "bits-ui": "^2.20.2",
     "clsx": "^2.1.1",
     "file-type": "^22.3.0",
+    "openai": "^7.45.1",
     "pg": "^8.23.1",
     "phosphor-svelte": "^3.1.1",
     "sharp": "^0.35.5",

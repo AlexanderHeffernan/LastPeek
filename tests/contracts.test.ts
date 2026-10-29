@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { operatorCommand } from "../src/lib/operator";
 import {
   blankContent,
   contentSchema,
@@ -70,4 +71,33 @@ test("rejects ambiguous identities, invalid handles and attachment/thread limits
     })),
   };
   assert.ok(contentSchema.safeParse(boundary).success);
+});
+
+test("operator commands accept explicit grants and reject expanded authority", () => {
+  const grant = {
+    action: "set_feature_access",
+    email: "Owner@example.test",
+    feature: "ai-review",
+    enabled: false,
+    reason: "End trial",
+  };
+  assert.equal(operatorCommand.parse(grant).action, "set_feature_access");
+  for (const input of [
+    { ...grant, feature: "unknown" },
+    { ...grant, enabled: "false" },
+    { ...grant, reason: " " },
+    { ...grant, actor: "root" },
+    { action: "exec", command: "id" },
+    { action: "recent_logs", minutes: 61, lines: 200 },
+    { action: "recent_logs", minutes: 60, lines: 201 },
+    { action: "recent_logs", minutes: 0, lines: 1 },
+  ])
+    assert.equal(operatorCommand.safeParse(input).success, false);
+  assert.ok(
+    operatorCommand.safeParse({
+      action: "recent_logs",
+      minutes: 60,
+      lines: 200,
+    }).success,
+  );
 });

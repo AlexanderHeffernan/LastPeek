@@ -6,6 +6,7 @@
   import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
+  import AIReview from "$lib/components/AIReview.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import {
     contentSchema,
@@ -424,6 +425,9 @@
         </div>{/each}
     </section>
     <aside class="feedback-column" aria-label="Feedback and sharing">
+      {#if data.aiEnabled}
+        <AIReview draftId={data.draft.id} {content} historical={!!historical} />
+      {/if}
       {#if shareToken && (shareOpen || sharedRevision)}<div class="share-box">
           <div class="row between">
             <strong class="small">Review link</strong><Badge

@@ -10,6 +10,7 @@ import {
 } from "playwright";
 import sharp from "sharp";
 import { db } from "../src/lib/server/db";
+import { featureAccess, setFeatureAccess } from "../src/lib/server/features";
 import { passwordHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
 import { avatarPath } from "../src/lib/server/avatars";
@@ -232,6 +233,102 @@ test(
       await deletion.waitFor();
       await deletion.getByRole("button", { name: "Keep draft" }).click();
       assert.equal(await deletion.isVisible(), false);
+      // AI remains owner-only and optional; no key must not break normal editing.
+      const aiURL = `${baseURL}/api/drafts/${id}/ai-review`;
+      assert.equal(
+        (
+          await owner.request.post(aiURL, {
+            data: {},
+            headers: { Origin: "https://wrong.example" },
+          })
+        ).status(),
+        403,
+      );
+      assert.equal(
+        (
+          await other.request.post(aiURL, {
+            data: {},
+            headers: { Origin: origin },
+            maxRedirects: 0,
+          })
+        ).status(),
+        303,
+      );
+      // Even administrators default to denied. Grants/revokes take effect without re-login.
+      assert.equal(
+        await page.getByRole("region", { name: "AI second look" }).count(),
+        0,
+      );
+      const aiProbe = () =>
+        owner.request.post(aiURL, { data: {}, headers: { Origin: origin } });
+      assert.equal((await aiProbe()).status(), 403);
+      assert.equal(
+        (await setFeatureAccess(email, "ai-review", true, "test", "E2E enable"))
+          .changed,
+        true,
+      );
+      assert.equal(
+        (
+          await setFeatureAccess(
+            email,
+            "ai-review",
+            true,
+            "test",
+            "Idempotent retry",
+          )
+        ).changed,
+        false,
+      );
+      await page.reload();
+      assert.equal(
+        await page.getByRole("region", { name: "AI second look" }).count(),
+        process.env.OPENAI_API_KEY ? 1 : 0,
+      );
+      // Empty input rejects before a paid provider request.
+      assert.equal(
+        (await aiProbe()).status(),
+        process.env.OPENAI_API_KEY ? 400 : 503,
+      );
+      await setFeatureAccess(email, "ai-review", false, "test", "E2E revoke");
+      assert.equal((await aiProbe()).status(), 403);
+      await page.reload();
+      assert.equal(
+        await page.getByRole("region", { name: "AI second look" }).count(),
+        0,
+      );
+      const access = await featureAccess(email);
+      assert.equal(access.features["ai-review"], false);
+      assert.deepEqual(
+        access.history.map((entry) => [entry.enabled, entry.reason]),
+        [
+          [false, "E2E revoke"],
+          [true, "E2E enable"],
+        ],
+      );
+      // Existing AI UI cases below run with an explicit grant.
+      await setFeatureAccess(
+        email,
+        "ai-review",
+        true,
+        "test",
+        "E2E UI coverage",
+      );
+      await page.reload();
+      if (!process.env.OPENAI_API_KEY) {
+        assert.equal(
+          await page.getByRole("region", { name: "AI second look" }).count(),
+          0,
+        );
+        assert.equal(
+          (
+            await owner.request.post(aiURL, {
+              data: {},
+              headers: { Origin: origin },
+            })
+          ).status(),
+          503,
+        );
+      }
       const initial =
         "The best feedback starts with one question.\n\n“Can you take a quick look?” 👀";
       await edited(page, () =>
@@ -419,6 +516,15 @@ test(
       const mediaURL = `${baseURL}/media/${videoData.id}`;
       assert.equal((await guest.request.get(mediaURL)).status(), 404);
       await login(stranger, strangerEmail);
+      assert.equal(
+        (
+          await other.request.post(aiURL, {
+            data: {},
+            headers: { Origin: origin },
+          })
+        ).status(),
+        404,
+      );
       assert.equal(
         (await other.request.get(`${baseURL}/drafts/${id}`)).status(),
         404,
@@ -857,6 +963,10 @@ test(
       await db.query("DELETE FROM invites WHERE created_by=ANY($1::uuid[])", [
         ids,
       ]);
+      await db.query(
+        "DELETE FROM feature_audit WHERE user_id=ANY($1::uuid[])",
+        [ids],
+      );
       await db.query("DELETE FROM users WHERE id=ANY($1::uuid[]) OR email=$2", [
         ids,
         `test-invited-${userId}@example.test`,

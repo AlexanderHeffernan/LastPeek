@@ -62,6 +62,16 @@ Export `SEED_PASSWORD` in your shell before the bootstrap command, or supply it 
 
 Previews approximate X, not pixel-perfect parity. Avatars currently use initials; identity is entered manually. No link-card scraping, polls, quotes, Premium rich text, transcoding, real-time co-editing or automatic X sync. The previous Safari/HTML prototype is preserved in the first Git commit, not maintained as a second app in the active tree.
 
+## Optional AI second look
+
+Set `OPENAI_API_KEY` in the server's secret environment and restart web, then explicitly grant the account `ai-review` to enable **AI second look** beside author feedback. All accounts, including admins, default to off. With no key or grant, the control is hidden and the complete human-review workflow remains available. See [feature access and agent operations](docs/operations.md) for the audited CLI and restricted Pi tools. Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; overrides must support Responses structured outputs and low reasoning effort.
+
+Review is explicit, never triggered by autosave. Only the current ordered post IDs and text are sent to OpenAI, not the author's identity, title, attachments, comments or review token. Requests use `store: false` (not a guarantee of zero provider retention; OpenAI's applicable API data policies still apply). Findings live only in the current editor session, are never published as guest feedback, and never change drafts or shared revisions. Editing/reordering posts marks existing feedback as earlier-text feedback, with the original text available for comparison.
+
+Requests are bounded to 20,000 characters and 4,000 output tokens (including reasoning), with a 45-second timeout and no automatic retries. Database-backed limits allow 20 attempts per author and 100 per instance per 24-hour window, including failed provider requests. These limit abuse, not dollars: set project-level usage alerts/controls in OpenAI and verify how your monthly credit applies. Other apps sharing the key/project, model changes and pricing changes affect spend. No web-search or other paid tools are enabled.
+
+The server-only `src/lib/server/openai.ts` owns credentials, model selection, transport, timeout, non-storage and validated structured responses. New features can reuse `generateStructured` with their own schema and instructions; routes still enforce owner/origin checks, input bounds and usage limits. Keep features opt-in rather than introducing a general chatbot or mandatory provider dependency.
+
 ## Limits, maintenance and recovery
 
 Defaults are 50 MB per upload and 500 MB per author (`MAX_UPLOAD_MB`, `MAX_STORAGE_MB`). The Node adapter's `BODY_SIZE_LIMIT=55M` must remain above the upload limit plus multipart overhead; adjust both if increasing uploads. Uploaded files are MIME-inspected, images have a 40-megapixel decode bound, and files never live in `static/`. Video containers are detected, not transcoded or exhaustively decoded server-side. Deploy only for trusted invitees until beta hardening and capacity checks are complete.

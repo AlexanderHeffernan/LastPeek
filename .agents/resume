@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Optional: core development remains independent of production access.
+bash scripts/operator-network.sh
