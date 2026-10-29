@@ -1,0 +1,22 @@
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ARG ORIGIN=http://localhost:3000
+ENV ORIGIN=$ORIGIN
+RUN npm run build && npm prune --omit=dev
+
+FROM node:22-bookworm-slim
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 BODY_SIZE_LIMIT=55M MEDIA_DIR=/app/data/media
+WORKDIR /app
+COPY --from=builder --chown=node:node /app/build ./build
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./
+COPY --from=builder --chown=node:node /app/scripts ./scripts
+COPY --from=builder --chown=node:node /app/migrations ./migrations
+COPY --from=builder --chown=node:node /app/src/lib ./src/lib
+RUN mkdir -p /app/data/media && chown -R node:node /app/data
+USER node
+EXPOSE 3000
+CMD ["npm", "start"]

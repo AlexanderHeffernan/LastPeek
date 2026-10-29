@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: lastpeek
+      POSTGRES_DB: lastpeek
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a random hex password in .env}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lastpeek -d lastpeek"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      args:
+        ORIGIN: ${ORIGIN:-http://localhost:3000}
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    environment: &app-env
+      DATABASE_URL: postgres://lastpeek:${POSTGRES_PASSWORD}@db:5432/lastpeek
+      ORIGIN: ${ORIGIN:-http://localhost:3000}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+      MAX_STORAGE_MB: ${MAX_STORAGE_MB:-500}
+      BODY_SIZE_LIMIT: 55M
+    volumes:
+      - media:/app/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "npm run db:migrate && npm start"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  maintenance:
+    build:
+      context: .
+      args:
+        ORIGIN: ${ORIGIN:-http://localhost:3000}
+    environment: *app-env
+    volumes:
+      - media:/app/data/media
+    depends_on:
+      web:
+        condition: service_healthy
+    command:
+      ["sh", "-c", "while true; do npm run maintenance; sleep 3600; done"]
+    restart: unless-stopped
+volumes:
+  database:
+  media:

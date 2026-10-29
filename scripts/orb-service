@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+pgbin="$(pg_config --bindir)"
+if [[ "${1:-}" == database ]]; then
+  exec "$pgbin/postgres" -D "$PWD/.amp/in/postgres" -h 127.0.0.1 -p 55432
+fi
+for attempt in {1..40}; do
+  if "$pgbin/pg_isready" -h 127.0.0.1 -p 55432 -U lastpeek -d lastpeek_orb >/dev/null; then break; fi
+  sleep 0.5
+done
+"$pgbin/pg_isready" -h 127.0.0.1 -p 55432 -U lastpeek -d lastpeek_orb >/dev/null
+if [[ "${1:-}" == maintenance ]]; then
+  while true; do npm run maintenance; sleep 3600; done
+else
+  # The origin is unknown at setup time. Adapter-node derives HTTPS + the portal Host.
+  : "${PUBLIC_URL:?Start this through Amp services for the portal origin}"
+  exec npm start
+fi

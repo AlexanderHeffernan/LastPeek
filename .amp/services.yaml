@@ -1,0 +1,17 @@
+services:
+  database:
+    command: bash scripts/orb-service database
+    port: 55432
+    platforms: [linux]
+  web:
+    command: bash scripts/orb-service web
+    platforms: [linux]
+    health: /health
+    review: false
+    portal:
+      url: /
+      title: LastPeek
+      description: Private MVP trial. Use the trial account supplied in the thread.
+  maintenance:
+    command: bash scripts/orb-service maintenance
+    platforms: [linux]

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$(uname -s)" == Linux ]] || { echo 'Orb setup is Linux-only. See README for local development.'; exit 1; }
+echo 'Preparing LastPeek orb dependencies'
+if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=17)?0:1)' 2>/dev/null; then
+  command -v mise >/dev/null || { echo 'Node 22.17+ or mise is required'; exit 1; }
+  mise use --global node@22
+fi
+if ! command -v pg_config >/dev/null || [[ ! -x "$(pg_config --bindir)/initdb" ]]; then
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq postgresql libpq-dev
+fi
+npm ci
+exclude="$(git rev-parse --git-path info/exclude)"
+grep -Fxq '/.amp/in/' "$exclude" || printf '\n/.amp/in/\n' >> "$exclude"
+mkdir -p .amp/in
+pgbin="$(pg_config --bindir)"
+pgdata="$PWD/.amp/in/postgres"
+if [[ ! -f "$pgdata/PG_VERSION" ]]; then
+  "$pgbin/initdb" -D "$pgdata" --auth=trust --username=lastpeek > .amp/in/initdb.log
+fi
+# The private cluster listens only on loopback. Never use this trust setup for a deployed instance.
+started=0
+if ! "$pgbin/pg_ctl" -D "$pgdata" status >/dev/null 2>&1; then
+  "$pgbin/pg_ctl" -D "$pgdata" -l .amp/in/postgres.log -o '-h 127.0.0.1 -p 55432' -w start
+  started=1
+fi
+trap 'if [[ "$started" == 1 ]]; then "$pgbin/pg_ctl" -D "$pgdata" -m fast -w stop; fi' EXIT
+if [[ "$([ -x "$pgbin/psql" ] && "$pgbin/psql" -h 127.0.0.1 -p 55432 -U lastpeek -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='lastpeek_orb'")" != 1 ]]; then
+  "$pgbin/createdb" -h 127.0.0.1 -p 55432 -U lastpeek lastpeek_orb
+fi
+if [[ ! -f .env ]]; then
+  node --input-type=module <<'NODE'
+import { writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+writeFileSync('.env', `DATABASE_URL=postgres://lastpeek@127.0.0.1:55432/lastpeek_orb
+MEDIA_DIR=./data/media
+MAX_UPLOAD_MB=50
+MAX_STORAGE_MB=500
+BODY_SIZE_LIMIT=55M
+SEED_EMAIL=alex@lastpeek.test
+SEED_NAME=Alex
+SEED_PASSWORD=${randomBytes(18).toString('base64url')}
+`, { mode: 0o600, flag: 'wx' });
+NODE
+fi
+npm run db:migrate
+npm run db:seed
+npm run build
+echo 'LastPeek prepared. Start the declared services with amp orb services ensure.'
