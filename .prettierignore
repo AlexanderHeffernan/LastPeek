@@ -1,0 +1,7 @@
+node_modules
+.svelte-kit
+build
+.amp/in
+.amp/portals
+data
+package-lock.json

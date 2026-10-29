@@ -1,87 +1,103 @@
-# X Draft for Safari on Mac
+# LastPeek
 
-A local Safari web extension and companion Mac app for sharing an unpublished X draft as a self-contained HTML attachment in Messages. No X API account, hosting, analytics, or automatic sending. Alexander confirmed the original `draft-preview.html` delivery trial opens successfully in Messages on Mac and iPhone.
+A second pair of eyes before you post. Write a post or thread, attach original media, and send a private review link to a friend. They can comment or suggest wording without an account. You decide what changes and when a new version is shared.
 
-## Workflow
+**MVP, not a production/private-beta deployment.** Website-first; the optional browser extension comes later. No social API, scheduling, automatic publishing, email provider, hosted auth, cloud storage, analytics or remote fonts are required. The complete runtime is Node, PostgreSQL and a private media directory on one host.
 
-1. Compose on **x.com in Safari**, including your own follow-up posts.
-2. Click the new **Share draft** icon beside X's attachment/GIF/emoji controls, or use the extension's Safari toolbar button.
-3. Review the captured snapshot. Click **Share via Messages** to open Apple's Messages sharing service, choose a recipient, and send yourself. **Save HTML** is also available for manual attachment.
+## Try it in an orb
 
-Opening a preview does not change or publish the X draft. Edits made after capture aren't included in that snapshot. The recipient needs no extension or account with this app.
+The personal Amp project maps to the private `AlexanderHeffernan/LastPeek` GitHub repository; Amp is not the Git host. `.agents/setup` installs dependencies, prepares a private PostgreSQL development cluster, migrates and seeds once, and builds the app. It is safe to repeat and never resets an existing account. `.amp/services.yaml` supervises PostgreSQL, the website and hourly cleanup.
 
-## Install and test locally
+Run `amp orb services ensure --json` inside an orb and use its exact portal URL. Trial email is `alex@lastpeek.test`; its randomly generated password is in that orb's ignored `.env` (`SEED_PASSWORD`). The portal is private to the thread by default. This is a personal trial, not an externally accessible reviewer beta. Never put real/irreplaceable drafts in an ephemeral orb.
 
-Open `mac/X Draft/X Draft.xcodeproj` in Xcode. The generated project references the files in `extension/` directly; do not maintain a second copy.
+## Local development
 
-For the local-development app build on Alexander's Mac:
-
-1. Run `bash scripts/build-mac.sh`, or unzip the corrected `X-Draft-local-test.zip`. Open **X Draft.app** in Finder. **Do not select the app or this app ZIP in Add Temporary Extension.**
-2. In Safari Settings → Advanced, enable **Show features for web developers**, then in Developer enable **Allow unsigned extensions**. This deliberately permits unsigned development extensions until Safari quits; only enable the local extension you trust.
-3. In Safari Settings → Extensions, enable **X Draft Extension** and allow it on x.com. Grant access to the listed X media hosts if prompted.
-4. Reload x.com. Try **Share draft** → review → **Share via Messages**. Confirm an HTML file is attached before sending. If the native handoff fails, use **Save HTML** and report the error text.
-
-**Add Temporary Extension is a different installation route.** It accepts the `extension/` folder containing `manifest.json`, or the browser-only `X-Draft-Safari-Temporary.zip`, not a Mac app bundle or ZIP of an app. That route can test capture and Save HTML, but cannot provide native Messages sharing.
-
-For a signed installation:
-
-1. Select the same signing team for **X Draft** and **X Draft Extension**.
-2. Enable the App Groups capability for both targets, using `group.com.hefferalex.XDraft` (already in `Sharing.entitlements`). Allow Xcode to configure the required signing assets.
-3. Run the **X Draft** scheme on **My Mac**. Open Safari Settings → Extensions, enable **X Draft Extension**, and allow access to x.com and its image/video hosts when prompted.
-4. Reload x.com, open a draft, and try a single text post, a photo, and a two-post thread. In the Messages sharing window, verify the HTML attachment is present before choosing a recipient and sending.
-
-Apple also supports local unsigned extension testing through Safari Settings → Developer → **Allow unsigned extensions**. That setting resets when Safari quits. A temporary installation of the `extension/` folder can exercise capture and **Save HTML**, but **cannot** supply the native Messages handoff; that requires the packaged Mac app. Shared-container access and handoff must be verified in the chosen signed/unsigned setup. Do not treat an unsigned compile as proof of a working sandboxed handoff.
-
-Build without an Apple developer identity:
-
-```sh
-bash scripts/build-mac.sh
-```
-
-The script compiles both targets, applies complete ad-hoc bundle signatures and the sandbox/App Group entitlements, verifies the nested signatures, and creates `.amp/in/artifacts/X-Draft-local-test.zip`. Merely building with `CODE_SIGNING_ALLOWED=NO` leaves linker-only signatures: the earlier `X-Draft-test.zip` failed strict bundle validation and its extension did not register. Do not use that older archive.
-
-The compiled app is `.amp/in/build/Build/Products/Debug/X Draft.app`. The corrected extension registers with macOS PlugInKit; Safari enablement and the complete native handoff still require live validation. Ad-hoc signing is for local development, not notarized distribution, and may encounter macOS security prompts when downloaded. Do not disable Gatekeeper globally.
-
-## Capture support and limitations
-
-- Reads the selected composer's visible editable posts, preserves text, blank lines, emoji, post order and per-post media order, and embeds the displayed account avatar when available.
-- Images and GIF files are embedded, not left as remote links. Videos are embedded only if the displayed source is a readable video file. X's MediaSource/streaming blobs may not be exportable; this version reports an error rather than substituting a still image. Reopened drafts and edited/cropped media need live-X validation.
-- Safari's review frame permits native media-control scripting while the generated document's CSP still blocks page scripts; the frame does not gain same-origin access. Messages/Quick Look's own HTML viewer is outside the extension's control. If its video controls don't work, open the attachment in a full browser instead; playback in that viewer has not been verified.
-- Up to 25 MB of media per export (before base64 encoding). No silent truncation. A changed draft, failed download, unidentified attachment, detected poll or quoted/replied-to post blocks export.
-- Polls, quotes, replies to other people's posts, X Articles, and rich-text Premium formatting are not supported. Standard links remain text; link-card fetching is not implemented. The preview labels itself unpublished and does not invent engagement counts, timestamps for published posts, or verification badges.
-- Layout approximates X; line wrapping and image crops can differ from the final published post. Media-container and composer selectors depend on X's current DOM and may need updates.
-- Browser permissions are limited to x.com, pbs.twimg.com and video.twimg.com. Media downloads omit account credentials. No private X endpoints or scripted Post/Send actions are used. This is not a claim of approval by X; its restrictions on non-API integrations still apply.
-
-## Privacy and local files
-
-Exported HTML contains no JavaScript or remote dependencies. Draft text and metadata are HTML-escaped, attachments use embedded data URLs, and the file includes a restrictive Content Security Policy. The review iframe is sandboxed with `allow-scripts` so WebKit can run its built-in video controls. The document's CSP forbids author scripts, and the sandbox retains an opaque origin.
-
-The native extension writes exports to `Drafts/` in the shared App Group container, with random filenames and owner-only file permissions. Only an opaque UUID is passed through the local app URL. These temporary exports are pruned after seven days on a subsequent share; X's original draft is untouched. Messages and recipients keep their own copies. No draft text or media is logged.
-
-Before sharing, the Mac app copies the export into its own sandbox's temporary directory with owner-only permissions. ShareKit cannot delegate access directly from the App Group directory in the tested local setup. The app retains this staged copy for the sharing session, then removes it on completion or cancellation/failure; an interrupted process may leave it for macOS temporary-file cleanup.
-
-## Verification
+Requires Node 22.17+ and PostgreSQL 14+. Create a **dedicated development database**, not a database used by another application.
 
 ```sh
 npm ci
-npm test                             # Installed Google Chrome, headless
-npx playwright install webkit       # Once, for the WebKit test runtime
-TEST_BROWSER=webkit npm test         # WebKit engine, not Safari's extension runtime
-SCREENSHOTS=1 npm test               # Review artifacts under .amp/in/artifacts/
+cp .env.example .env
+# Set DATABASE_URL to the dedicated database, and set SEED_EMAIL / SEED_PASSWORD.
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-Tests exercise the share button, actual HTML download, thread/attachment association, blank lines, emoji, escaping, changed-draft rejection, and native-handoff failure feedback. The browser-to-native bridge is stubbed in these fixture tests, not verified by them. Native targets compile independently; Messages service availability can be checked without sending anything.
+Open the address printed by Vite. Bootstrap creates an administrator and sample thread only when that email does not already exist. Passwords must be 12–256 characters. Existing accounts and passwords are never reset by seeding. Administrators create single-use seven-day invitations from Account settings; send the invitation yourself. No SMTP is needed.
 
-The video regression uses `tests/fixtures/video.mp4`, a generated three-second silent H.264 clip with a moving square (AVFoundation, 320 × 180 at 12 fps). It activates the browser's native controls and checks that playback advances in both the review and downloaded HTML. It also checks that inserted page scripts are blocked and the preview cannot access its parent document. On unchanged code, WebKit's centre Play button stayed paused with a blank-square icon; permitting native control scripting fixed the same scenario. The user's exported video was also tested: it decoded and played as standalone HTML in both Chrome and WebKit, while the no-script sandbox broke WebKit's native Play control.
+```sh
+ORIGIN=http://localhost:3000 npm run build
+npm start
+```
 
-Live Safari inspection found three selector bugs: the share button was inserted in a hidden scroll-arrow wrapper, the ordinary Add poll toolbar button was mistaken for poll content, and the toolbar's nearest ancestor could contain only the last reply in a thread. The button now targets the media icon row, poll detection excludes toolbar controls, and modal capture uses the whole composer dialog. Regression fixtures cover these cases; a repositioned button was confirmed visible and hit-testable in the live composer.
+SvelteKit 3 uses `ORIGIN` at **build time** through `paths.origin`; changing it requires rebuilding. Production requires an exact public `ORIGIN`, HTTPS via your own reverse proxy, and persistent database/media volumes. Orbs intentionally build without a fixed origin: adapter-node derives HTTPS and the incoming portal Host. Configure trusted proxy/client-address handling for your actual proxy before beta; do not trust arbitrary forwarded headers. Keep database and media off public ports. `/health` checks database availability without exposing content.
 
-A subsequent live check found that the upload guard mistook the composer loading bar and character counter for media uploads. It now checks only visible, incomplete media upload indicators. Regression coverage includes unrelated progress bars, 99% versus 100% uploads, hidden indicators and indeterminate uploads. A read-only run of the patched capture against the open Safari composer generated a two-post HTML preview with an embedded avatar and matching text; it did not exercise the extension's native Messages bridge.
+## Portable container stack
 
-The share button reuses the media button's CSS classes, icon shell and layout wrappers without copying its event handlers or file input. Hover and pressed backgrounds use the native icon-content colour at 10% and 20% opacity, with a visible keyboard-focus outline. A separately rendered snapshot of the real toolbar verifies matching button size, icon size, colour and alignment; this is not a screenshot of the live Safari window.
+`compose.yaml` defines PostgreSQL, the non-root Node server, and an hourly maintenance process. Images support AMD64 and ARM64; **the actual Pi and its media capacity still need testing before beta**. No Pi infrastructure is changed by this repository.
 
-Native validation reproduced the Messages failure in a GUI-launched, sandboxed probe: the App Group HTML was readable but `canPerform` returned false, while an app-local temporary copy returned true. The patched Mac app accepted the staged attachment and opened Messages' remote sharing view. ShareKit logs captured the change from denied file access and `canPerform = NO` to `canPerform = YES` and the sharing-window transition. No recipient was selected and no Send action was automated.
+Set `POSTGRES_PASSWORD` in `.env` to a random hex string (for example, generated with `openssl rand -hex 32`), and set `ORIGIN` for the address you will open. `APP_PORT` defaults to 3000. The web port binds only to loopback, ready for a local reverse proxy.
 
-**Final delivery validation remains required:** install the updated packaged extension and confirm the complete Safari → native extension → shared file → Messages flow, then manually choose a recipient and send a preview. Close all running X Draft copies before replacing the app; save the current draft before restarting Safari and re-enable unsigned extensions if needed. **Allow JavaScript from Apple Events** is only needed for agent-driven inspection, not normal extension use.
+```sh
+docker compose up --build -d
+docker compose exec -e SEED_EMAIL=you@example.com -e SEED_PASSWORD web npm run db:seed
+```
 
-If attachment delivery becomes awkward, the fallback remains private, revocable preview links hosted on Alexander's Raspberry Pi. Nothing has been provisioned or deployed there.
+Export `SEED_PASSWORD` in your shell before the bootstrap command, or supply it through your own secret-management workflow; do not put a real password in shell history. `docker compose exec -e SEED_PASSWORD` passes the exported value. Database migrations run before the web server starts. Keep volumes when restarting; **`docker compose down -v` destroys all data**.
+
+## What is supported
+
+- Ordered threads (up to 25 posts), display name/handle, multiline Unicode text and X weighted-character warnings. Standard 280-character warnings do not forbid Premium-length drafts.
+- Up to four JPEG/PNG/WebP/AVIF images, one GIF, or one MP4/WebM video per post. Original bytes, image grids, video controls/seeking, upload progress/retry, reordering, downloads. HEIC/MOV/SVG/HTML are rejected with an explanation. Browser codec support still matters; downloads remain available.
+- Private autosave with stale-edit conflict detection. **Share draft / Update shared version** publishes an immutable snapshot, not the evolving working copy. A shared link stays stable across version updates.
+- Account-free guest feedback tied to the reviewed version/post, optional replacement wording, explicit author acceptance, resolve/reopen, and historical previews. Guest names are unverified. Feedback is visible to everyone holding that review link.
+- Random 256-bit review links, revocation, renewal with a different token, and owner/capability checks on every attachment. Revocation prevents future server access; it cannot erase copies recipients already downloaded.
+- Copy individual posts/thread text and download attachments for manual posting. Copying cannot attach files in X.
+
+Previews approximate X, not pixel-perfect parity. Avatars currently use initials; identity is entered manually. No link-card scraping, polls, quotes, Premium rich text, transcoding, real-time co-editing or automatic X sync. The previous Safari/HTML prototype is preserved in the first Git commit, not maintained as a second app in the active tree.
+
+## Limits, maintenance and recovery
+
+Defaults are 50 MB per upload and 500 MB per author (`MAX_UPLOAD_MB`, `MAX_STORAGE_MB`). The Node adapter's `BODY_SIZE_LIMIT=55M` must remain above the upload limit plus multipart overhead; adjust both if increasing uploads. Uploaded files are MIME-inspected, images have a 40-megapixel decode bound, and files never live in `static/`. Video containers are detected, not transcoded or exhaustively decoded server-side. Deploy only for trusted invitees until beta hardening and capacity checks are complete.
+
+Dependency audit currently reports a low-severity prototype-poisoning advisory in `deepmerge` 4.3.1, inherited through Svelte's build tooling. That is the latest upstream version at the time of this MVP; draft input is not passed to that build-time merge. Track an upstream fix before broader release rather than applying npm's incompatible forced downgrade.
+
+`npm run maintenance` expires sessions/rate buckets, removes uploads unused for 24 hours, and cleans stale orphan files. Compose/orbs run it hourly; other deployments need their own hourly timer. Published revisions retain their original media until draft deletion. Deleting a draft permanently removes its versions, comments and media. There is no automatic draft expiry.
+
+Password recovery is a **local administrator operation**, not an email dependency:
+
+```sh
+# Store a new password in a temporary owner-readable file without echoing it.
+umask 077
+read -rs NEW_PASSWORD; printf '\n'
+printf '%s\n' "$NEW_PASSWORD" > /tmp/lastpeek-password
+unset NEW_PASSWORD
+npm run account:reset -- author@example.com < /tmp/lastpeek-password
+rm /tmp/lastpeek-password
+```
+
+Resetting invalidates all existing sessions. For container use, pipe the password file into `docker compose exec -T web npm run account:reset -- author@example.com` instead.
+
+Before a real beta, rehearse **backup and restore**: stop web and maintenance writers, take `pg_dump` plus a matching copy of the private media volume, restart writers, and restore both into an isolated instance to verify logins, shared revisions and original attachment checksums. A database dump alone is not a complete backup. Decide retention, encrypted off-device storage, disk alerts, HTTPS and abuse limits before inviting real authors. These operational decisions/deployment are deliberately not automated here.
+
+## Verification and code map
+
+```sh
+npm run format:check
+npm run check
+npm test
+ORIGIN=http://127.0.0.1:4173 npm run build
+npx playwright install chromium webkit
+# Start the production build on 4173 against a disposable development DB:
+PORT=4173 npm start
+# In another terminal, using the SAME DATABASE_URL / MEDIA_DIR:
+npm run test:e2e
+TEST_BROWSER=webkit npm run test:e2e
+SCREENSHOTS=1 npm run test:e2e
+```
+
+Browser tests create unique disposable accounts, exercise actual HTTP/auth/upload/review flows, and remove their own database rows/files. Do not point them at production. `TEST_BASE_URL` selects a different running instance. Screenshots contain synthetic test data under `.amp/in/artifacts/` (ignored locally); never commit private screenshots. WebKit automation is not proof of every Safari/iPhone codec.
+
+`tests/fixtures/video.mp4` is a generated three-second silent H.264 clip (320 × 180, moving square), not user media. The image in browser tests is an intentionally solid-colour generated PNG.
+
+`src/lib/contracts.ts` owns the draft contract. `src/lib/server/` owns auth, persistence and private media. Routes adapt those operations to HTTP; shared Svelte components render author/reviewer previews. `migrations/` contains ordered SQL migrations. Read [product scope](docs/product.md), [architecture/invariants](docs/architecture.md), and [agent guidance](AGENTS.md) before changing behaviour. GitHub Actions runs checks and both browser engines; it is optional tooling, not an application dependency.
