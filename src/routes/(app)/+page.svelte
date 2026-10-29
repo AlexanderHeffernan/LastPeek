@@ -41,7 +41,7 @@
           class="draft-card"
           href={`/drafts/${draft.id}`}
           ><div class="row between">
-            <Badge variant="secondary" class={[draft.shared && "green"]}
+            <Badge variant="secondary" class={[draft.shared && "brand-tint"]}
               >{draft.shared
                 ? `Shared · v${draft.shared_revision}`
                 : "Only you"}</Badge

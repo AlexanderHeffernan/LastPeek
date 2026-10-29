@@ -4,7 +4,7 @@
   import { enhance } from "$app/forms";
   import Brand from "$lib/components/Brand.svelte";
   import Icon from "$lib/components/Icon.svelte";
-  let { form } = $props();
+  let { data, form } = $props();
   let busy = $state(false);
 </script>
 
@@ -61,5 +61,13 @@
       >
     </form>
     <p class="auth-footer">Invite-only. Have a link? You’re in.</p>
+    {#if data.devSignIn}<form
+        method="POST"
+        action="/login/dev"
+        use:enhance
+        class="dev-sign-in"
+      >
+        <Button variant="ghost" type="submit">Dev sign in</Button>
+      </form>{/if}
   </section>
 </main>

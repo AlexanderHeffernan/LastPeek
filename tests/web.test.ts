@@ -351,6 +351,12 @@ test(
         .setInputFiles("tests/fixtures/video.mp4");
       const videoData = await (await videoUpload).json();
       assert.equal((await savedVideo).status(), 200);
+      // Like X, only the post being written shows its tools.
+      assert.equal(
+        await page.getByLabel("Add media to post 1", { exact: true }).count(),
+        0,
+      );
+      await page.getByLabel("Post 1 text", { exact: true }).focus();
       if (engine === chromium) {
         await owner.grantPermissions(["clipboard-read", "clipboard-write"]);
         await page

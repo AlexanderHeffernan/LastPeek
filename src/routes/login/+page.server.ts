@@ -6,6 +6,7 @@ import {
   passwordHash,
   passwordMatches,
   rateLimit,
+  devSignIn,
 } from "$lib/server/auth";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -14,6 +15,7 @@ const unavailablePasswordHash = passwordHash("unavailable-account");
 
 export const load: PageServerLoad = ({ locals }) => {
   if (locals.user) redirect(303, "/");
+  return { devSignIn: devSignIn() };
 };
 export const actions: Actions = {
   default: async ({ request, cookies, url, getClientAddress }) => {

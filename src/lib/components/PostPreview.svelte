@@ -28,15 +28,13 @@
     onupload?: (postId: string, files: File[]) => void;
     oncopy?: (text: string) => void;
   } = $props();
-  function movePost(index: number, direction: number) {
-    const next = [...content.posts];
-    [next[index], next[index + direction]] = [
-      next[index + direction],
-      next[index],
-    ];
-    content.posts = next;
-    onchange();
-  }
+  // Like X's composer, only the post being written shows its tools.
+  let activeId = $state(content.posts.at(-1)?.id);
+  const active = $derived(
+    content.posts.some((p) => p.id === activeId)
+      ? activeId
+      : content.posts.at(-1)?.id,
+  );
   function moveMedia(postIndex: number, index: number, direction: number) {
     const ids = [...content.posts[postIndex].media];
     [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
@@ -70,7 +68,12 @@
 
 <section aria-label="Post thread">
   {#each content.posts as post, index (post.id)}
-    <article class="post" aria-label={`Post ${index + 1}`}>
+    <article
+      class="post"
+      class:inactive={editing && content.posts.length > 1 && post.id !== active}
+      aria-label={`Post ${index + 1}`}
+      onfocusin={() => (activeId = post.id)}
+    >
       <div class="avatar" aria-hidden="true">
         {#if content.author.avatar}<img
             src={avatarURL(content.author.avatar, token)}
@@ -84,10 +87,30 @@
             >{content.author.handle
               ? `@${content.author.handle.replace(/^@/, "")}`
               : ""}</span
-          >{#if content.posts.length > 1}<span
-              class="muted small"
-              style="margin-left:auto">{index + 1}/{content.posts.length}</span
-            >{/if}
+          >{#if content.posts.length > 1}<span class="post-position"
+              >{index + 1}/{content.posts.length}</span
+            >{#if editing && post.id === active}<Button
+                variant="ghost"
+                class="icon-button remove-post"
+                aria-label={`Remove post ${index + 1}`}
+                title="Remove post"
+                onclick={async () => {
+                  if (
+                    !confirm(
+                      "Remove this post from the working draft? Shared versions and feedback will stay.",
+                    )
+                  )
+                    return;
+                  const previous = content.posts[Math.max(index - 1, 0)];
+                  content.posts = content.posts.filter((p) => p.id !== post.id);
+                  onchange();
+                  activeId = (
+                    previous.id === post.id ? content.posts[0] : previous
+                  ).id;
+                  await tick();
+                  document.getElementById(`post-text-${activeId}`)?.focus();
+                }}><Icon name="close" size={16} /></Button
+              >{/if}{/if}
         </div>
         <div class:editable-post={editing}>
           {#if editing}<Textarea
@@ -173,9 +196,8 @@
                 </div>{/if}
             {/each}
           </div>{/if}
-        {#if editing || oncopy}{@const count = twitter.parseTweet(
-            post.text,
-          ).weightedLength}
+        {#if (editing && post.id === active) || (!editing && oncopy)}{@const count =
+            twitter.parseTweet(post.text).weightedLength}
           <div class="post-tools">
             <div class="post-action-icons">
               {#if editing}<label class="upload-button" title="Add media"
@@ -213,12 +235,13 @@
             {#if editing}
               <div class="post-count">
                 <svg class="count-ring" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" stroke="#2f3336" />
+                  <circle class="count-track" cx="12" cy="12" r="10" />
                   <circle
                     cx="12"
                     cy="12"
                     r="10"
-                    stroke={count > 280 ? "#ffad1f" : "#1d9bf0"}
+                    class="count-fill"
+                    class:over={count > 280}
                     stroke-dasharray="62.832"
                     stroke-dashoffset={62.832 * (1 - Math.min(count / 280, 1))}
                   />
@@ -230,55 +253,25 @@
                   title={count > 280 ? "X Premium required" : "Character count"}
                   >{count}/280</span
                 >
-                {#if index === content.posts.length - 1 && content.posts.length < 25}<Button
+                {#if content.posts.length < 25}<Button
                     variant="outline"
                     class="icon-button add-post"
                     aria-label="Add post to thread"
                     title="Add post to thread"
                     onclick={async () => {
                       const id = crypto.randomUUID();
-                      content.posts = [
-                        ...content.posts,
-                        { id, text: "", media: [] },
-                      ];
+                      content.posts = content.posts.toSpliced(index + 1, 0, {
+                        id,
+                        text: "",
+                        media: [],
+                      });
                       onchange();
+                      activeId = id;
                       await tick();
                       document.getElementById(`post-text-${id}`)?.focus();
                     }}><Icon name="plus" size={20} /></Button
                   >{/if}
               </div>
-              {#if content.posts.length > 1}<div class="post-order">
-                  {#if index > 0}<Button
-                      variant="ghost"
-                      class="icon-button"
-                      aria-label={`Move post ${index + 1} up`}
-                      onclick={() => movePost(index, -1)}
-                      ><Icon name="up" size={14} /></Button
-                    >{/if}{#if index < content.posts.length - 1}<Button
-                      variant="ghost"
-                      class="icon-button"
-                      aria-label={`Move post ${index + 1} down`}
-                      onclick={() => movePost(index, 1)}
-                      ><Icon name="down" size={14} /></Button
-                    >{/if}
-                  {#if content.posts.length > 1}<Button
-                      variant="destructive"
-                      class="icon-button danger"
-                      aria-label={`Remove post ${index + 1}`}
-                      onclick={() => {
-                        if (
-                          confirm(
-                            "Remove this post from the working draft? Shared versions and feedback will stay.",
-                          )
-                        ) {
-                          content.posts = content.posts.filter(
-                            (p) => p.id !== post.id,
-                          );
-                          onchange();
-                        }
-                      }}><Icon name="close" size={14} /></Button
-                    >{/if}
-                </div>{/if}
             {/if}
           </div>{/if}
       </div>

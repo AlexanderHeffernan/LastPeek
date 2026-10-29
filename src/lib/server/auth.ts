@@ -81,3 +81,6 @@ export function sameOrigin(event: RequestEvent) {
   if (event.request.headers.get("origin") !== event.url.origin)
     error(403, "This request must come from LastPeek.");
 }
+// Passwordless sign-in as the seeded account. Never set DEV_SIGN_IN in production.
+export const devSignIn = () =>
+  import.meta.env?.DEV === true || process.env.DEV_SIGN_IN === "1";

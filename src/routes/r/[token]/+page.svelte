@@ -29,7 +29,7 @@
   <div class="workspace-toolbar">
     <span class="breadcrumb">Draft review</span>
     <div class="row">
-      <Badge variant="secondary" class="green">Shared draft</Badge><label
+      <Badge variant="secondary" class="brand-tint">Shared draft</Badge><label
         class="small muted"
         >Version<select
           aria-label="Review version"

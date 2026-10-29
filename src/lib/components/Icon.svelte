@@ -10,8 +10,6 @@
   import Check from "phosphor-svelte/lib/Check";
   import Copy from "phosphor-svelte/lib/Copy";
   import X from "phosphor-svelte/lib/X";
-  import CaretUp from "phosphor-svelte/lib/CaretUp";
-  import CaretDown from "phosphor-svelte/lib/CaretDown";
   import Trash from "phosphor-svelte/lib/Trash";
   import DownloadSimple from "phosphor-svelte/lib/DownloadSimple";
   let { name, size = 20 }: { name: string; size?: number } = $props();
@@ -27,8 +25,6 @@
     check: Check,
     copy: Copy,
     close: X,
-    up: CaretUp,
-    down: CaretDown,
     trash: Trash,
     download: DownloadSimple,
   };

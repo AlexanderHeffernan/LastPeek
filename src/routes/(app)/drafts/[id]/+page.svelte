@@ -428,7 +428,7 @@
           <div class="row between">
             <strong class="small">Review link</strong><Badge
               variant="secondary"
-              class="green">v{sharedRevision}</Badge
+              class="brand-tint">v{sharedRevision}</Badge
             >
           </div>
           <Input

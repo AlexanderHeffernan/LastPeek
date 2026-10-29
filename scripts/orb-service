@@ -14,5 +14,6 @@ if [[ "${1:-}" == maintenance ]]; then
 else
   # The origin is unknown at setup time. Adapter-node derives HTTPS + the portal Host.
   : "${PUBLIC_URL:?Start this through Amp services for the portal origin}"
-  exec npm start
+  # Orbs are development environments: offer passwordless sign-in as the seeded account.
+  DEV_SIGN_IN=1 exec npm start
 fi
