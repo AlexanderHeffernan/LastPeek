@@ -5,18 +5,21 @@ export const postSchema = z.object({
   text: z.string().max(25000),
   media: z.array(z.uuid()).max(4),
 });
+export const authorSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  avatar: z.uuid().nullable().optional(),
+  handle: z
+    .string()
+    .regex(
+      /^@?[A-Za-z0-9_]{0,15}$/,
+      "Use an X handle, up to 15 letters, numbers or underscores.",
+    ),
+});
 export const contentSchema = z
   .object({
-    title: z.string().trim().max(120),
-    author: z.object({
-      name: z.string().trim().min(1).max(80),
-      handle: z
-        .string()
-        .regex(
-          /^@?[A-Za-z0-9_]{0,15}$/,
-          "Use an X handle, up to 15 letters, numbers or underscores.",
-        ),
-    }),
+    // Keep legacy metadata compatible with stored drafts and the previous app version.
+    title: z.string().trim().max(120).default(""),
+    author: authorSchema,
     posts: z.array(postSchema).min(1).max(25),
   })
   .superRefine((content, ctx) => {
@@ -51,10 +54,14 @@ export type Feedback = {
   resolved: boolean;
   created_at: string;
 };
-export function blankContent(name: string): Content {
+export function blankContent(
+  name: string,
+  handle = "",
+  avatar: string | null = null,
+): Content {
   return {
     title: "",
-    author: { name, handle: "" },
+    author: { name, avatar, handle },
     posts: [{ id: crypto.randomUUID(), text: "", media: [] }],
   };
 }
@@ -66,6 +73,9 @@ export function mediaIds(content: Content) {
 }
 export function mediaURL(id: string, token?: string) {
   return `/media/${id}${token ? `?key=${encodeURIComponent(token)}` : ""}`;
+}
+export function avatarURL(id: string, token?: string) {
+  return `/avatars/${id}${token ? `?key=${encodeURIComponent(token)}` : ""}`;
 }
 export function relativeTime(value: string | Date) {
   const minutes = Math.max(

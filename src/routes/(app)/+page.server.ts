@@ -25,7 +25,7 @@ export const actions: Actions = {
     await db.query("INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)", [
       id,
       user.id,
-      JSON.stringify(blankContent(user.name)),
+      JSON.stringify(blankContent(user.name, user.handle, user.avatar_id)),
     ]);
     redirect(303, `/drafts/${id}`);
   },

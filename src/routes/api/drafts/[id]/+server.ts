@@ -24,9 +24,7 @@ export const POST: RequestHandler = async (event) => {
   if (body.action === "save") {
     if (!Number.isInteger(body.version))
       error(400, "A draft version is required.");
-    return json({
-      version: await saveDraft(id, user.id, body.content, body.version),
-    });
+    return json(await saveDraft(id, user.id, body.content, body.version));
   }
   if (body.action === "publish") {
     if (!Number.isInteger(body.version))

@@ -58,9 +58,7 @@
     <section>
       <div class="post-panel">
         <div class="panel-heading">
-          <span class="small">{data.content.title || "Draft"}</span><Badge
-            variant="secondary">Version {data.revision}</Badge
-          >
+          <Badge variant="secondary">Version {data.revision}</Badge>
         </div>
         <PostPreview
           content={data.content}

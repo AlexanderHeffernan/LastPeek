@@ -60,7 +60,7 @@ export async function storeMedia(
         ownerId,
       ]);
       const used = await client.query(
-        "SELECT COALESCE(sum(bytes),0)::float8 AS bytes FROM media WHERE owner_id=$1",
+        "SELECT ((SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=$1)+(SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=$1))::float8 AS bytes",
         [ownerId],
       );
       if (used.rows[0].bytes + bytes.length > storageLimit)

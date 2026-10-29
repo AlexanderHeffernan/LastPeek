@@ -31,6 +31,8 @@ export async function passwordMatches(password: string, stored: string) {
 export type User = {
   id: string;
   name: string;
+  handle: string;
+  avatar_id: string | null;
   email: string;
   is_admin: boolean;
 };
@@ -38,7 +40,7 @@ export async function sessionUser(cookies: Cookies): Promise<User | null> {
   const value = cookies.get("lastpeek_session");
   if (!value) return null;
   const result = await db.query(
-    "SELECT u.id,u.name,u.email,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=$1 AND s.expires_at>now()",
+    "SELECT u.id,u.name,u.handle,u.avatar_id,u.email,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=$1 AND s.expires_at>now()",
     [hash(value)],
   );
   return result.rows[0] ?? null;

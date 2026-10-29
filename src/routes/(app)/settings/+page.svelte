@@ -2,20 +2,105 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { enhance } from "$app/forms";
+  import { invalidateAll } from "$app/navigation";
+  import { avatarURL } from "$lib/contracts";
   import Icon from "$lib/components/Icon.svelte";
   let { data, form } = $props();
   let copied = $state(false);
+  let avatarBusy = $state(false),
+    avatarError = $state(""),
+    avatarMessage = $state("");
+  async function updateAvatar(file?: File) {
+    avatarError = "";
+    avatarMessage = "";
+    if (file && file.size > 5 * 1024 * 1024) {
+      avatarError = "Choose an avatar smaller than 5 MB.";
+      return;
+    }
+    avatarBusy = true;
+    try {
+      const response = await fetch("/api/profile/avatar", {
+        method: file ? "POST" : "DELETE",
+        body: file,
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Avatar upload failed. Try again.");
+      await invalidateAll();
+      avatarMessage = file ? "Avatar updated." : "Avatar removed.";
+    } catch (e) {
+      avatarError = (e as Error).message;
+    } finally {
+      avatarBusy = false;
+    }
+  }
   const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
 </script>
 
 <svelte:head><title>Your account · LastPeek</title></svelte:head>
 <main class="page settings">
-  <a class="breadcrumb row" href="/"
-    ><Icon name="back" size={14} />Your drafts</a
-  >
-  <h1 style="margin-top:24px">Account.</h1>
+  <h1>Account.</h1>
   <p class="muted small">{data.user.name} · {data.user.email}</p>
   {#if form?.message}<p class="notice" role="status">{form.message}</p>{/if}
+  <section>
+    <h2>Profile</h2>
+    <p class="small muted">
+      Your name, handle and photo are used to preview your posts on X.
+    </p>
+    <div class="profile-photo row">
+      <span class="avatar" aria-hidden="true"
+        >{#if data.user.avatar_id}<img
+            src={avatarURL(data.user.avatar_id)}
+            alt=""
+          />{:else}{data.user.name.slice(0, 1).toUpperCase()}{/if}</span
+      >
+      <div>
+        <label class="avatar-upload"
+          >{avatarBusy ? "Updating…" : "Change photo"}<Input
+            type="file"
+            aria-label="Upload avatar"
+            disabled={avatarBusy}
+            accept="image/jpeg,image/png,image/webp,image/avif"
+            onchange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              if (file) void updateAvatar(file);
+              event.currentTarget.value = "";
+            }}
+          /></label
+        >
+        <p class="small muted">Up to 5 MB · Cropped to a square</p>
+      </div>
+      {#if data.user.avatar_id}<Button
+          variant="ghost"
+          disabled={avatarBusy}
+          onclick={() => updateAvatar()}>Remove photo</Button
+        >{/if}
+    </div>
+    {#if avatarError}<p class="notice error" role="alert">{avatarError}</p>{/if}
+    {#if avatarMessage}<p class="small muted" role="status">
+        {avatarMessage}
+      </p>{/if}
+    <form method="POST" action="?/profile" use:enhance>
+      <label
+        >Display name<Input
+          name="name"
+          value={data.user.name}
+          required
+          maxlength={80}
+          autocomplete="name"
+        /></label
+      >
+      <label
+        >X handle<Input
+          name="handle"
+          value={data.user.handle}
+          placeholder="@yourname"
+          maxlength={16}
+        /></label
+      >
+      <Button variant="outline" type="submit">Save profile</Button>
+    </form>
+  </section>
   <section>
     <h2>Media storage</h2>
     <p class="small muted">{mb(data.used)} MB of {mb(data.limit)} MB used.</p>

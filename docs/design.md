@@ -19,10 +19,12 @@ LastPeek is the quiet moment before posting on X. Minimal does not mean unfinish
 ## The post is the product
 
 - `PostPreview.svelte` renders posts for both authors and reviewers. Do not fork their preview styling. A desktop timeline is at most 600px wide; mobile uses available width without shrinking text or removing capabilities.
-- X's black canvas, `#e7e9ea` text, `#71767b` handle, blue links, 40px avatars, 12px avatar/content gap, 15px/20px timeline text, and 20px/24px composer text anchor the design. Preserve actual whitespace and Unicode. URLs, mentions, and hashtags are linked without rendering user-supplied HTML.
+- X's black canvas, `#e7e9ea` text, `#71767b` handle, blue links, 40px avatars, 12px avatar/content gap, and 15px/20px text anchor both the writable post and the review. Preserve actual whitespace and Unicode. URLs, mentions, and hashtags are highlighted while editing and linked in read-only views, without rendering user-supplied HTML.
 - A preview is a timeline post, not a marketing card. Media has rounded, bordered crops and tight multi-image grids. Threads have continuous connectors. Do not invent timestamps, verification, follower counts, engagement, or controls for unsupported X features.
-- Editing controls and character counts disappear in Preview. Use `twitter-text` weighted counts, including URLs and Unicode, not string length. Long drafts stay supported; Premium requirements are contextual, not an always-visible paragraph.
-- Keep copy-text and download-file actions separate, grouped by post. Don't label an action “Post” if it only copies text. LastPeek does not publish to X.
+- Edit directly in the post layout, with no title, per-draft identity fields, or Write/Preview switch. The account avatar opens settings; the logo goes home. Editing controls and character counts disappear in reviewer and historical views. Use `twitter-text` weighted counts, including URLs and Unicode, not string length. Long drafts stay supported; Premium requirements are contextual, not an always-visible paragraph.
+- Keep upload, copy-text and download-file actions as labelled icons along the bottom of each post, with a compact outlined plus for adding the next post. Do not copy whole threads. Don't label an action “Post” if it only copies text. LastPeek does not publish to X.
+- Align the editor top with share/delete actions on desktop; on mobile, actions precede the editor. Show autosave state without a manual Save button. Draft deletion has a visible trash action and a confirmation dialog. The footer rests at the viewport bottom on short pages and follows content on longer pages.
+- Account Profile contains the user's display name, X handle and photo, with brief context that these are used in post previews. Avatars are private, cropped to a square and compressed; header and posts use the same profile photo, while historical versions retain theirs.
 
 ## Copy and interaction
 
@@ -33,4 +35,4 @@ LastPeek is the quiet moment before posting on X. Minimal does not mean unfinish
 
 ## Responsive verification
 
-Check login/join, empty and populated drafts, Write/Preview, media, sharing, settings, guest feedback, failures, and older-version feedback. Desktop feedback sits beside the post; below 900px it follows it. Mobile retains editing, uploads, reorder/remove, review, revision history, copying, and downloads. Check at 390px and a narrower 320px; no horizontal scrolling or tiny replacement controls. Inspect actual rendered screenshots and exercise keyboard and touch interactions, not just CSS breakpoints. See root guidance for required checks.
+Check login/join, empty and populated drafts, inline editing, media, sharing, settings, guest feedback, failures, and older-version feedback. Desktop feedback sits beside the post; below 900px it follows it. Mobile retains editing, uploads, reorder/remove, review, revision history, copying, and downloads. Check at 390px and a narrower 320px; no horizontal scrolling or tiny replacement controls. Inspect actual rendered screenshots and exercise keyboard and touch interactions, not just CSS breakpoints. See root guidance for required checks.

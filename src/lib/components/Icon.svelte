@@ -14,8 +14,6 @@
   import CaretDown from "phosphor-svelte/lib/CaretDown";
   import Trash from "phosphor-svelte/lib/Trash";
   import DownloadSimple from "phosphor-svelte/lib/DownloadSimple";
-  import GearSix from "phosphor-svelte/lib/GearSix";
-  import NotePencil from "phosphor-svelte/lib/NotePencil";
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const icons = {
     eye: Eye,
@@ -33,8 +31,6 @@
     down: CaretDown,
     trash: Trash,
     download: DownloadSimple,
-    settings: GearSix,
-    drafts: NotePencil,
   };
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>

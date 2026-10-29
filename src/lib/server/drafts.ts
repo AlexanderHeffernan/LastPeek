@@ -70,6 +70,11 @@ export async function saveDraft(
     );
     await ownedDraft(id, userId, client);
     const content = await validateContent(raw, id, client);
+    const profile = await client.query(
+      "SELECT name,handle,avatar_id AS avatar FROM users WHERE id=$1",
+      [userId],
+    );
+    content.author = profile.rows[0];
     const result = await client.query(
       "UPDATE drafts SET content=$1,edit_version=edit_version+1,updated_at=now() WHERE id=$2 AND owner_id=$3 AND edit_version=$4 RETURNING edit_version",
       [JSON.stringify(content), id, userId, version],
@@ -79,7 +84,10 @@ export async function saveDraft(
         409,
         "This draft changed in another tab. Your edits are still here. Copy them before reloading.",
       );
-    return result.rows[0].edit_version as number;
+    return {
+      version: result.rows[0].edit_version as number,
+      author: content.author,
+    };
   });
 }
 export async function publishDraft(

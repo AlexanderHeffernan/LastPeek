@@ -18,6 +18,8 @@ Passwords use salted scrypt, sessions/invites store SHA-256 token hashes, HTTP-o
 
 Defaults: 50 MB per upload, 500 MB per author, up to 25 posts and four images or one video/GIF per post. Large videos are not silently transcoded or replaced with stills. Adapter-node bounds request bodies, upload handlers count actual streamed bytes, and user-row locks serialize quota accounting. Store media on SSD for Pi use. Limits are operational defaults, not pricing tiers.
 
+Profile avatars accept JPEG, PNG, WebP or AVIF up to 5 MB and 16 megapixels. The server strips metadata, applies orientation, crops to 256×256 and encodes WebP. Private files live under the media volume's `avatars` directory, count toward storage quotas, and require the owner session or a current review capability referencing that avatar in a shared revision. Working drafts capture the current profile on save; shared snapshots retain their original avatar. Maintenance removes avatars unreferenced by profiles, drafts or revisions after 24 hours, as well as stale orphan files.
+
 `npm run maintenance` expires sessions/rate buckets, removes uploads unattached for 24 hours, and removes stale orphan files. Shared revisions retain their media until draft deletion. Run maintenance hourly in deployment. No automatic draft expiry in this MVP. Administrators recover accounts with the documented local CLI, not email. Backups consist of a database dump and the matching private media directory, taken while writes are stopped. Restore must be rehearsed before a real beta.
 
 ## Development and delivery

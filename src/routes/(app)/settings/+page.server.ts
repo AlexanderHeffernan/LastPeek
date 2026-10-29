@@ -10,12 +10,13 @@ import {
   rateLimit,
 } from "$lib/server/auth";
 import { storageLimit } from "$lib/server/media";
+import { authorSchema } from "$lib/contracts";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals);
   const used = (
     await db.query(
-      "SELECT COALESCE(sum(bytes),0)::float8 AS bytes FROM media WHERE owner_id=$1",
+      "SELECT ((SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=$1)+(SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=$1))::float8 AS bytes",
       [user.id],
     )
   ).rows[0].bytes;
@@ -39,6 +40,22 @@ export const load: PageServerLoad = async ({ locals }) => {
   };
 };
 export const actions: Actions = {
+  profile: async ({ locals, request }) => {
+    const user = requireUser(locals);
+    const form = await request.formData();
+    const parsed = authorSchema.safeParse({
+      name: String(form.get("name") || ""),
+      handle: String(form.get("handle") || "").trim(),
+    });
+    if (!parsed.success)
+      return fail(400, { message: parsed.error.issues[0].message });
+    await db.query("UPDATE users SET name=$1,handle=$2 WHERE id=$3", [
+      parsed.data.name,
+      parsed.data.handle.replace(/^@/, ""),
+      user.id,
+    ]);
+    return { message: "Profile saved." };
+  },
   invite: async ({ locals, url }) => {
     const user = requireUser(locals);
     if (!user.is_admin) error(403, "Only administrators can invite authors.");

@@ -47,7 +47,6 @@
                 : "Only you"}</Badge
             ><Icon name="arrow" size={17} />
           </div>
-          <h2>{draft.content.title || "Untitled draft"}</h2>
           <div class="draft-excerpt">
             {draft.content.posts[0].text ||
               (draft.content.posts[0].media.length

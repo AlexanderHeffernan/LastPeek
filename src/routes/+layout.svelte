@@ -12,7 +12,7 @@
     content="A friend has something they’d like your thoughts on. Open their private review link."
   /><meta name="robots" content="noindex,nofollow,noarchive" /></svelte:head
 >
-{@render children()}
+<div class="app-content">{@render children()}</div>
 <footer class="footer-note">
   LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
     >Source code</a

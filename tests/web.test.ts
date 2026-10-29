@@ -12,6 +12,7 @@ import sharp from "sharp";
 import { db } from "../src/lib/server/db";
 import { passwordHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
+import { avatarPath } from "../src/lib/server/avatars";
 import type { Content } from "../src/lib/contracts";
 
 // Only run against a disposable development instance whose DATABASE_URL matches the server.
@@ -98,6 +99,15 @@ test(
     }
     try {
       await page.goto(`${baseURL}/login`);
+      assert.ok(
+        await page
+          .locator("footer")
+          .evaluate(
+            (footer) =>
+              footer.getBoundingClientRect().bottom >= innerHeight - 40,
+          ),
+        "footer stays at the bottom of short pages",
+      );
       await screenshot(page, "login");
       assert.equal(
         await page
@@ -127,68 +137,165 @@ test(
       );
       await login(page, email);
       await screenshot(page, "empty-drafts");
+      await page.getByRole("link", { name: "Account settings" }).click();
+      await page.getByLabel("X handle", { exact: true }).fill("not valid!");
+      await page.getByRole("button", { name: "Save profile" }).click();
+      await page
+        .getByRole("status")
+        .filter({ hasText: "Use an X handle" })
+        .waitFor();
+      await page.getByLabel("X handle", { exact: true }).fill("@alex");
+      await page.getByRole("button", { name: "Save profile" }).click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
+      await page.reload();
+      assert.equal(
+        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        "alex",
+      );
+      const photo = await sharp({
+        create: { width: 640, height: 480, channels: 3, background: "#c4f36b" },
+      })
+        .png()
+        .toBuffer();
+      const avatarUpload = page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/api/profile/avatar") &&
+          r.request().method() === "POST",
+      );
+      await page.getByLabel("Upload avatar", { exact: true }).setInputFiles({
+        name: "profile.png",
+        mimeType: "image/png",
+        buffer: photo,
+      });
+      assert.equal((await avatarUpload).status(), 201);
+      const avatarId = (await (await avatarUpload).json()).avatar;
+      await page.getByText("Avatar updated.", { exact: true }).waitFor();
+      const avatarURL = `${baseURL}/avatars/${avatarId}`;
+      const avatarResponse = await owner.request.get(avatarURL);
+      assert.equal(avatarResponse.status(), 200);
+      assert.equal(avatarResponse.headers()["content-type"], "image/webp");
+      const avatarMetadata = await sharp(
+        await avatarResponse.body(),
+      ).metadata();
+      assert.equal(avatarMetadata.width, 256);
+      assert.equal(avatarMetadata.height, 256);
+      assert.equal(avatarMetadata.exif, undefined);
+      assert.equal((await guest.request.get(avatarURL)).status(), 404);
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/api/profile/avatar`, {
+            data: photo,
+            headers: { Origin: "https://not-lastpeek.example" },
+          })
+        ).status(),
+        403,
+      );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/api/profile/avatar`, {
+            data: Buffer.alloc(5 * 1024 * 1024 + 1),
+            headers: { Origin: origin },
+          })
+        ).status(),
+        413,
+      );
+      await page.getByLabel("Upload avatar", { exact: true }).setInputFiles({
+        name: "unsafe.svg",
+        mimeType: "image/svg+xml",
+        buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+      });
+      await page.getByRole("alert").filter({ hasText: "Use a JPEG" }).waitFor();
+      await screenshot(page, "avatar-upload-error");
+      await page.getByRole("link", { name: "LastPeek home" }).click();
       await page
         .getByRole("button", { name: "New draft", exact: true })
         .click();
       await page.getByLabel("Post 1 text", { exact: true }).waitFor();
       await page.waitForLoadState("networkidle");
       const id = page.url().split("/").at(-1)!;
+      assert.equal(
+        await page.getByRole("button", { name: "Save", exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: "Copy thread text" }).count(),
+        0,
+      );
+      assert.equal(
+        await page.getByText("Draft options", { exact: true }).count(),
+        0,
+      );
+      await page
+        .getByRole("button", { name: "Delete draft", exact: true })
+        .click();
+      const deletion = page.getByRole("dialog", { name: "Delete this draft?" });
+      await deletion.waitFor();
+      await deletion.getByRole("button", { name: "Keep draft" }).click();
+      assert.equal(await deletion.isVisible(), false);
       const initial =
         "The best feedback starts with one question.\n\n“Can you take a quick look?” 👀";
       await edited(page, () =>
         page.getByLabel("Post 1 text", { exact: true }).fill(initial),
       );
-      await edited(page, () =>
-        page.getByLabel("Draft title").fill("A little room to think"),
+      assert.equal(await page.getByLabel("Draft title").count(), 0);
+      assert.equal(
+        await page.getByLabel("X handle", { exact: true }).count(),
+        0,
       );
-      await edited(page, () => page.getByLabel("X handle").fill("@alex"));
+      assert.equal(await page.getByRole("tab").count(), 0);
+      await page.getByText("@alex", { exact: true }).waitFor();
 
-      // Preview keeps the exact draft text, safely links X entities, and is keyboard-accessible.
+      // The writable preview keeps exact text and safely highlights X entities.
       const linkedText =
         "👀 @alex #BuildInPublic https://example.com/peek\n<script>alert('no')</script>";
       await edited(page, () =>
         page.getByLabel("Post 1 text", { exact: true }).fill(linkedText),
       );
-      await page.getByRole("tab", { name: "Write", exact: true }).focus();
-      await page.keyboard.press("ArrowRight");
-      await page
-        .getByRole("tab", { name: "Preview", exact: true, selected: true })
-        .waitFor();
       assert.equal(
         await page.getByLabel("Post 1 text", { exact: true }).isVisible(),
-        false,
+        true,
       );
       const preview = page.getByRole("article", {
         name: "Post 1",
         exact: true,
       });
       assert.equal(
-        await preview.getByRole("paragraph").innerText(),
+        await preview
+          .getByRole("paragraph", { includeHidden: true })
+          .innerText(),
         linkedText,
       );
       assert.equal(
         await preview
-          .getByRole("link", { name: "@alex", exact: true })
+          .getByRole("link", {
+            name: "@alex",
+            exact: true,
+            includeHidden: true,
+          })
           .getAttribute("href"),
         "https://x.com/alex",
       );
       assert.equal(
         await preview
-          .getByRole("link", { name: "#BuildInPublic", exact: true })
+          .getByRole("link", {
+            name: "#BuildInPublic",
+            exact: true,
+            includeHidden: true,
+          })
           .getAttribute("href"),
         "https://x.com/hashtag/BuildInPublic",
       );
       assert.equal(
         await preview
-          .getByRole("link", { name: "https://example.com/peek", exact: true })
+          .getByRole("link", {
+            name: "https://example.com/peek",
+            exact: true,
+            includeHidden: true,
+          })
           .getAttribute("href"),
         "https://example.com/peek",
       );
       assert.equal(await preview.locator("script").count(), 0);
-      await page.keyboard.press("ArrowLeft");
-      await page
-        .getByRole("tab", { name: "Write", exact: true, selected: true })
-        .waitFor();
       await edited(page, () =>
         page.getByLabel("Post 1 text", { exact: true }).fill(initial),
       );
@@ -218,7 +325,13 @@ test(
       const imageData = await (await upload).json();
       assert.equal((await savedImage).status(), 200);
       await edited(page, () =>
-        page.getByRole("button", { name: "Add to thread" }).click(),
+        page.getByRole("button", { name: "Add post to thread" }).click(),
+      );
+      assert.equal(
+        await page
+          .getByLabel("Post 2 text", { exact: true })
+          .evaluate((e) => e === document.activeElement),
+        true,
       );
       await edited(page, () =>
         page
@@ -238,6 +351,27 @@ test(
         .setInputFiles("tests/fixtures/video.mp4");
       const videoData = await (await videoUpload).json();
       assert.equal((await savedVideo).status(), 200);
+      if (engine === chromium) {
+        await owner.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await page
+          .getByRole("button", { name: "Copy post 1 text", exact: true })
+          .click();
+        assert.equal(
+          await page.evaluate(() => navigator.clipboard.readText()),
+          initial,
+        );
+        await page.getByRole("button", { name: "Dismiss message" }).click();
+      }
+      const download = page.waitForEvent("download");
+      await page
+        .getByRole("link", {
+          name: "Download a-quiet-thought.png",
+          exact: true,
+        })
+        .click();
+      const downloaded = await download;
+      assert.equal(downloaded.suggestedFilename(), "a-quiet-thought.png");
+      assert.deepEqual(await readFile((await downloaded.path())!), image);
       const rejected = page.waitForResponse((r) =>
         r.url().endsWith(`/api/drafts/${id}/media`),
       );
@@ -267,17 +401,12 @@ test(
         true,
         "author controls must fit narrow mobile screens",
       );
-      await page.getByRole("button", { name: "Add to thread" }).waitFor();
-      await page.getByRole("tab", { name: "Preview", exact: true }).click();
-      await page
-        .getByRole("tab", { name: "Preview", exact: true, selected: true })
-        .waitFor();
+      await page.getByRole("button", { name: "Add post to thread" }).waitFor();
       assert.equal(
         await page.getByLabel("Post 1 text", { exact: true }).isVisible(),
-        false,
+        true,
       );
       await screenshot(page, "author-preview-mobile");
-      await page.getByRole("tab", { name: "Write", exact: true }).click();
       await page.setViewportSize({ width: 390, height: 844 });
       await screenshot(page, "author-editor-mobile");
       await page.setViewportSize({ width: 1440, height: 1000 });
@@ -324,6 +453,10 @@ test(
       assert.equal(shared.revision, 1);
       const link = `${baseURL}/r/${shared.token}`;
       await reviewer.goto(link);
+      assert.equal(
+        (await guest.request.get(`${avatarURL}?key=${shared.token}`)).status(),
+        200,
+      );
       assert.equal(
         await reviewer
           .getByRole("article", { name: "Post 1", exact: true })
@@ -530,6 +663,10 @@ test(
         .waitFor();
       assert.equal((await guest.request.get(link)).status(), 404);
       assert.equal(
+        (await guest.request.get(`${avatarURL}?key=${shared.token}`)).status(),
+        404,
+      );
+      assert.equal(
         (await guest.request.get(`${mediaURL}?key=${shared.token}`)).status(),
         404,
       );
@@ -539,6 +676,93 @@ test(
       });
       assert.notEqual(renewed.token, shared.token);
       assert.equal(renewed.revision, 2);
+
+      // Account identity updates existing working drafts, never immutable shared versions.
+      await page.getByRole("link", { name: "Account settings" }).click();
+      await page
+        .getByLabel("Display name", { exact: true })
+        .fill("Alex Updated");
+      await page.getByLabel("X handle", { exact: true }).fill("@alex_updated");
+      await page.getByRole("button", { name: "Save profile" }).click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
+      const replacementPhoto = await sharp({
+        create: { width: 420, height: 600, channels: 3, background: "#1d9bf0" },
+      })
+        .png()
+        .toBuffer();
+      const replacementUpload = page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/api/profile/avatar") &&
+          r.request().method() === "POST",
+      );
+      await page.getByLabel("Upload avatar", { exact: true }).setInputFiles({
+        name: "replacement.png",
+        mimeType: "image/png",
+        buffer: replacementPhoto,
+      });
+      const replacementId = (await (await replacementUpload).json()).avatar;
+      await page.getByText("Avatar updated.", { exact: true }).waitFor();
+      assert.equal(
+        (
+          await guest.request.get(
+            `${baseURL}/avatars/${replacementId}?key=${renewed.token}`,
+          )
+        ).status(),
+        404,
+      );
+      await reviewer.goto(`${baseURL}/r/${renewed.token}`);
+      assert.equal(
+        (await guest.request.get(`${avatarURL}?key=${renewed.token}`)).status(),
+        200,
+      );
+      assert.equal(
+        await reviewer.getByText("Alex", { exact: true }).count(),
+        2,
+      );
+      assert.equal(
+        await reviewer.getByText("@alex", { exact: true }).count(),
+        2,
+      );
+      await edited(page, () => page.goto(`${baseURL}/drafts/${id}`));
+      await page.getByText("@alex_updated", { exact: true }).first().waitFor();
+      await page.getByText("Shared version history", { exact: true }).click();
+      await page.getByRole("button", { name: /^Version 1/ }).click();
+      assert.equal(
+        await page.getByLabel("Post 1 text", { exact: true }).count(),
+        0,
+      );
+      await page.getByText("@alex", { exact: true }).first().waitFor();
+      await screenshot(page, "author-history");
+      await page.getByRole("button", { name: "Back to working draft" }).click();
+      await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+      const updatedProfileShare = page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`/api/drafts/${id}`) &&
+          r.request().postDataJSON()?.action === "publish",
+      );
+      await page.getByRole("button", { name: "Update shared version" }).click();
+      assert.equal((await (await updatedProfileShare).json()).revision, 3);
+      await reviewer.goto(`${baseURL}/r/${renewed.token}`);
+      assert.equal(
+        (
+          await guest.request.get(
+            `${baseURL}/avatars/${replacementId}?key=${renewed.token}`,
+          )
+        ).status(),
+        200,
+      );
+      assert.equal(
+        await reviewer.getByText("Alex Updated", { exact: true }).count(),
+        2,
+      );
+      await reviewer.getByLabel("Review version").selectOption("1");
+      await reviewer
+        .getByText("You’re looking at an earlier version.", { exact: false })
+        .waitFor();
+      assert.equal(
+        await reviewer.getByText("Alex", { exact: true }).count(),
+        2,
+      );
 
       // Invitations actually create a new author, are single-use, and grant no admin power.
       await page.goto(`${baseURL}/settings`);
@@ -569,6 +793,38 @@ test(
       );
       assert.equal((await guest.request.get(inviteURL)).status(), 404);
       await invited.close();
+      await page.getByRole("button", { name: "Remove photo" }).click();
+      await page.getByText("Avatar removed.", { exact: true }).waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "Remove photo" }).count(),
+        0,
+      );
+      assert.equal(
+        (
+          await guest.request.get(
+            `${baseURL}/avatars/${replacementId}?key=${renewed.token}`,
+          )
+        ).status(),
+        200,
+      );
+      await page.goto(`${baseURL}/drafts/${id}`);
+      await page.getByText("All changes saved", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Delete draft", exact: true })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Delete this draft?" })
+        .getByRole("button", { name: "Delete draft", exact: true })
+        .click();
+      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      assert.equal(
+        (await guest.request.get(`${baseURL}/r/${renewed.token}`)).status(),
+        404,
+      );
+      assert.equal(
+        (await guest.request.get(`${avatarURL}?key=${renewed.token}`)).status(),
+        404,
+      );
       assert.deepEqual(crashes, [], "no browser exceptions");
     } catch (error) {
       console.error("Browser exceptions:", crashes);
@@ -585,6 +841,10 @@ test(
         "SELECT id FROM media WHERE owner_id=ANY($1::uuid[])",
         [ids],
       );
+      const avatarFiles = await db.query(
+        "SELECT id FROM avatars WHERE owner_id=ANY($1::uuid[])",
+        [ids],
+      );
       await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [
         ids,
       ]);
@@ -597,6 +857,9 @@ test(
       ]);
       await Promise.all(
         files.rows.map((row) => rm(mediaPath(row.id), { force: true })),
+      );
+      await Promise.all(
+        avatarFiles.rows.map((row) => rm(avatarPath(row.id), { force: true })),
       );
       await db.end();
     }

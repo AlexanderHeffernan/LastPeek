@@ -2,14 +2,14 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
-  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import { onMount, untrack } from "svelte";
   import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import {
-    mediaURL,
+    contentSchema,
+    authorSchema,
     type Content,
     type Media,
     type Feedback,
@@ -17,12 +17,21 @@
   let { data } = $props();
   // The layout remounts this editor on draft changes. Refreshing feedback must not reset edits.
   const initial = untrack(() => data);
-  let content: Content = $state(structuredClone(initial.draft.content)),
+  const initialContent = untrack(() =>
+    contentSchema.parse(initial.draft.content),
+  );
+  let content: Content = $state({
+      ...structuredClone(initialContent),
+      author: {
+        name: initial.user.name,
+        avatar: initial.user.avatar_id,
+        handle: initial.user.handle,
+      },
+    }),
     media: Media[] = $state(initial.media);
   let version = $state(initial.draft.edit_version),
-    editing = $state(true),
     historical = $state(0);
-  let saved = $state(JSON.stringify(initial.draft.content)),
+  let saved = $state(JSON.stringify(initialContent)),
     timer: ReturnType<typeof setTimeout>;
   let saving = $state(false),
     busy = $state(false),
@@ -33,6 +42,8 @@
     sharedRevision = $state(initial.draft.shared_revision);
   let shareOpen = $state(false),
     origin = $state("");
+  let deleteDialog = $state<HTMLDialogElement>();
+  let deleting = $state(false);
   let pending: {
     id: string;
     postId: string;
@@ -48,14 +59,17 @@
       ? data.revisions.find((r) => r.number === historical)?.content || content
       : content,
   );
+  const sharedContent = $derived(
+    data.revisions.find((r) => r.number === sharedRevision)?.content,
+  );
   const differs = $derived(
-    !sharedRevision ||
-      JSON.stringify(
-        data.revisions.find((r) => r.number === sharedRevision)?.content,
-      ) !== JSON.stringify(content),
+    !sharedContent ||
+      JSON.stringify(contentSchema.parse(sharedContent)) !==
+        JSON.stringify(content),
   );
   onMount(() => {
     origin = location.origin;
+    if (dirty) changed();
     return () => clearTimeout(timer);
   });
   beforeNavigate(({ cancel }) => {
@@ -103,7 +117,11 @@
         version,
       });
       version = result.version;
-      saved = snapshot;
+      content.author = authorSchema.parse(result.author);
+      saved = JSON.stringify({
+        ...JSON.parse(snapshot),
+        author: content.author,
+      });
       status = "All changes saved";
       return true;
     } catch (e) {
@@ -185,7 +203,6 @@
     )
       return;
     post.text = comment.suggestion;
-    editing = true;
     changed();
     message =
       "Suggestion added to your working draft. Update the shared version when ready.";
@@ -279,18 +296,18 @@
     }
   }
   async function removeDraft() {
-    if (
-      !confirm(
-        "Permanently delete this draft, every shared version, all feedback and its attachments?",
-      )
-    )
-      return;
+    deleting = true;
+    clearTimeout(timer);
     try {
       await api({ action: "delete" });
       saved = JSON.stringify(content);
+      deleteDialog?.close();
       await goto("/");
     } catch (e) {
+      deleteDialog?.close();
       error = (e as Error).message;
+    } finally {
+      deleting = false;
     }
   }
 </script>
@@ -303,35 +320,8 @@
     }
   }}
 />
-<svelte:head
-  ><title>{content.title || "Your draft"} · LastPeek</title></svelte:head
->
+<svelte:head><title>Your post · LastPeek</title></svelte:head>
 <main class="workspace">
-  <div class="workspace-toolbar">
-    <a class="breadcrumb row" href="/"
-      ><Icon name="back" size={14} />Your drafts</a
-    >
-    <div class="row">
-      <span class="small muted" role="status"
-        ><span class="status-dot"></span>{status}</span
-      ><Button
-        variant="ghost"
-        disabled={saving || uploading}
-        onclick={() => save()}>Save</Button
-      ><Button
-        variant="default"
-        disabled={busy || saving || uploading}
-        onclick={publish}
-        ><Icon name={shareToken ? "check" : "link"} size={15} />{busy
-          ? "Preparing…"
-          : shareToken
-            ? differs
-              ? "Update shared version"
-              : "Share link"
-            : "Share draft"}</Button
-      >
-    </div>
-  </div>
   {#if error}<div
       class="notice error row between"
       role="alert"
@@ -353,54 +343,63 @@
         onclick={() => (message = "")}><Icon name="close" size={14} /></Button
       >
     </div>{/if}
-  <div class="workspace-grid">
-    <section>
+  <div class="workspace-grid editor-grid">
+    <div class="editor-actions">
+      <div class="row between">
+        <Button
+          variant="default"
+          disabled={busy || saving || uploading || deleting}
+          onclick={publish}
+          ><Icon name={shareToken ? "check" : "link"} size={15} />{busy
+            ? "Preparing…"
+            : shareToken
+              ? differs
+                ? "Update shared version"
+                : "Share link"
+              : "Share draft"}</Button
+        >
+        <Button
+          variant="ghost"
+          class="icon-button danger"
+          aria-label="Delete draft"
+          title="Delete draft"
+          disabled={uploading || saving || busy || deleting}
+          onclick={() => deleteDialog?.showModal()}
+          ><Icon name="trash" size={20} /></Button
+        >
+      </div>
+      <span
+        class="small muted save-status"
+        role="status"
+        class:save-failed={status === "Not saved"}
+        ><span
+          class="status-dot"
+          class:saved={!dirty && !saving}
+          class:failed={status === "Not saved"}
+        ></span>{status}</span
+      >
+    </div>
+    <section class="editor-posts">
       {#if historical}<div class="notice" style="margin-bottom:16px">
           Viewing shared version {historical}. Your working draft is unchanged.
           <Button variant="ghost" onclick={() => (historical = 0)}
             >Back to working draft</Button
           >
         </div>{/if}
-      <Tabs.Root
-        class="post-panel"
-        value={editing && !historical ? "write" : "preview"}
-        onValueChange={(value) => {
-          editing = value === "write";
-          if (editing) historical = 0;
-        }}
-      >
-        <div class="panel-heading editor-heading">
-          <Input
-            class="title-input"
-            aria-label="Draft title"
-            placeholder="Untitled draft"
-            bind:value={content.title}
-            oninput={changed}
-            maxlength={120}
-            disabled={!!historical}
-          />
-          <Tabs.List aria-label="Draft mode">
-            <Tabs.Trigger value="write"
-              ><Icon name="edit" size={15} />Write</Tabs.Trigger
-            >
-            <Tabs.Trigger value="preview"
-              ><Icon name="eye" size={15} />Preview</Tabs.Trigger
-            >
-          </Tabs.List>
-        </div>
-        <Tabs.Content value="write" class="m-0">
+      <div class="post-panel">
+        {#if historical}
+          <PostPreview content={displayed} {media} oncopy={copy} />
+        {:else}
           <PostPreview
             bind:content
             {media}
             editing
             onchange={changed}
             onupload={upload}
+            oncopy={copy}
           />
-        </Tabs.Content>
-        <Tabs.Content value="preview" class="m-0">
-          <PostPreview content={displayed} {media} />
-        </Tabs.Content>
-      </Tabs.Root>
+        {/if}
+      </div>
       {#each pending as item}<div class="pending">
           <div class="row between">
             <span>{item.file.name}</span><span
@@ -422,45 +421,6 @@
                 >Dismiss</Button
               >
             </div>{/if}
-        </div>{/each}
-      <div class="row between" style="margin-top:18px">
-        <Button
-          variant="ghost"
-          onclick={() => copy(content.posts.map((p) => p.text).join("\n\n"))}
-          ><Icon name="copy" size={14} />Copy thread text</Button
-        >
-        <details>
-          <summary class="small muted" style="cursor:pointer"
-            >Draft options</summary
-          >
-          <div class="stack" style="padding-top:12px">
-            <Button
-              variant="destructive"
-              class="danger"
-              disabled={uploading || saving}
-              onclick={removeDraft}
-              ><Icon name="trash" size={14} />Delete draft</Button
-            >
-          </div>
-        </details>
-      </div>
-      {#each content.posts as post, index}<div class="export-post">
-          <span class="small muted">Post {index + 1}</span>
-          <Button
-            variant="ghost"
-            aria-label={`Copy post ${index + 1} text`}
-            onclick={() => copy(post.text)}
-            ><Icon name="copy" size={16} />Copy text</Button
-          >{#each post.media as id}{@const file = media.find(
-              (m) => m.id === id,
-            )}{#if file}<Button
-                variant="ghost"
-                class="download-file"
-                aria-label={`Download ${file.filename}`}
-                href={`${mediaURL(id)}?download=1`}
-                ><Icon name="download" size={16} /><span>{file.filename}</span
-                ></Button
-              >{/if}{/each}
         </div>{/each}
     </section>
     <aside class="feedback-column" aria-label="Feedback and sharing">
@@ -517,7 +477,6 @@
         onapply={apply}
         onversion={(n) => {
           historical = n;
-          editing = false;
         }}
       />
       {#if data.revisions.length}<details style="margin-top:24px">
@@ -529,7 +488,6 @@
                 variant="ghost"
                 onclick={() => {
                   historical = revision.number;
-                  editing = false;
                 }}
                 >Version {revision.number}<span class="muted small"
                   >{new Date(revision.created_at).toLocaleDateString()}</span
@@ -540,3 +498,31 @@
     </aside>
   </div>
 </main>
+<dialog
+  bind:this={deleteDialog}
+  class="confirm-dialog"
+  aria-labelledby="delete-title"
+  aria-describedby="delete-description"
+  oncancel={(event) => {
+    if (deleting) event.preventDefault();
+  }}
+>
+  <div class="dialog-icon"><Icon name="trash" size={24} /></div>
+  <h2 id="delete-title">Delete this draft?</h2>
+  <p id="delete-description">
+    This permanently deletes every shared version, all feedback and all
+    attachments. Review links will stop working. This can’t be undone.
+  </p>
+  <div class="row dialog-actions">
+    <Button
+      variant="outline"
+      disabled={deleting}
+      onclick={() => deleteDialog?.close()}>Keep draft</Button
+    >
+    <Button
+      variant="destructive"
+      disabled={deleting || saving}
+      onclick={removeDraft}>{deleting ? "Deleting…" : "Delete draft"}</Button
+    >
+  </div>
+</dialog>

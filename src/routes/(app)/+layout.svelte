@@ -2,28 +2,25 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { page } from "$app/state";
   import Brand from "$lib/components/Brand.svelte";
-  import Icon from "$lib/components/Icon.svelte";
+  import { avatarURL } from "$lib/contracts";
   let { data, children } = $props();
 </script>
 
 <header class="topbar">
   <Brand />
   <nav class="row" aria-label="Account">
-    <a
-      href="/"
-      class="nav-link"
-      aria-current={page.url.pathname === "/" ? "page" : undefined}
-      ><Icon name="drafts" size={18} />Drafts</a
-    ><Button
+    <Button
       variant="ghost"
-      class="icon-button"
+      class="icon-button account-link"
       href="/settings"
       aria-current={page.url.pathname === "/settings" ? "page" : undefined}
-      aria-label="Account settings"><Icon name="settings" size={18} /></Button
-    ><span
-      class="avatar"
-      style="width:30px;height:30px;font-size:11px"
-      title={data.user.name}>{data.user.name.slice(0, 1).toUpperCase()}</span
+      aria-label="Account settings"
+      ><span class="avatar" aria-hidden="true"
+        >{#if data.user.avatar_id}<img
+            src={avatarURL(data.user.avatar_id)}
+            alt=""
+          />{:else}{data.user.name.slice(0, 1).toUpperCase()}{/if}</span
+      ></Button
     >
   </nav>
 </header>

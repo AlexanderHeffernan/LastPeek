@@ -65,6 +65,9 @@
   }
   body {
     margin: 0;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
     background: var(--background);
     color: var(--foreground);
     font-size: 15px;
@@ -153,6 +156,11 @@
 }
 
 /* Shared components own controls. These classes describe LastPeek's layouts. */
+.app-content {
+  flex: 1;
+  display: flow-root;
+  width: 100%;
+}
 [data-slot="button"].icon-button {
   min-width: 40px;
   padding: 9px;
@@ -197,6 +205,7 @@
   gap: 18px;
 }
 .topbar {
+  width: 100%;
   height: 80px;
   display: flex;
   align-items: center;
@@ -225,16 +234,6 @@
 .brand:hover {
   color: var(--foreground);
 }
-.nav-link {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  color: var(--muted-foreground);
-}
-.nav-link[aria-current="page"] {
-  color: var(--foreground);
-}
 .avatar {
   width: 40px;
   height: 40px;
@@ -246,6 +245,12 @@
   flex-shrink: 0;
   font-size: 16px;
   font-weight: 600;
+  overflow: hidden;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .green {
   background: #c4f36b14;
@@ -291,6 +296,7 @@
   transform: rotate(-6deg);
 }
 .page {
+  width: 100%;
   max-width: 1080px;
   margin: 60px auto;
   padding: 0 36px;
@@ -323,15 +329,11 @@
   border-color: #657646;
   color: var(--foreground);
 }
-.draft-card h2 {
-  margin: 0;
-  font-size: 20px;
-}
 .draft-card > .row > svg {
   color: var(--muted-foreground);
 }
 .draft-excerpt {
-  color: #a1a9ad;
+  color: var(--foreground);
   font-size: 15px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -349,6 +351,7 @@
   font-size: 12px;
 }
 .workspace {
+  width: 100%;
   max-width: 1080px;
   margin: 28px auto 72px;
   padding: 0 36px;
@@ -365,6 +368,10 @@
   color: var(--muted-foreground);
   font-size: 13px;
 }
+.account-link[data-slot="button"] {
+  padding: 2px;
+  border-radius: 50%;
+}
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 600px) minmax(260px, 320px);
@@ -376,31 +383,33 @@
 .feedback-column {
   min-width: 0;
 }
+.editor-grid {
+  grid-template-areas: "posts actions" "posts feedback";
+  grid-template-rows: auto 1fr;
+  row-gap: 24px;
+}
+.editor-posts {
+  grid-area: posts;
+}
+.editor-actions {
+  grid-area: actions;
+}
+.editor-grid > .feedback-column {
+  grid-area: feedback;
+}
+.save-status {
+  display: block;
+  margin-top: 12px;
+}
+.save-failed {
+  color: var(--danger);
+}
 .post-panel {
   border: 1px solid #2f3336;
   border-radius: 16px;
   background: #000;
   overflow: hidden;
   gap: 0;
-}
-.export-post {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-}
-.export-post > .small {
-  margin-right: 8px;
-}
-.download-file {
-  max-width: 100%;
-  min-width: 0;
-}
-.download-file span {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .panel-heading {
   display: flex;
@@ -409,33 +418,6 @@
   gap: 12px;
   padding: 16px;
   border-bottom: 1px solid #2f3336;
-}
-.title-input[data-slot="input"] {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 0;
-  min-width: 0;
-  width: 52%;
-  border-radius: 0;
-  text-overflow: ellipsis;
-}
-.identity {
-  padding: 16px;
-  background: #080909;
-  border-bottom: 1px solid #2f3336;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.identity input {
-  font-size: 14px;
-}
-.identity summary {
-  color: var(--muted-foreground);
-  font-size: 12px;
 }
 .post {
   position: relative;
@@ -491,6 +473,18 @@
 .post-text a:hover {
   text-decoration: underline;
 }
+.editable-post {
+  display: grid;
+}
+.editable-post > * {
+  grid-area: 1 / 1;
+}
+.editable-post .post-text {
+  pointer-events: none;
+}
+.editable-post .post-text::after {
+  content: "\200b";
+}
 .post-editor[data-slot="textarea"] {
   display: block;
   border: 0;
@@ -498,13 +492,16 @@
   box-shadow: none;
   outline: none;
   width: 100%;
-  padding: 8px 0;
+  padding: 0;
   border-radius: 0;
-  resize: vertical;
-  min-height: 140px;
-  font-size: 20px;
-  line-height: 24px;
-  color: #e7e9ea;
+  resize: none;
+  min-height: 20px;
+  font-size: 15px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: transparent;
+  caret-color: #e7e9ea;
   field-sizing: content;
 }
 .post-editor[data-slot="textarea"]:focus-visible {
@@ -580,15 +577,41 @@
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid #2f3336;
+  flex-wrap: wrap;
 }
-.post-tools .spacer {
-  flex: 1;
+.post-action-icons,
+.post-count,
+.post-order {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.post-action-icons {
+  flex-wrap: wrap;
+}
+.post-count {
+  margin-left: auto;
+}
+.post-order {
+  margin-left: auto;
+}
+.post-order:empty {
+  display: none;
+}
+.post-tools .icon-button[data-slot="button"] {
+  color: var(--x-blue);
+  padding: 9px;
+}
+.post-tools .icon-button.danger[data-slot="button"] {
+  color: var(--danger);
 }
 .upload-button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 10px 8px;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 9px;
   color: var(--x-blue);
   border-radius: 999px;
   font-size: 12px;
@@ -601,7 +624,8 @@
 .upload-button:focus-within {
   outline: 2px solid var(--x-blue);
 }
-.upload-button input {
+.upload-button input,
+.avatar-upload input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -626,12 +650,11 @@
   fill: none;
   stroke-width: 2;
 }
-.add-post {
-  padding: 8px 16px 12px 60px;
-  border-top: 1px solid #2f3336;
-}
-.add-post [data-slot="button"] {
-  color: var(--x-blue);
+.add-post[data-slot="button"] {
+  margin-left: 8px;
+  border-color: #536471;
+  width: 40px;
+  height: 40px;
 }
 .feedback-heading {
   margin: 4px 0 20px;
@@ -739,8 +762,14 @@
   height: 5px;
   display: inline-block;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--muted-foreground);
   margin-right: 7px;
+}
+.status-dot.saved {
+  background: var(--primary);
+}
+.status-dot.failed {
+  background: var(--danger);
 }
 .pending {
   padding: 14px;
@@ -769,6 +798,66 @@ progress {
   display: grid;
   gap: 18px;
 }
+.profile-photo {
+  margin: 24px 0;
+  gap: 16px;
+}
+.profile-photo > .avatar {
+  width: 64px;
+  height: 64px;
+  font-size: 24px;
+}
+.profile-photo p {
+  margin: 8px 0 0;
+}
+.avatar-upload {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--primary);
+  cursor: pointer;
+}
+.avatar-upload:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.confirm-dialog {
+  margin: auto;
+  width: min(440px, calc(100% - 32px));
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 24px 80px #0009;
+}
+.confirm-dialog::backdrop {
+  background: #000a;
+  backdrop-filter: blur(4px);
+}
+.confirm-dialog h2 {
+  font-size: 24px;
+  margin: 20px 0 12px;
+}
+.confirm-dialog p {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  margin-bottom: 24px;
+}
+.dialog-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--danger);
+  background: #ff879314;
+  border-radius: 50%;
+}
+.dialog-actions {
+  justify-content: flex-end;
+}
 .invite-row {
   display: flex;
   justify-content: space-between;
@@ -781,6 +870,7 @@ progress {
   display: block;
 }
 .footer-note {
+  flex-shrink: 0;
   color: var(--muted-foreground);
   font-size: 12px;
   text-align: center;
@@ -865,6 +955,14 @@ progress {
     grid-template-columns: minmax(0, 600px);
     gap: 32px;
   }
+  .editor-grid {
+    grid-template-areas: "actions" "posts" "feedback";
+    grid-template-rows: auto;
+    row-gap: 24px;
+  }
+  .editor-actions .row {
+    flex-wrap: nowrap;
+  }
   .auth-shell {
     gap: 40px;
   }
@@ -936,36 +1034,11 @@ progress {
   .post:not(:last-child)::before {
     left: 31px;
   }
-  .identity {
-    padding: 14px 12px;
-    gap: 10px;
-  }
-  .identity input,
   select {
     font-size: 16px;
   }
-  .editor-heading {
-    flex-wrap: wrap;
-  }
-  .editor-heading .title-input {
-    width: 100%;
-  }
-  .editor-heading [data-slot="tabs-list"] {
-    width: 100%;
-  }
   .post-tools {
     flex-wrap: wrap;
-  }
-  .post-tools .icon-button[data-slot="button"] {
-    padding: 8px;
-    min-width: 36px;
-  }
-  .upload-button {
-    padding-inline: 0;
-    gap: 5px;
-  }
-  .add-post {
-    padding-left: 52px;
   }
   .auth-shell {
     grid-template-columns: 1fr;
