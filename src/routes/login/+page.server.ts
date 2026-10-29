@@ -9,6 +9,9 @@ import {
 } from "$lib/server/auth";
 import type { Actions, PageServerLoad } from "./$types";
 
+// Prepare once: missing accounts must not do a second derivation per request.
+const unavailablePasswordHash = passwordHash("unavailable-account");
+
 export const load: PageServerLoad = ({ locals }) => {
   if (locals.user) redirect(303, "/");
 };
@@ -27,7 +30,7 @@ export const actions: Actions = {
     // A missing account also pays the password-derivation cost.
     const valid = await passwordMatches(
       password,
-      user?.password_hash ?? (await passwordHash("unavailable-account")),
+      user?.password_hash ?? (await unavailablePasswordHash),
     );
     if (!user || !valid)
       return fail(400, {
