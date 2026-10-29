@@ -7,3 +7,4 @@ build/
 !.env.example
 data/
 .amp/portals/
+.amp/in/

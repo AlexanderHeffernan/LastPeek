@@ -13,3 +13,8 @@
   /><meta name="robots" content="noindex,nofollow,noarchive" /></svelte:head
 >
 {@render children()}
+<footer class="footer-note">
+  LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
+    >Source code</a
+  > · AGPLv3
+</footer>

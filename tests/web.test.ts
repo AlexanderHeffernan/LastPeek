@@ -99,6 +99,32 @@ test(
     try {
       await page.goto(`${baseURL}/login`);
       await screenshot(page, "login");
+      assert.equal(
+        await page
+          .getByRole("link", { name: "Source code", exact: true })
+          .getAttribute("href"),
+        "https://github.com/AlexanderHeffernan/LastPeek",
+      );
+      // A plausible signup request must not bypass the invitation capability.
+      const invalidInvite = `${baseURL}/join/${"A".repeat(43)}`;
+      assert.equal((await guest.request.get(invalidInvite)).status(), 404);
+      const rejectedSignup = await guest.request.post(invalidInvite, {
+        form: {
+          name: "Uninvited",
+          email: `uninvited-${userId}@example.test`,
+          password,
+        },
+        headers: { Origin: origin },
+      });
+      assert.equal(rejectedSignup.status(), 400);
+      assert.equal(
+        (
+          await db.query("SELECT 1 FROM users WHERE email=$1", [
+            `uninvited-${userId}@example.test`,
+          ])
+        ).rowCount,
+        0,
+      );
       await login(page, email);
       await screenshot(page, "empty-drafts");
       await page
@@ -196,6 +222,22 @@ test(
         headers: { Origin: "https://not-lastpeek.example" },
       });
       assert.equal(forged.status(), 403);
+      const forgedForm = await owner.request.post(
+        `${baseURL}/settings?/invite`,
+        {
+          form: {},
+          headers: { Origin: "https://not-lastpeek.example" },
+        },
+      );
+      assert.equal(forgedForm.status(), 403);
+      const nonAdminInvite = await other.request.post(
+        `${baseURL}/settings?/invite`,
+        {
+          form: {},
+          headers: { Origin: origin },
+        },
+      );
+      assert.equal(nonAdminInvite.status(), 403);
 
       const publishResponse = page.waitForResponse(
         (r) =>

@@ -2,11 +2,17 @@
 
 A second pair of eyes before you post. Write a post or thread, attach original media, and send a private review link to a friend. They can comment or suggest wording without an account. You decide what changes and when a new version is shared.
 
-**MVP, not a production/private-beta deployment.** Website-first; the optional browser extension comes later. No social API, scheduling, automatic publishing, email provider, hosted auth, cloud storage, analytics or remote fonts are required. The complete runtime is Node, PostgreSQL and a private media directory on one host.
+**Open source, early-stage and invite-only.** Website-first; the optional browser extension comes later. No social API, scheduling, automatic publishing, email provider, hosted auth, cloud storage, analytics or remote fonts are required. The complete runtime is Node, PostgreSQL and a private media directory on one host.
+
+The official hosted service is [lastpeek.alexheffernan.dev](https://lastpeek.alexheffernan.dev). See [deployment and automatic updates](docs/deployment.md), [security and limitations](SECURITY.md), and [contributing](CONTRIBUTING.md). Self-hosting does not require the official service, GitHub Actions or Cloudflare.
+
+## Licence
+
+Copyright © 2026 Alexander Heffernan. LastPeek's original code is licensed under [GNU AGPL version 3 only](LICENSE), without warranty. You may self-host, modify and sell services subject to that licence, including its corresponding-source obligations for modified network services. Dependencies retain their own licences/notices. The LastPeek name and logo do not grant permission to imply an official service or endorsement. This project is not affiliated with X.
 
 ## Try it in an orb
 
-The personal Amp project maps to the private `AlexanderHeffernan/LastPeek` GitHub repository; Amp is not the Git host. `.agents/setup` installs dependencies, prepares a private PostgreSQL development cluster, migrates and seeds once, and builds the app. It is safe to repeat and never resets an existing account. `.amp/services.yaml` supervises PostgreSQL, the website and hourly cleanup.
+An optional Amp orb setup is included for development. `.agents/setup` installs dependencies, prepares a private PostgreSQL development cluster, migrates and seeds once, and builds the app. It is safe to repeat and never resets an existing account. `.amp/services.yaml` supervises PostgreSQL, the website and hourly cleanup. Amp is not required to develop or host LastPeek.
 
 Run `amp orb services ensure --json` inside an orb and use its exact portal URL. Trial email is `alex@lastpeek.test`; its randomly generated password is in that orb's ignored `.env` (`SEED_PASSWORD`). The portal is private to the thread by default. This is a personal trial, not an externally accessible reviewer beta. Never put real/irreplaceable drafts in an ephemeral orb.
 
@@ -34,7 +40,7 @@ SvelteKit 3 uses `ORIGIN` at **build time** through `paths.origin`; changing it 
 
 ## Portable container stack
 
-`compose.yaml` defines PostgreSQL, the non-root Node server, and an hourly maintenance process. Images support AMD64 and ARM64; **the actual Pi and its media capacity still need testing before beta**. No Pi infrastructure is changed by this repository.
+`compose.yaml` defines PostgreSQL, the non-root Node server, and an hourly maintenance process. The Dockerfile supports AMD64 and ARM64. The official workflow publishes both architectures to `ghcr.io/alexanderheffernan/lastpeek`; those images bake in the official service's origin. **For your own domain, build from source with your own `ORIGIN`.** See [deployment](docs/deployment.md) for the Pi's image-based setup.
 
 Set `POSTGRES_PASSWORD` in `.env` to a random hex string (for example, generated with `openssl rand -hex 32`), and set `ORIGIN` for the address you will open. `APP_PORT` defaults to 3000. The web port binds only to loopback, ready for a local reverse proxy.
 
@@ -78,7 +84,7 @@ rm /tmp/lastpeek-password
 
 Resetting invalidates all existing sessions. For container use, pipe the password file into `docker compose exec -T web npm run account:reset -- author@example.com` instead.
 
-Before a real beta, rehearse **backup and restore**: stop web and maintenance writers, take `pg_dump` plus a matching copy of the private media volume, restart writers, and restore both into an isolated instance to verify logins, shared revisions and original attachment checksums. A database dump alone is not a complete backup. Decide retention, encrypted off-device storage, disk alerts, HTTPS and abuse limits before inviting real authors. These operational decisions/deployment are deliberately not automated here.
+Rehearse **backup and restore**: stop web and maintenance writers, take `pg_dump` plus a matching copy of the private media volume, restart writers, and restore both into an isolated instance to verify logins, shared revisions and original attachment checksums. A database dump alone is not a complete backup. Local snapshots are not protection against losing the Pi or its disk; encrypted off-device storage and alerts remain an operator responsibility. See [the deployment runbook](docs/deployment.md) before storing irreplaceable drafts or expanding beyond trusted invitees.
 
 ## Verification and code map
 
@@ -100,4 +106,4 @@ Browser tests create unique disposable accounts, exercise actual HTTP/auth/uploa
 
 `tests/fixtures/video.mp4` is a generated three-second silent H.264 clip (320 × 180, moving square), not user media. The image in browser tests is an intentionally solid-colour generated PNG.
 
-`src/lib/contracts.ts` owns the draft contract. `src/lib/server/` owns auth, persistence and private media. Routes adapt those operations to HTTP; shared Svelte components render author/reviewer previews. `migrations/` contains ordered SQL migrations. Read [product scope](docs/product.md), [architecture/invariants](docs/architecture.md), and [agent guidance](AGENTS.md) before changing behaviour. Run verification locally or inside an orb. GitHub Actions is deliberately disabled for this private repository; do not add workflows.
+`src/lib/contracts.ts` owns the draft contract. `src/lib/server/` owns auth, persistence and private media. Routes adapt those operations to HTTP; shared Svelte components render author/reviewer previews. `migrations/` contains ordered SQL migrations. Read [product scope](docs/product.md), [architecture/invariants](docs/architecture.md), and [agent guidance](AGENTS.md) before changing behaviour. GitHub Actions runs formatting, type checks, contract tests, dependency auditing and Chromium/WebKit E2E tests before publishing images on `main`. Pull requests cannot publish or deploy.
