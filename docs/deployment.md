@@ -13,7 +13,7 @@ The service contract is:
 - Both receive `DATABASE_URL=postgres://lastpeek:<generated-hex-password>@db:5432/lastpeek`, `ORIGIN=https://lastpeek.alexheffernan.dev`, `BODY_SIZE_LIMIT=55M` and the documented media limits. Keep `.env` owner-readable only (0600); never paste it into tickets or logs.
 - A dedicated named Cloudflare Tunnel runs in its own container, using only its own read-only mounted credential/config. It routes the exact LastPeek hostname to `http://web:3000`, then a catch-all 404. The shared system tunnel is unchanged. The Cloudflare account certificate must **not** be mounted into the connector.
 - Only web sets `ADDRESS_HEADER=cf-connecting-ip`. This trusts Cloudflare's client address for rate limiting, and is safe only while the tunnel is the sole public ingress and the host is trusted. Do not expose the web port on all interfaces or copy this setting to an arbitrary reverse proxy.
-- All services restart unless stopped. Only web and maintenance carry `com.centurylinklabs.watchtower.enable=true`. The Pi's existing Watchtower polls opted-in images every 60 seconds. Do not label PostgreSQL or the tunnel for unattended upgrades.
+- All services restart unless stopped. LastPeek containers have no `com.centurylinklabs.watchtower.enable=true` label, so the existing shared, label-enabled Watchtower ignores them. A dedicated user-systemd timer updates only LastPeek web and maintenance every 60 seconds; PostgreSQL and the tunnel are not automatically updated.
 
 Cloudflare handles public TLS and can see traffic; this is not end-to-end encryption from reviewers to the Pi. Keep access logging of review URLs disabled. Other operators can use any HTTPS reverse proxy instead and do not need Cloudflare.
 
@@ -23,13 +23,17 @@ Cloudflare handles public TLS and can see traffic; this is not end-to-end encryp
 
 On the official repository's `main`, a second job uses the workflow's short-lived `GITHUB_TOKEN` with `packages:write` to build and push AMD64/ARM64 images. There is no stored SSH or Pi secret in GitHub. Tags are `latest` and the full source commit SHA; the OCI revision label identifies the source. The GHCR package must be public so the Pi can pull without registry credentials.
 
-Watchtower then replaces the opted-in containers when `latest` changes. A push is **not** immediately a deployment: checks/build must finish, then the polling interval and container startup pass. Verify the workflow result, running image revision, health and public page. `/health` returns the build's full source SHA in `X-LastPeek-Revision` (`development` outside a versioned image), allowing public checks to detect unexpected deployments. Automatic replacement is not a transactional deployment or automatic health-based rollback; expect a brief interruption. Web/maintenance can replace independently. All future migrations must be compatible with the previous image; stop unattended updates for destructive schema changes and take a coherent backup first.
+`lastpeek-update.timer` runs `~/lastpeek-deploy/update.sh` every 60 seconds. User lingering is enabled so it survives logout/reboot. The script takes `.deployment.lock`, pulls only web and maintenance, then runs `docker compose up -d --no-deps --wait web maintenance`. Compose leaves unchanged containers alone. The backup script takes the same lock, preventing updates from restarting writers during a snapshot. No registry password is needed: the image package is public.
+
+A push is **not** immediately a deployment: checks/build must finish, then the timer and container startup pass. Verify the workflow result, running image revision, health and public page. `/health` returns the build's full source SHA in `X-LastPeek-Revision` (`development` outside a versioned image), allowing public checks to detect unexpected deployments. Replacement is not a transactional deployment or automatic health-based rollback; expect a brief interruption. All future migrations must be compatible with the previous image; stop unattended updates for destructive schema changes and take a coherent backup first.
 
 To diagnose on the Pi, run from `~/lastpeek-deploy`:
 
 ```sh
 docker compose ps
 docker compose logs --tail=80 web maintenance tunnel
+journalctl --user -u lastpeek-update.service -n 80 --no-pager
+systemctl --user status lastpeek-update.timer
 docker compose exec -T web node -e "fetch('http://127.0.0.1:3000/health').then(async r=>{console.log(r.status,await r.text());process.exit(r.ok?0:1)})"
 docker inspect "$(docker compose ps -q web)" --format '{{.Config.Image}} {{.Image}}'
 ```
@@ -50,7 +54,7 @@ For a portable deployment, the equivalent procedure is: pause automatic updates;
 
 Restore only into **new isolated volumes and a separate Compose project** first. Restore the database with `pg_restore`, restore media with UID 1000 ownership and private permissions, and run the matching source/image. Verify account login, immutable revision/comment relationships, revocation, and attachment bytes against checksums. Never use `docker compose down -v` on the live project.
 
-To roll back an application update, pause automatic updates, change **both** web and maintenance image references to a known-good full SHA tag, pull, and recreate them. An older image is only safe if the current schema is compatible. Otherwise stop writers and restore the matching database/media snapshot together; restoring old data discards later writes. `latest` is mutable and is not a backup or a rollback identifier.
+To pause unattended updates, stop `lastpeek-update.timer` and wait for any active `lastpeek-update.service` to finish; disable the timer too if the pause must survive reboot. To roll back, change **both** web and maintenance image references to a known-good full SHA tag, pull, and recreate them. An older image is only safe if the current schema is compatible. Otherwise stop writers and restore the matching database/media snapshot together; restoring old data discards later writes. `latest` is mutable and is not a backup or a rollback identifier. Re-enable/start the timer deliberately after resolving the incident.
 
 ## Self-hosting elsewhere
 
