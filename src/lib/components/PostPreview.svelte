@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Textarea } from "$lib/components/ui/textarea/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "./Icon.svelte";
   import twitter from "twitter-text";
   import { mediaURL, type Content, type Media } from "$lib/contracts";
@@ -32,22 +35,45 @@
     content.posts[postIndex].media = ids;
     onchange();
   }
+  function textParts(text: string) {
+    const parts: { text: string; href?: string }[] = [];
+    let cursor = 0;
+    for (const entity of twitter.extractEntitiesWithIndices(text)) {
+      const [start, end] = entity.indices;
+      parts.push({ text: text.slice(cursor, start) });
+      const label = text.slice(start, end);
+      const href =
+        "url" in entity
+          ? /^https?:\/\//i.test(entity.url)
+            ? entity.url
+            : `https://${entity.url}`
+          : "hashtag" in entity
+            ? `https://x.com/hashtag/${encodeURIComponent(entity.hashtag)}`
+            : "screenName" in entity
+              ? `https://x.com/${entity.screenName}${"listSlug" in entity ? entity.listSlug : ""}`
+              : `https://x.com/search?q=${encodeURIComponent(label)}`;
+      parts.push({ text: label, href });
+      cursor = end;
+    }
+    parts.push({ text: text.slice(cursor) });
+    return parts;
+  }
 </script>
 
 {#if editing}<div class="identity">
     <label
-      >Display name<input
+      >Display name<Input
         bind:value={content.author.name}
         oninput={onchange}
-        maxlength="80"
+        maxlength={80}
         required
       /></label
     ><label
-      >X handle <span class="muted">(optional)</span><input
+      >X handle<Input
         bind:value={content.author.handle}
         oninput={onchange}
         placeholder="@yourname"
-        maxlength="16"
+        maxlength={16}
       /></label
     >
   </div>{/if}
@@ -69,22 +95,21 @@
               style="margin-left:auto">{index + 1}/{content.posts.length}</span
             >{/if}
         </div>
-        {#if editing}<textarea
+        {#if editing}<Textarea
             class="post-editor"
             aria-label={`Post ${index + 1} text`}
             bind:value={post.text}
             oninput={onchange}
-            placeholder={index
-              ? "Keep the thought going…"
-              : "What’s on your mind?"}
-            maxlength="25000"
-            rows={Math.max(
-              3,
-              Math.min(
-                14,
-                post.text.split("\n").length + Math.ceil(post.text.length / 60),
-              ),
-            )}></textarea>{:else}<p class="post-text">{post.text}</p>{/if}
+            placeholder={index ? "Add another post" : "What’s happening?"}
+            maxlength={25000}
+            rows={3}
+          ></Textarea>{:else}<p class="post-text">
+            {#each textParts(post.text) as part}{#if part.href}<a
+                  href={part.href}
+                  target="_blank"
+                  rel="noopener noreferrer">{part.text}</a
+                >{:else}{part.text}{/if}{/each}
+          </p>{/if}
         {#if post.media.length}<div
             class="media-grid"
             class:multi={post.media.length > 1}
@@ -100,13 +125,10 @@
                       playsinline
                       preload="metadata"
                       aria-label={`Video on post ${index + 1}`}
-                      ><track kind="captions" />Your browser cannot play this
-                      video. Use the download link below.</video
-                    ><a
-                      class="small muted"
-                      style="display:block;padding:8px 12px"
-                      href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
-                      >Download video if playback is unavailable</a
+                      ><track kind="captions" /><a
+                        href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
+                        >Download video</a
+                      ></video
                     >
                   {:else}<a
                       href={mediaURL(id, token)}
@@ -116,23 +138,37 @@
                       ><img src={mediaURL(id, token)} alt={item.filename} /></a
                     >{/if}
                   {#if editing}<div class="media-actions">
-                      {#if mediaIndex > 0}<button
+                      {#if mediaIndex > 0}<Button
+                          variant="outline"
                           class="icon-button"
                           aria-label={`Move attachment ${mediaIndex + 1} earlier on post ${index + 1}`}
                           onclick={() => moveMedia(index, mediaIndex, -1)}
-                          ><Icon name="back" size={12} /></button
-                        >{/if}{#if mediaIndex < post.media.length - 1}<button
+                          ><Icon name="back" size={12} /></Button
+                        >{/if}{#if mediaIndex < post.media.length - 1}<Button
+                          variant="outline"
                           class="icon-button"
                           aria-label={`Move attachment ${mediaIndex + 1} later on post ${index + 1}`}
                           onclick={() => moveMedia(index, mediaIndex, 1)}
-                          ><Icon name="arrow" size={12} /></button
-                        >{/if}<button
+                          ><Icon name="arrow" size={12} /></Button
+                        >{/if}<Button
+                        variant="outline"
                         class="icon-button"
                         aria-label={`Remove attachment ${mediaIndex + 1} from post ${index + 1}`}
                         onclick={() => {
                           post.media = post.media.filter((m) => m !== id);
                           onchange();
-                        }}><Icon name="close" size={13} /></button
+                        }}><Icon name="close" size={13} /></Button
+                      >
+                    </div>{:else if item.mime.startsWith("video/")}<div
+                      class="media-actions"
+                    >
+                      <Button
+                        variant="ghost"
+                        class="icon-button"
+                        href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
+                        aria-label={`Download video on post ${index + 1}`}
+                        title="Download video"
+                        ><Icon name="download" size={16} /></Button
                       >
                     </div>{/if}
                 </div>{/if}
@@ -143,7 +179,7 @@
           ).weightedLength}
           <div class="post-tools">
             <label class="upload-button"
-              ><Icon name="image" size={17} /><span>Add media</span><input
+              ><Icon name="image" size={17} /><span>Add media</span><Input
                 type="file"
                 aria-label={`Add media to post ${index + 1}`}
                 accept="image/jpeg,image/png,image/webp,image/gif,image/avif,video/mp4,video/webm"
@@ -154,25 +190,40 @@
                 }}
               /></label
             ><span class="spacer"></span>
+            <svg class="count-ring" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="#2f3336" />
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke={count > 280 ? "#ffad1f" : "#1d9bf0"}
+                stroke-dasharray="62.832"
+                stroke-dashoffset={62.832 * (1 - Math.min(count / 280, 1))}
+              />
+            </svg>
             <span
               class="counter"
               class:over={count > 280}
-              title="X standard posts allow 280 weighted characters. Longer posts require an eligible X account."
+              aria-label={`${count} of 280 characters${count > 280 ? ". X Premium required" : ""}`}
+              title={count > 280 ? "X Premium required" : "Character count"}
               >{count}/280</span
             >
-            {#if index > 0}<button
-                class="icon-button quiet"
+            {#if index > 0}<Button
+                variant="ghost"
+                class="icon-button"
                 aria-label={`Move post ${index + 1} up`}
                 onclick={() => movePost(index, -1)}
-                ><Icon name="up" size={14} /></button
-              >{/if}{#if index < content.posts.length - 1}<button
-                class="icon-button quiet"
+                ><Icon name="up" size={14} /></Button
+              >{/if}{#if index < content.posts.length - 1}<Button
+                variant="ghost"
+                class="icon-button"
                 aria-label={`Move post ${index + 1} down`}
                 onclick={() => movePost(index, 1)}
-                ><Icon name="down" size={14} /></button
+                ><Icon name="down" size={14} /></Button
               >{/if}
-            {#if content.posts.length > 1}<button
-                class="icon-button quiet danger"
+            {#if content.posts.length > 1}<Button
+                variant="destructive"
+                class="icon-button danger"
                 aria-label={`Remove post ${index + 1}`}
                 onclick={() => {
                   if (
@@ -185,7 +236,7 @@
                     );
                     onchange();
                   }
-                }}><Icon name="close" size={14} /></button
+                }}><Icon name="close" size={14} /></Button
               >{/if}
           </div>{/if}
       </div>
@@ -193,18 +244,14 @@
   {/each}
 </section>
 {#if editing && content.posts.length < 25}<div class="add-post">
-    <button
-      class="quiet"
+    <Button
+      variant="ghost"
       onclick={() => {
         content.posts = [
           ...content.posts,
           { id: crypto.randomUUID(), text: "", media: [] },
         ];
         onchange();
-      }}><Icon name="plus" size={15} />Add to thread</button
+      }}><Icon name="plus" size={15} />Add to thread</Button
     >
   </div>{/if}
-<div class="preview-caption">
-  Unpublished preview · Appearance approximates X. Line wrapping, media crops
-  and playback can vary. {#if editing}Longer posts may require X Premium.{/if}
-</div>

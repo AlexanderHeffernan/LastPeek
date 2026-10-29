@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
+  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import { onMount, untrack } from "svelte";
   import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
   import PostPreview from "$lib/components/PostPreview.svelte";
@@ -310,12 +314,12 @@
     <div class="row">
       <span class="small muted" role="status"
         ><span class="status-dot"></span>{status}</span
-      ><button
-        class="quiet"
+      ><Button
+        variant="ghost"
         disabled={saving || uploading}
-        onclick={() => save()}>Save</button
-      ><button
-        class="primary"
+        onclick={() => save()}>Save</Button
+      ><Button
+        variant="default"
         disabled={busy || saving || uploading}
         onclick={publish}
         ><Icon name={shareToken ? "check" : "link"} size={15} />{busy
@@ -324,7 +328,7 @@
             ? differs
               ? "Update shared version"
               : "Share link"
-            : "Share draft"}</button
+            : "Share draft"}</Button
       >
     </div>
   </div>
@@ -333,8 +337,8 @@
       role="alert"
       style="margin-bottom:18px"
     >
-      <span>{error}</span><button class="quiet" onclick={() => save()}
-        >Retry save</button
+      <span>{error}</span><Button variant="ghost" onclick={() => save()}
+        >Retry save</Button
       >
     </div>{/if}
   {#if message}<div
@@ -342,57 +346,61 @@
       role="status"
       style="margin-bottom:18px"
     >
-      {message}<button
-        class="icon-button quiet"
+      {message}<Button
+        variant="ghost"
+        class="icon-button"
         aria-label="Dismiss message"
-        onclick={() => (message = "")}><Icon name="close" size={14} /></button
+        onclick={() => (message = "")}><Icon name="close" size={14} /></Button
       >
     </div>{/if}
   <div class="workspace-grid">
     <section>
       {#if historical}<div class="notice" style="margin-bottom:16px">
           Viewing shared version {historical}. Your working draft is unchanged.
-          <button class="quiet" onclick={() => (historical = 0)}
-            >Back to working draft</button
+          <Button variant="ghost" onclick={() => (historical = 0)}
+            >Back to working draft</Button
           >
         </div>{/if}
-      <div class="post-panel">
-        <div class="panel-heading">
-          <input
+      <Tabs.Root
+        class="post-panel"
+        value={editing && !historical ? "write" : "preview"}
+        onValueChange={(value) => {
+          editing = value === "write";
+          if (editing) historical = 0;
+        }}
+      >
+        <div class="panel-heading editor-heading">
+          <Input
             class="title-input"
             aria-label="Draft title"
-            placeholder="Untitled thought"
+            placeholder="Untitled draft"
             bind:value={content.title}
             oninput={changed}
-            maxlength="120"
+            maxlength={120}
             disabled={!!historical}
           />
-          <div class="segmented" aria-label="Draft mode">
-            <button
-              class:active={editing && !historical}
-              aria-pressed={editing && !historical}
-              onclick={() => {
-                editing = true;
-                historical = 0;
-              }}>Write</button
-            ><button
-              class:active={!editing || !!historical}
-              aria-pressed={!editing || !!historical}
-              onclick={() => (editing = false)}>Preview</button
+          <Tabs.List aria-label="Draft mode">
+            <Tabs.Trigger value="write"
+              ><Icon name="edit" size={15} />Write</Tabs.Trigger
             >
-          </div>
+            <Tabs.Trigger value="preview"
+              ><Icon name="eye" size={15} />Preview</Tabs.Trigger
+            >
+          </Tabs.List>
         </div>
-        {#if historical}<PostPreview
-            content={displayed}
-            {media}
-          />{:else}<PostPreview
+        <Tabs.Content value="write" class="m-0">
+          <PostPreview
             bind:content
             {media}
-            {editing}
+            editing
             onchange={changed}
             onupload={upload}
-          />{/if}
-      </div>
+          />
+        </Tabs.Content>
+        <Tabs.Content value="preview" class="m-0">
+          <PostPreview content={displayed} {media} />
+        </Tabs.Content>
+      </Tabs.Root>
       {#each pending as item}<div class="pending">
           <div class="row between">
             <span>{item.file.name}</span><span
@@ -405,97 +413,100 @@
               aria-label={`Uploading ${item.file.name}`}
             ></progress>{:else}<p class="danger" role="alert">{item.error}</p>
             <div class="row">
-              <button onclick={() => sendUpload(item.id)}>Retry upload</button
-              ><button
-                class="quiet"
+              <Button variant="outline" onclick={() => sendUpload(item.id)}
+                >Retry upload</Button
+              ><Button
+                variant="ghost"
                 onclick={() =>
                   (pending = pending.filter((p) => p.id !== item.id))}
-                >Dismiss</button
+                >Dismiss</Button
               >
             </div>{/if}
         </div>{/each}
       <div class="row between" style="margin-top:18px">
-        <button
-          class="quiet"
+        <Button
+          variant="ghost"
           onclick={() => copy(content.posts.map((p) => p.text).join("\n\n"))}
-          ><Icon name="copy" size={14} />Copy thread text</button
+          ><Icon name="copy" size={14} />Copy thread text</Button
         >
         <details>
           <summary class="small muted" style="cursor:pointer"
             >Draft options</summary
           >
           <div class="stack" style="padding-top:12px">
-            <button
-              class="quiet danger"
+            <Button
+              variant="destructive"
+              class="danger"
               disabled={uploading || saving}
               onclick={removeDraft}
-              ><Icon name="trash" size={14} />Delete draft</button
+              ><Icon name="trash" size={14} />Delete draft</Button
             >
           </div>
         </details>
       </div>
-      <p class="small muted" style="font-size:10px;margin-top:6px">
-        Copying text doesn’t attach media in X. Download files below and attach
-        them yourself.
-      </p>
-      {#each content.posts as post, index}<div class="row" style="margin:8px 0">
-          <button
-            class="quiet"
-            style="font-size:10px;min-height:28px;padding:5px 8px"
-            onclick={() => copy(post.text)}>Copy post {index + 1}</button
+      {#each content.posts as post, index}<div class="export-post">
+          <span class="small muted">Post {index + 1}</span>
+          <Button
+            variant="ghost"
+            aria-label={`Copy post ${index + 1} text`}
+            onclick={() => copy(post.text)}
+            ><Icon name="copy" size={16} />Copy text</Button
           >{#each post.media as id}{@const file = media.find(
               (m) => m.id === id,
-            )}{#if file}<a
-                class="button quiet"
-                style="font-size:10px;min-height:28px;padding:5px 8px"
+            )}{#if file}<Button
+                variant="ghost"
+                class="download-file"
+                aria-label={`Download ${file.filename}`}
                 href={`${mediaURL(id)}?download=1`}
-                ><Icon name="download" size={12} />{file.filename}</a
+                ><Icon name="download" size={16} /><span>{file.filename}</span
+                ></Button
               >{/if}{/each}
         </div>{/each}
     </section>
     <aside class="feedback-column" aria-label="Feedback and sharing">
       {#if shareToken && (shareOpen || sharedRevision)}<div class="share-box">
           <div class="row between">
-            <strong class="small">A link for a second look.</strong><span
-              class="badge green">v{sharedRevision}</span
+            <strong class="small">Review link</strong><Badge
+              variant="secondary"
+              class="green">v{sharedRevision}</Badge
             >
           </div>
-          <input
+          <Input
             aria-label="Review link"
             readonly
             value={`${origin}/r/${shareToken}`}
             onclick={(e) => e.currentTarget.select()}
           />
           <div class="row">
-            <button onclick={() => copy(`${origin}/r/${shareToken}`)}
-              ><Icon name="copy" size={13} />Copy link</button
-            ><a
-              class="button quiet"
+            <Button
+              variant="outline"
+              onclick={() => copy(`${origin}/r/${shareToken}`)}
+              ><Icon name="copy" size={13} />Copy link</Button
+            ><Button
+              variant="ghost"
               href={`/r/${shareToken}`}
               target="_blank"
-              rel="noopener noreferrer">Open preview</a
+              rel="noopener noreferrer">Open preview</Button
             >
           </div>
-          <p>
-            Anyone with this link can read and comment. Only shared versions are
-            visible.
-          </p>
-          <button
-            class="quiet danger"
-            style="font-size:10px;padding:5px 0;min-height:25px;margin-top:7px"
-            onclick={revoke}>Revoke link</button
+          <p>Anyone with the link can review.</p>
+          <Button
+            variant="destructive"
+            class="danger"
+            style="margin-top:12px"
+            onclick={revoke}>Revoke link</Button
           >
         </div>{/if}
       <div class="feedback-heading row between">
         <div>
-          <h2>A fresh perspective.</h2>
-          <p>Feedback stays with the version it reviewed.</p>
+          <h2>Feedback</h2>
         </div>
-        <button
-          class="icon-button quiet"
+        <Button
+          variant="ghost"
+          class="icon-button"
           aria-label="Refresh feedback"
           onclick={() => invalidateAll()}
-          ><Icon name="comment" size={16} /></button
+          ><Icon name="comment" size={16} /></Button
         >
       </div>
       <FeedbackList
@@ -514,15 +525,15 @@
             >Shared version history</summary
           >
           <div class="stack" style="gap:8px;margin-top:12px">
-            {#each data.revisions as revision}<button
-                class="quiet"
+            {#each data.revisions as revision}<Button
+                variant="ghost"
                 onclick={() => {
                   historical = revision.number;
                   editing = false;
                 }}
                 >Version {revision.number}<span class="muted small"
                   >{new Date(revision.created_at).toLocaleDateString()}</span
-                ></button
+                ></Button
               >{/each}
           </div>
         </details>{/if}

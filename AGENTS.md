@@ -2,6 +2,8 @@
 
 Read `docs/product.md` and `docs/architecture.md` before changing behaviour. Keep the product focused on draft review; no external service may become mandatory.
 
+Read `docs/design.md` before UI or copy changes. LastPeek is dark-only, minimal, X-native in the composer and preview, with its own restrained signal-green identity. Reuse the shadcn-svelte components in `src/lib/components/ui`; use Phosphor icons. Fix confusing interactions instead of adding explanatory disclaimers. Mobile must retain desktop capabilities.
+
 - TypeScript + SvelteKit, one server, PostgreSQL and private filesystem media. Server-only code belongs in `src/lib/server`. Contracts shared with UI belong in `src/lib`.
 - `npm ci`, `npm run db:migrate`, `npm run db:seed`, `npm run dev` start development after PostgreSQL and `.env` exist. See README for Docker and orb setup.
 - Run `npm run check`, `npm test`, `npm run build`, and `npm run test:e2e` for behavioural changes. E2E tests use a running app and a disposable test account; never point them at a real user's instance.

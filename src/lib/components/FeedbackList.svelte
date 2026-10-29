@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Badge } from "$lib/components/ui/badge/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
   import { relativeTime, type Feedback, type Content } from "$lib/contracts";
   let {
     comments,
@@ -17,11 +19,7 @@
   } = $props();
 </script>
 
-{#if !comments.length}<div class="feedback-empty">
-    A fresh pair of eyes makes a difference.<br />{onresolve
-      ? "Share a link to start the conversation."
-      : "Be the first to leave a thought."}
-  </div>{/if}
+{#if !comments.length}<div class="feedback-empty">No feedback yet.</div>{/if}
 {#each comments as comment (comment.id)}
   {@const index = content.posts.findIndex((p) => p.id === comment.post_id)}
   <article
@@ -32,16 +30,16 @@
     <div class="feedback-person">
       <span class="avatar">{comment.name.slice(0, 1).toUpperCase()}</span>
       <div>
-        <strong>{comment.name}</strong> <small>Guest</small>
+        <strong>{comment.name}</strong>
         <div><small>{relativeTime(comment.created_at)}</small></div>
       </div>
-      <span
+      <Badge
+        variant="secondary"
         style="margin-left:auto"
-        class="badge"
-        class:old={comment.revision !== revision}
+        class={[comment.revision !== revision && "old"]}
         >v{comment.revision}{comment.revision !== revision
           ? " · Earlier version"
-          : ""}</span
+          : ""}</Badge
       >
     </div>
     <div class="small muted">
@@ -51,22 +49,21 @@
     </div>
     <p class="comment">{comment.body}</p>
     {#if comment.suggestion}<div class="suggestion">
-        <div class="eyebrow" style="font-size:8px;margin-bottom:7px">
-          Suggested wording
-        </div>
+        <div class="eyebrow" style="margin-bottom:8px">Suggestion</div>
         {comment.suggestion}
       </div>{/if}
     <div class="feedback-actions">
-      {#if onapply && comment.suggestion && index >= 0 && !comment.resolved}<button
-          onclick={() => onapply?.(comment)}>Use suggestion</button
-        >{/if}{#if onresolve}<button
-          class="quiet"
+      {#if onapply && comment.suggestion && index >= 0 && !comment.resolved}<Button
+          variant="outline"
+          onclick={() => onapply?.(comment)}>Use suggestion</Button
+        >{/if}{#if onresolve}<Button
+          variant="ghost"
           onclick={() => onresolve?.(comment)}
-          >{comment.resolved ? "Reopen" : "Resolve"}</button
-        >{/if}{#if onversion && comment.revision !== revision}<button
-          class="quiet"
+          >{comment.resolved ? "Reopen" : "Resolve"}</Button
+        >{/if}{#if onversion && comment.revision !== revision}<Button
+          variant="ghost"
           onclick={() => onversion?.(comment.revision)}
-          >View v{comment.revision}</button
+          >View v{comment.revision}</Button
         >{/if}
     </div>
   </article>

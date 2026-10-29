@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from "$lib/components/ui/button/index.js";
   import { page } from "$app/state";
   import Brand from "$lib/components/Brand.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -12,5 +13,5 @@
     {page.status === 404 ? "Nothing to peek at here." : "A little hiccup."}
   </h1>
   <p class="muted">{page.error?.message}</p>
-  <a href="/" class="button">Back to LastPeek</a>
+  <Button variant="outline" href="/">Back to LastPeek</Button>
 </main>

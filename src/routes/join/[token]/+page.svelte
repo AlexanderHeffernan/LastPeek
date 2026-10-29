@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
   import { enhance } from "$app/forms";
   import Brand from "$lib/components/Brand.svelte";
   let { form } = $props();
@@ -13,15 +15,11 @@
 <main class="auth-shell">
   <section class="auth-copy">
     <span class="eyebrow">You’re invited</span>
-    <h1>A little space.<br />A better post.</h1>
-    <p>
-      Make yourself at home. Your drafts stay yours until you choose to share
-      them.
-    </p>
+    <h1>A fresh set<br />of <em>eyes.</em></h1>
+    <p>Your next good post starts here.</p>
   </section>
   <section class="auth-card">
-    <h2>Come take a peek.</h2>
-    <p class="intro">Create your LastPeek account.</p>
+    <h2>Create your account.</h2>
     <form
       method="POST"
       use:enhance={() => {
@@ -33,37 +31,34 @@
       }}
     >
       <label
-        >Your name<input
+        >Your name<Input
           name="name"
           autocomplete="name"
           required
-          maxlength="80"
+          maxlength={80}
         /></label
       ><label
-        >Email<input
+        >Email<Input
           name="email"
           type="email"
           autocomplete="email"
           required
         /></label
       ><label
-        >Password<input
+        >Password<Input
           name="password"
           type="password"
-          minlength="12"
-          maxlength="256"
+          minlength={12}
+          maxlength={256}
           autocomplete="new-password"
           required
         /><span class="small muted">At least 12 characters.</span></label
       >
       {#if form?.message}<p class="notice error" role="alert">
           {form.message}
-        </p>{/if}<button class="primary" disabled={busy}
-        >{busy ? "Making your space…" : "Create account"}</button
+        </p>{/if}<Button variant="default" type="submit" disabled={busy}
+        >{busy ? "Making your space…" : "Create account"}</Button
       >
     </form>
-    <p class="auth-footer">
-      No connected social account. No automatic posting.
-    </p>
   </section>
 </main>

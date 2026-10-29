@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
   import { enhance } from "$app/forms";
   import Icon from "$lib/components/Icon.svelte";
   import { relativeTime } from "$lib/contracts";
@@ -9,11 +11,8 @@
 <main class="page">
   <div class="page-header row between">
     <div>
-      <span class="eyebrow">A little room to think</span>
+      <span class="eyebrow">Your next good post</span>
       <h1>Your drafts.</h1>
-      <p class="muted small">
-        Not quite out in the world. Right where they belong.
-      </p>
     </div>
     <form
       method="POST"
@@ -26,37 +25,34 @@
         };
       }}
     >
-      <button class="primary" disabled={busy}
-        ><Icon name="plus" size={16} />{busy ? "Opening…" : "New draft"}</button
+      <Button variant="default" type="submit" disabled={busy}
+        ><Icon name="plus" size={16} />{busy ? "Opening…" : "New draft"}</Button
       >
     </form>
   </div>
   {#if !data.drafts.length}<div class="empty">
       <div class="empty-icon"><Icon name="edit" size={25} /></div>
-      <h2>Something worth a second look?</h2>
-      <p class="small muted">
-        Start with a thought. Invite a friend when you’re ready.
-      </p>
+      <h2>Start something worth sharing.</h2>
       <form method="POST" action="?/create">
-        <button class="primary">Write your first draft</button>
+        <Button variant="default" type="submit">Write your first draft</Button>
       </form>
     </div>{:else}<div class="draft-list">
       {#each data.drafts as draft}<a
           class="draft-card"
           href={`/drafts/${draft.id}`}
           ><div class="row between">
-            <span class:green={draft.shared} class="badge"
+            <Badge variant="secondary" class={[draft.shared && "green"]}
               >{draft.shared
                 ? `Shared · v${draft.shared_revision}`
-                : "Only you"}</span
+                : "Only you"}</Badge
             ><Icon name="arrow" size={17} />
           </div>
-          <h2>{draft.content.title || "Untitled thought"}</h2>
+          <h2>{draft.content.title || "Untitled draft"}</h2>
           <div class="draft-excerpt">
             {draft.content.posts[0].text ||
               (draft.content.posts[0].media.length
-                ? "A picture worth sharing."
-                : "A blank page, for now.")}
+                ? "Media post"
+                : "No text yet")}
           </div>
           <div class="draft-bottom row between">
             <span
@@ -69,10 +65,9 @@
                   name="comment"
                   size={13}
                 />{draft.feedback}
-                {draft.feedback === 1 ? "thought" : "thoughts"}{/if}</span
+                {draft.feedback === 1 ? "comment" : "comments"}{/if}</span
             >
           </div></a
         >{/each}
     </div>{/if}
-  <p class="footer-note">A second opinion, not another dashboard.</p>
 </main>

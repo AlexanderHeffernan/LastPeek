@@ -143,6 +143,56 @@ test(
       );
       await edited(page, () => page.getByLabel("X handle").fill("@alex"));
 
+      // Preview keeps the exact draft text, safely links X entities, and is keyboard-accessible.
+      const linkedText =
+        "👀 @alex #BuildInPublic https://example.com/peek\n<script>alert('no')</script>";
+      await edited(page, () =>
+        page.getByLabel("Post 1 text", { exact: true }).fill(linkedText),
+      );
+      await page.getByRole("tab", { name: "Write", exact: true }).focus();
+      await page.keyboard.press("ArrowRight");
+      await page
+        .getByRole("tab", { name: "Preview", exact: true, selected: true })
+        .waitFor();
+      assert.equal(
+        await page.getByLabel("Post 1 text", { exact: true }).isVisible(),
+        false,
+      );
+      const preview = page.getByRole("article", {
+        name: "Post 1",
+        exact: true,
+      });
+      assert.equal(
+        await preview.getByRole("paragraph").innerText(),
+        linkedText,
+      );
+      assert.equal(
+        await preview
+          .getByRole("link", { name: "@alex", exact: true })
+          .getAttribute("href"),
+        "https://x.com/alex",
+      );
+      assert.equal(
+        await preview
+          .getByRole("link", { name: "#BuildInPublic", exact: true })
+          .getAttribute("href"),
+        "https://x.com/hashtag/BuildInPublic",
+      );
+      assert.equal(
+        await preview
+          .getByRole("link", { name: "https://example.com/peek", exact: true })
+          .getAttribute("href"),
+        "https://example.com/peek",
+      );
+      assert.equal(await preview.locator("script").count(), 0);
+      await page.keyboard.press("ArrowLeft");
+      await page
+        .getByRole("tab", { name: "Write", exact: true, selected: true })
+        .waitFor();
+      await edited(page, () =>
+        page.getByLabel("Post 1 text", { exact: true }).fill(initial),
+      );
+
       // Actual image uploads, image ordering, original bytes, and an independent video post.
       const image = await sharp({
         create: { width: 900, height: 520, channels: 3, background: "#dce8c6" },
@@ -203,11 +253,34 @@ test(
       await screenshot(page, "author-upload-error");
       await page.getByRole("button", { name: "Dismiss", exact: true }).click();
       await page.reload();
+      await page.waitForLoadState("networkidle");
       assert.equal(
         await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
         initial,
       );
       await screenshot(page, "author-editor");
+      await page.setViewportSize({ width: 320, height: 800 });
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        true,
+        "author controls must fit narrow mobile screens",
+      );
+      await page.getByRole("button", { name: "Add to thread" }).waitFor();
+      await page.getByRole("tab", { name: "Preview", exact: true }).click();
+      await page
+        .getByRole("tab", { name: "Preview", exact: true, selected: true })
+        .waitFor();
+      assert.equal(
+        await page.getByLabel("Post 1 text", { exact: true }).isVisible(),
+        false,
+      );
+      await screenshot(page, "author-preview-mobile");
+      await page.getByRole("tab", { name: "Write", exact: true }).click();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await screenshot(page, "author-editor-mobile");
+      await page.setViewportSize({ width: 1440, height: 1000 });
       const mediaURL = `${baseURL}/media/${videoData.id}`;
       assert.equal((await guest.request.get(mediaURL)).status(), 404);
       await login(stranger, strangerEmail);
@@ -469,6 +542,7 @@ test(
 
       // Invitations actually create a new author, are single-use, and grant no admin power.
       await page.goto(`${baseURL}/settings`);
+      await screenshot(page, "settings");
       await page.getByRole("button", { name: "Create invitation" }).click();
       const invite = page.getByLabel("Invitation link", { exact: true });
       await invite.waitFor();
@@ -477,6 +551,7 @@ test(
       const joining = await invited.newPage();
       await joining.goto(inviteURL);
       await joining.waitForLoadState("networkidle");
+      await screenshot(joining, "join");
       await joining
         .getByLabel("Your name", { exact: true })
         .fill("Invited friend");

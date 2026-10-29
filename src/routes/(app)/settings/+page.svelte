@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
   import { enhance } from "$app/forms";
   import Icon from "$lib/components/Icon.svelte";
   let { data, form } = $props();
@@ -11,7 +13,7 @@
   <a class="breadcrumb row" href="/"
     ><Icon name="back" size={14} />Your drafts</a
   >
-  <h1 style="margin-top:24px">Your little corner.</h1>
+  <h1 style="margin-top:24px">Account.</h1>
   <p class="muted small">{data.user.name} · {data.user.email}</p>
   {#if form?.message}<p class="notice" role="status">{form.message}</p>{/if}
   <section>
@@ -19,30 +21,24 @@
     <p class="small muted">{mb(data.used)} MB of {mb(data.limit)} MB used.</p>
     <progress value={data.used} max={data.limit} aria-label="Media storage used"
     ></progress>
-    <p class="small muted" style="margin:8px 0 0">
-      Shared versions keep their attachments. Delete an old draft to free space.
-      Unattached uploads are cleaned up after 24 hours by maintenance.
-    </p>
   </section>
   {#if data.user.is_admin}<section>
-      <h2>Bring a friend.</h2>
-      <p class="small muted">
-        Invite someone to make their own drafts. Reviewing is always
-        account-free. Invitations are single-use and expire in seven days.
-      </p>
+      <h2>Invitations</h2>
+      <p class="small muted">Single-use · Valid for 7 days</p>
       <form method="POST" action="?/invite" use:enhance>
-        <button class="primary"
-          ><Icon name="plus" size={15} />Create invitation</button
+        <Button variant="default" type="submit"
+          ><Icon name="plus" size={15} />Create invitation</Button
         >
       </form>
       {#if form?.inviteURL}<div class="notice" style="margin:16px 0">
           <label
-            >Invitation link<input
+            >Invitation link<Input
               readonly
               value={form.inviteURL}
               onclick={(e) => e.currentTarget.select()}
             /></label
-          ><button
+          ><Button
+            variant="outline"
             style="margin-top:10px"
             onclick={async () => {
               try {
@@ -51,10 +47,10 @@
               } catch {
                 copied = false;
               }
-            }}>{copied ? "Copied" : "Copy invitation"}</button
+            }}>{copied ? "Copied" : "Copy invitation"}</Button
           >
           <p class="small muted" style="margin:8px 0 0">
-            Copy this now. For privacy, it won’t be displayed again.
+            Save this link. It’s only shown once.
           </p>
         </div>{/if}
       <div style="margin-top:20px">
@@ -72,10 +68,10 @@
                 action="?/revoke"
                 use:enhance
               >
-                <input type="hidden" name="id" value={invite.id} /><button
-                  class="quiet danger"
-                  style="font-size:10px;min-height:28px"
-                  >Revoke invitation</button
+                <input type="hidden" name="id" value={invite.id} /><Button
+                  variant="destructive"
+                  type="submit"
+                  class="danger">Revoke invitation</Button
                 >
               </form>{/if}
           </div>{/each}
@@ -85,28 +81,28 @@
     <h2>Change your password</h2>
     <form method="POST" action="?/password" use:enhance>
       <label
-        >Current password<input
+        >Current password<Input
           type="password"
           name="current"
           autocomplete="current-password"
           required
-          maxlength="256"
+          maxlength={256}
         /></label
       ><label
-        >New password<input
+        >New password<Input
           type="password"
           name="password"
-          minlength="12"
-          maxlength="256"
+          minlength={12}
+          maxlength={256}
           autocomplete="new-password"
           required
         /></label
       ><span class="small muted"
         >At least 12 characters. Changing it signs out your other sessions.</span
-      ><button>Update password</button>
+      ><Button variant="outline" type="submit">Update password</Button>
     </form>
   </section>
   <form method="POST" action="?/logout">
-    <button class="quiet">Sign out</button>
+    <Button variant="ghost" type="submit">Sign out</Button>
   </form>
 </main>

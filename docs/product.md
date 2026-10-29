@@ -10,9 +10,9 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 - Autosave updates the author's working copy with optimistic concurrency checks. A deliberate Share / Update shared version action creates an immutable snapshot for reviewers. Never silently overwrite concurrent edits.
 - Share links are random bearer capabilities. Anyone possessing one can read and comment; this is unlisted access, not recipient authentication. Authors can revoke and later create a different link. Do not include draft content in link metadata, logs or analytics.
 - Comments and suggested replacement text attach to a revision and a stable post ID. Older-version feedback stays visible and labelled. Only the author can apply a suggestion or resolve feedback. No real-time co-editing.
-- Authors copy individual posts or thread text and download attachments for manual posting in X. Clipboard text cannot attach media to X; make that distinction explicit.
+- Authors copy individual posts or thread text and download attachments for manual posting in X. Distinguish “Copy text” from attachment downloads through the actions themselves, not persistent explanatory copy.
 - Mobile reviewers get the same readable post preview with feedback below the thread. Desktop feedback sits beside a fixed-width preview. Preview mode hides editing controls. No invented publication dates, verification or engagement counts.
-- Preview styling approximates X, not a guarantee of identical wrapping, crops or codec support on every device. Link cards, polls, quote posts, Premium formatting and automatic video transcoding are outside this MVP.
+- The composer and preview follow X's dark interface: typography, spacing, thread connectors, link treatment, weighted counts and media layouts. Keep LastPeek's identity in the surrounding interface. Rendering can differ across devices; document limitations rather than adding blanket disclaimers to the preview. Link cards, polls, quote posts, Premium formatting and automatic video transcoding are outside this MVP.
 - The entire application, accounts, database, media and maintenance run on one host. No required third-party application service. Portable container deployment; the official invite-only service runs on a Raspberry Pi, with optional Cloudflare Tunnel ingress.
 
 ## Next, not now
