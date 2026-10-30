@@ -75,8 +75,10 @@
       stroke-width="50"
       stroke-linejoin="round"
     />
-    {#each eyes.slice(0, 2) as eye, index}
+    {#each eyes.slice(0, 2) as eye}
       <circle class="brand-eye" cx={eye.x} cy={eye.y} r="215" />
+    {/each}
+    {#each eyes.slice(0, 2) as eye, index}
       <circle
         class="brand-pupil"
         cx={eye.x}
