@@ -5,6 +5,8 @@ import { mediaIds } from "../src/lib/contracts";
 import { avatarDir, avatarPath } from "../src/lib/server/avatars";
 try {
   await db.query("DELETE FROM sessions WHERE expires_at<now()");
+  await db.query('DELETE FROM auth_sessions WHERE "expiresAt"<now()');
+  await db.query('DELETE FROM auth_verifications WHERE "expiresAt"<now()');
   await db.query(
     "DELETE FROM rate_limits WHERE window_at<now()-interval '2 days'",
   );

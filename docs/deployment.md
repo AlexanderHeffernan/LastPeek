@@ -44,6 +44,8 @@ Do not print the full `docker inspect` environment or rendered Compose configura
 
 There is no default production account/password and no open registration. Bootstrap an administrator with a unique email and randomly generated password using `npm run db:seed` inside web, passing the password via exported environment, never a command-line literal or GitHub secret. Use the README's password-reset CLI for recovery; it invalidates existing sessions. Keep any initial credential file 0600 and remove it after delivery to the owner. Administrators invite authors from Settings; reviewers need no account.
 
+Better Auth runs locally, with no hosted auth or SMTP dependency. Its signing key is generated on first authentication and saved as `.auth-secret` (0600) in the persistent private media volume, unless `BETTER_AUTH_SECRET` is provided through the server environment. Back up hidden files too; if using the environment override, back that secret up separately. A database-only leak does not provide the key needed to sign session cookies. Never serve, print or commit this file. Losing/rotating the key signs out new-style sessions, not accounts. The additive authentication migration retains existing account IDs, password hashes and legacy sessions; password changes/recovery revoke both session formats. Rollbacks can still use the legacy account and session tables.
+
 The hosted service is a trusted-invitee trial. Per-author media quotas do not bound total draft/revision/comment text or total disk use. Monitor disk space, memory, restarts and public health. Do not invite untrusted users or promise durable storage before an encrypted off-device backup destination and alerting have been configured.
 
 ## Backups and recovery

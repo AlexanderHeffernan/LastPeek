@@ -1,7 +1,7 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import { sessionUser } from "$lib/server/auth";
 export const handle: Handle = async ({ event, resolve }) => {
-  event.locals.user = await sessionUser(event.cookies);
+  event.locals.user = await sessionUser(event);
   const response = await resolve(event);
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   response.headers.set("Referrer-Policy", "no-referrer");

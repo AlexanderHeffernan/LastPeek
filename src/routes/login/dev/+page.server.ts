@@ -1,6 +1,6 @@
 import { error, redirect } from "@sveltejs/kit";
 import { db } from "$lib/server/db";
-import { createSession, devSignIn } from "$lib/server/auth";
+import { createDevSession, devSignIn } from "$lib/server/auth";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = () => redirect(303, "/login");
@@ -14,7 +14,7 @@ export const actions: Actions = {
       ])
     ).rows[0];
     if (!user) error(400, "No seeded account. Run npm run db:seed first.");
-    await createSession(cookies, user.id, url.protocol === "https:");
+    await createDevSession(cookies, user.id, url.protocol === "https:");
     redirect(303, "/");
   },
 };

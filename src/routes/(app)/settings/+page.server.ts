@@ -6,7 +6,8 @@ import {
   hash,
   passwordHash,
   passwordMatches,
-  createSession,
+  signIn,
+  signOut,
   rateLimit,
 } from "$lib/server/auth";
 import { storageLimit } from "$lib/server/media";
@@ -79,7 +80,8 @@ export const actions: Actions = {
     );
     return { message: "Invitation revoked." };
   },
-  password: async ({ locals, request, cookies, url }) => {
+  password: async (event) => {
+    const { locals, request } = event;
     const user = requireUser(locals);
     await rateLimit(`password:${user.id}`, 10, 900);
     const form = await request.formData(),
@@ -102,16 +104,13 @@ export const actions: Actions = {
       ]);
       await client.query("DELETE FROM sessions WHERE user_id=$1", [user.id]);
     });
-    await createSession(cookies, user.id, url.protocol === "https:");
+    await signIn(event, user.email, next);
     return {
       message: "Password changed. Other sessions have been signed out.",
     };
   },
-  logout: async ({ cookies }) => {
-    const value = cookies.get("lastpeek_session");
-    if (value)
-      await db.query("DELETE FROM sessions WHERE hash=$1", [hash(value)]);
-    cookies.delete("lastpeek_session", { path: "/" });
+  logout: async (event) => {
+    await signOut(event);
     redirect(303, "/login");
   },
 };

@@ -31,6 +31,8 @@ npm run dev
 
 Open the address printed by Vite. Bootstrap creates an administrator and sample thread only when that email does not already exist. Passwords must be 12–256 characters. Existing accounts and passwords are never reset by seeding. Administrators create single-use seven-day invitations from Account settings; send the invitation yourself. No SMTP is needed.
 
+Authentication uses self-hosted Better Auth in the same server and database. Existing passwords, account IDs and active legacy sessions survive the migration. Public registration and generic auth API endpoints are disabled; invitation-only registration and local administrator recovery remain available. On the first authentication request, LastPeek creates an owner-readable `.auth-secret` in `MEDIA_DIR` for signing cookies. Keep the private media volume persistent and include hidden files in backups. Alternatively provide a random `BETTER_AUTH_SECRET` of at least 32 characters through your secret manager, and back it up separately. Losing or changing this key signs out Better Auth sessions; it does not delete accounts or drafts. No email service, social account or hosted auth subscription is required.
+
 ```sh
 ORIGIN=http://localhost:3000 npm run build
 npm start

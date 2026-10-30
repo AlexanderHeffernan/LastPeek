@@ -187,7 +187,7 @@
       ><Button variant="outline" type="submit">Update password</Button>
     </form>
   </section>
-  <form method="POST" action="?/logout">
+  <form method="POST" action="?/logout" use:enhance>
     <Button variant="ghost" type="submit">Sign out</Button>
   </form>
 </main>

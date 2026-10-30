@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFile, mkdir, rm } from "node:fs/promises";
 import {
   chromium,
@@ -11,7 +12,7 @@ import {
 import sharp from "sharp";
 import { db } from "../src/lib/server/db";
 import { featureAccess, setFeatureAccess } from "../src/lib/server/features";
-import { passwordHash } from "../src/lib/server/auth";
+import { passwordHash, token, hash as tokenHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
 import { avatarPath } from "../src/lib/server/avatars";
 import type { Content } from "../src/lib/contracts";
@@ -27,11 +28,11 @@ const userId = randomUUID(),
 const email = `test-${userId}@example.test`,
   strangerEmail = `test-${strangerId}@example.test`;
 
-async function login(page: Page, account: string) {
+async function login(page: Page, account: string, secret = password) {
   await page.goto(`${baseURL}/login`);
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Email", { exact: true }).fill(account);
-  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(secret);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("heading", { name: "Your drafts." }).waitFor();
 }
@@ -128,6 +129,26 @@ test(
         headers: { Origin: origin },
       });
       assert.equal(rejectedSignup.status(), 400);
+      // Better Auth's general-purpose endpoints are intentionally not public.
+      for (const path of [
+        "sign-up/email",
+        "sign-in/email",
+        "change-password",
+      ]) {
+        assert.equal(
+          (
+            await guest.request.post(`${baseURL}/api/auth/${path}`, {
+              data: {
+                name: "Uninvited",
+                email: `uninvited-${userId}@example.test`,
+                password,
+              },
+              headers: { Origin: origin },
+            })
+          ).status(),
+          404,
+        );
+      }
       assert.equal(
         (
           await db.query("SELECT 1 FROM users WHERE email=$1", [
@@ -136,7 +157,37 @@ test(
         ).rowCount,
         0,
       );
+      for (const account of [email, `missing-${userId}@example.test`]) {
+        await page.getByLabel("Email", { exact: true }).fill(account);
+        await page
+          .getByLabel("Password", { exact: true })
+          .fill("incorrect-password");
+        await page
+          .getByRole("button", { name: "Sign in", exact: true })
+          .click();
+        await page
+          .getByText("That email and password don’t match.", { exact: true })
+          .waitFor();
+      }
       await login(page, email);
+      const sessionCookie = (await owner.cookies()).find((cookie) =>
+        cookie.name.endsWith("lastpeek.session_token"),
+      );
+      assert.ok(
+        sessionCookie,
+        "password sign-in creates a Better Auth session",
+      );
+      assert.ok(sessionCookie.httpOnly);
+      assert.equal(sessionCookie.sameSite, "Lax");
+      const tampered = await browser.newContext();
+      await tampered.addCookies([
+        { ...sessionCookie, value: `${sessionCookie.value.slice(0, -1)}!` },
+      ]);
+      assert.equal(
+        new URL((await tampered.request.get(`${baseURL}/`)).url()).pathname,
+        "/login",
+      );
+      await tampered.close();
       await screenshot(page, "empty-drafts");
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByLabel("X handle", { exact: true }).fill("not valid!");
@@ -978,6 +1029,98 @@ test(
         0,
       );
       assert.equal((await guest.request.get(inviteURL)).status(), 404);
+
+      // Password changes and CLI recovery invalidate both new and pre-migration sessions.
+      const secondLogin = await browser.newContext();
+      const secondPage = await secondLogin.newPage();
+      await login(secondPage, invitedEmail);
+      const legacy = await browser.newContext();
+      const legacyToken = token();
+      const invitedId = (
+        await db.query("SELECT id FROM users WHERE email=$1", [invitedEmail])
+      ).rows[0].id;
+      await db.query(
+        "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+        [tokenHash(legacyToken), invitedId],
+      );
+      await legacy.addCookies([
+        { name: "lastpeek_session", value: legacyToken, url: baseURL },
+      ]);
+      assert.equal(
+        new URL((await legacy.request.get(`${baseURL}/settings`)).url())
+          .pathname,
+        "/settings",
+      );
+      const changedPassword = `changed-${randomUUID()}`;
+      await joining
+        .getByLabel("Current password", { exact: true })
+        .fill("incorrect-password");
+      await joining
+        .getByLabel("New password", { exact: true })
+        .fill(changedPassword);
+      await joining
+        .getByRole("button", { name: "Update password", exact: true })
+        .click();
+      await joining
+        .getByText("The current password doesn’t match.", { exact: true })
+        .waitFor();
+      await joining
+        .getByLabel("Current password", { exact: true })
+        .fill(password);
+      await joining
+        .getByLabel("New password", { exact: true })
+        .fill(changedPassword);
+      await joining
+        .getByRole("button", { name: "Update password", exact: true })
+        .click();
+      await joining
+        .getByText("Password changed. Other sessions have been signed out.", {
+          exact: true,
+        })
+        .waitFor();
+      for (const context of [secondLogin, legacy]) {
+        assert.equal(
+          new URL((await context.request.get(`${baseURL}/settings`)).url())
+            .pathname,
+          "/login",
+        );
+      }
+      await joining.reload();
+      await joining
+        .getByRole("heading", { name: "Change your password", exact: true })
+        .waitFor();
+      await joining
+        .getByRole("button", { name: "Sign out", exact: true })
+        .click();
+      await joining
+        .getByRole("button", { name: "Sign in", exact: true })
+        .waitFor();
+      assert.equal(
+        new URL((await invited.request.get(`${baseURL}/settings`)).url())
+          .pathname,
+        "/login",
+      );
+      await login(joining, invitedEmail, changedPassword);
+      const recoveredPassword = `recovered-${randomUUID()}`;
+      const recovery = spawnSync(
+        process.execPath,
+        ["--import", "tsx", "scripts/reset-password.ts", invitedEmail],
+        {
+          input: `${recoveredPassword}\n`,
+          encoding: "utf8",
+          env: process.env,
+        },
+      );
+      assert.equal(recovery.status, 0, recovery.stderr);
+      assert.match(recovery.stdout, /all existing sessions invalidated/);
+      assert.equal(
+        new URL((await invited.request.get(`${baseURL}/settings`)).url())
+          .pathname,
+        "/login",
+      );
+      await login(joining, invitedEmail, recoveredPassword);
+      await secondLogin.close();
+      await legacy.close();
       await invited.close();
       await page.getByRole("button", { name: "Remove photo" }).click();
       await page.getByText("Avatar removed.", { exact: true }).waitFor();

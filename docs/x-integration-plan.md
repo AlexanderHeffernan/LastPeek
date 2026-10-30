@@ -34,7 +34,7 @@ Published reference prices at the research date are US$0.010 per user read, US$0
 
 ### Server and data design
 
-Keep the existing SvelteKit server, PostgreSQL accounts and LastPeek sessions. X establishes identity; LastPeek still creates and validates its own session cookies. Follow the boundaries in [architecture.md](architecture.md), with X protocol operations in server-only code and route handlers adapting them to HTTP.
+Keep the existing SvelteKit server and PostgreSQL account IDs. Better Auth now handles local password sign-in and sessions; extend that foundation for X rather than adding a parallel OAuth/session implementation. X establishes identity, while sessions remain local to LastPeek. Follow the boundaries in [architecture.md](architecture.md), with provider configuration in server-only code and route handlers adapting it to HTTP. The current integration deliberately exposes no general-purpose Better Auth HTTP handler; add only the routes needed for approved social flows, with invitation and linking checks that cannot be bypassed by calling provider endpoints directly.
 
 Use OAuth 2.0 authorisation code flow with PKCE (`S256`), random state and short-lived, single-use authorisation attempts. Bind each attempt to its initiating browser and purpose: sign-in, invited registration or linking to a specific signed-in account. For linking, confirm the initiating LastPeek account is still authenticated on callback. Validate expiry, state and callback destination; prevent replay and arbitrary return redirects. Rate-limit initiation and callbacks and handle denial or upstream failure without leaking credentials.
 

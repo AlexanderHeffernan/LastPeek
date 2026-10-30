@@ -12,6 +12,11 @@ import {
   type RequestEvent,
 } from "@sveltejs/kit";
 import { db } from "./db";
+import { betterAuth } from "better-auth";
+import { parseSetCookieHeader, toCookieOptions } from "better-auth/cookies";
+import { APIError } from "better-auth/api";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const scrypt = promisify(scryptCallback);
 export const token = () => randomBytes(32).toString("base64url");
@@ -28,6 +33,90 @@ export async function passwordMatches(password: string, stored: string) {
   const bytes = Buffer.from(expected, "hex");
   return bytes.length === derived.length && timingSafeEqual(bytes, derived);
 }
+
+// Keep the signing key outside PostgreSQL: database session tokens alone must
+// not suffice to forge a signed cookie. The private media backup includes it.
+async function signingSecret() {
+  if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
+  const directory = process.env.MEDIA_DIR || "./data/media";
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, ".auth-secret");
+  try {
+    await writeFile(path, randomBytes(48).toString("base64url"), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const secret = await readFile(path, "utf8");
+  if (secret.length < 32) throw new Error("Invalid authentication signing key");
+  return secret;
+}
+
+let secret: ReturnType<typeof signingSecret> | undefined;
+const instances = new Map<string, ReturnType<typeof configureAuth>>();
+async function configureAuth(origin: string) {
+  return betterAuth({
+    appName: "LastPeek",
+    baseURL: origin,
+    secret: await (secret ??= signingSecret()),
+    database: db,
+    telemetry: { enabled: false },
+    logger: { disabled: true },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      minPasswordLength: 12,
+      maxPasswordLength: 256,
+      password: {
+        hash: passwordHash,
+        verify: ({ password, hash }) => passwordMatches(password, hash),
+      },
+    },
+    user: {
+      modelName: "users",
+      fields: {
+        emailVerified: "email_verified",
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+      },
+      additionalFields: {
+        // LastPeek's invite/recovery flows own this compatibility column.
+        legacyPassword: {
+          type: "string",
+          fieldName: "password_hash",
+          required: true,
+          input: false,
+          returned: false,
+        },
+      },
+    },
+    account: { modelName: "auth_accounts" },
+    session: {
+      modelName: "auth_sessions",
+      expiresIn: 30 * 86400,
+      // Every request checks PostgreSQL; recovery revokes access immediately.
+      cookieCache: { enabled: false },
+    },
+    verification: { modelName: "auth_verifications" },
+    advanced: {
+      database: { generateId: () => crypto.randomUUID() },
+      cookiePrefix: "lastpeek",
+      useSecureCookies: origin.startsWith("https:"),
+    },
+  });
+}
+
+function getAuth(origin: string) {
+  let instance = instances.get(origin);
+  if (!instance) {
+    instance = configureAuth(origin);
+    instances.set(origin, instance);
+  }
+  return instance;
+}
+
 export type User = {
   id: string;
   name: string;
@@ -36,7 +125,79 @@ export type User = {
   email: string;
   is_admin: boolean;
 };
-export async function sessionUser(cookies: Cookies): Promise<User | null> {
+function setAuthCookies(cookies: Cookies, headers: Headers) {
+  for (const [name, attributes] of parseSetCookieHeader(
+    headers.get("set-cookie") || "",
+  )) {
+    cookies.set(name, attributes.value, {
+      ...toCookieOptions(attributes),
+      path: attributes.path || "/",
+    });
+  }
+}
+
+export async function signIn(
+  event: Pick<RequestEvent, "cookies" | "url" | "request">,
+  email: string,
+  password: string,
+) {
+  const auth = await getAuth(event.url.origin);
+  try {
+    const result = await auth.api.signInEmail({
+      body: { email, password },
+      headers: event.request.headers,
+      returnHeaders: true,
+    });
+    setAuthCookies(event.cookies, result.headers);
+    // A successful new login must not leave an older identity cookie behind.
+    const legacy = event.cookies.get("lastpeek_session");
+    if (legacy)
+      await db.query("DELETE FROM sessions WHERE hash=$1", [hash(legacy)]);
+    event.cookies.delete("lastpeek_session", { path: "/" });
+    return true;
+  } catch (error) {
+    if (error instanceof APIError && error.status === "UNAUTHORIZED")
+      return false;
+    throw error;
+  }
+}
+
+export async function signOut(
+  event: Pick<RequestEvent, "cookies" | "url" | "request">,
+) {
+  const auth = await getAuth(event.url.origin);
+  const result = await auth.api.signOut({
+    headers: event.request.headers,
+    returnHeaders: true,
+  });
+  setAuthCookies(event.cookies, result.headers);
+  const legacy = event.cookies.get("lastpeek_session");
+  if (legacy)
+    await db.query("DELETE FROM sessions WHERE hash=$1", [hash(legacy)]);
+  event.cookies.delete("lastpeek_session", { path: "/" });
+}
+
+export async function sessionUser(event: RequestEvent): Promise<User | null> {
+  const { cookies } = event;
+  // Don't initialize auth or create its key for anonymous review/health requests.
+  const authCookie =
+    cookies.get("lastpeek.session_token") ||
+    cookies.get("__Secure-lastpeek.session_token");
+  if (authCookie) {
+    const auth = await getAuth(event.url.origin);
+    const result = await auth.api.getSession({
+      headers: event.request.headers,
+      returnHeaders: true,
+    });
+    setAuthCookies(cookies, result.headers);
+    if (!result.response) return null;
+    const user = await db.query(
+      "SELECT id,name,handle,avatar_id,email,is_admin FROM users WHERE id=$1",
+      [result.response.user.id],
+    );
+    return user.rows[0] ?? null;
+  }
+  // Existing author sessions remain usable until expiry; all new logins use Better Auth.
   const value = cookies.get("lastpeek_session");
   if (!value) return null;
   const result = await db.query(
@@ -45,11 +206,12 @@ export async function sessionUser(cookies: Cookies): Promise<User | null> {
   );
   return result.rows[0] ?? null;
 }
-export async function createSession(
+export async function createDevSession(
   cookies: Cookies,
   userId: string,
   secure: boolean,
 ) {
+  if (!devSignIn()) error(404, "Not found");
   const value = token();
   await db.query(
     "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '30 days')",

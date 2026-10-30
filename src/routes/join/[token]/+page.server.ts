@@ -1,7 +1,7 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { db, transaction } from "$lib/server/db";
-import { hash, passwordHash, createSession, rateLimit } from "$lib/server/auth";
+import { hash, passwordHash, signIn, rateLimit } from "$lib/server/auth";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   if (locals.user) redirect(303, "/");
@@ -19,7 +19,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     );
 };
 export const actions: Actions = {
-  default: async ({ request, params, cookies, url, getClientAddress }) => {
+  default: async (event) => {
+    const { request, params, getClientAddress } = event;
     await rateLimit(`join:${getClientAddress()}`, 10, 900);
     const form = await request.formData();
     const parsed = z
@@ -58,7 +59,7 @@ export const actions: Actions = {
         message:
           "This account could not be created. If you already have an account, sign in.",
       });
-    await createSession(cookies, userId, url.protocol === "https:");
+    await signIn(event, parsed.data.email, parsed.data.password);
     redirect(303, "/");
   },
 };
