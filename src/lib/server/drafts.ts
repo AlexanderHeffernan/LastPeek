@@ -20,6 +20,25 @@ export type Draft = {
   shared_revision: number | null;
   updated_at: Date;
 };
+export async function sharedDraft(shareToken: string) {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(shareToken))
+    error(404, "This review link is unavailable. It may have been revoked.");
+  const row = (
+    await db.query(
+      `SELECT d.id,d.shared_revision,r.content FROM drafts d
+       JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
+       WHERE d.share_token=$1`,
+      [shareToken],
+    )
+  ).rows[0];
+  if (!row)
+    error(404, "This review link is unavailable. It may have been revoked.");
+  return {
+    id: row.id as string,
+    shared_revision: row.shared_revision as number,
+    content: contentSchema.parse(row.content),
+  };
+}
 export async function ownedDraft(
   id: string,
   ownerId: string,

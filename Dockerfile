@@ -8,6 +8,7 @@ ENV ORIGIN=$ORIGIN
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 BODY_SIZE_LIMIT=55M MEDIA_DIR=/app/data/media
 ARG REVISION=unknown
 ENV APP_REVISION=$REVISION

@@ -582,7 +582,57 @@ test(
       const shared = await (await publishResponse).json();
       assert.equal(shared.revision, 1);
       const link = `${baseURL}/r/${shared.token}`;
+      // Messaging crawlers receive the real card without JavaScript or a session.
+      const robots = await guest.request.get(`${baseURL}/robots.txt`);
+      assert.match(await robots.text(), /Allow: \/r\//);
+      const crawlerPage = await guest.request.get(link, {
+        headers: { "User-Agent": "facebookexternalhit/1.1" },
+      });
+      const crawlerHTML = await crawlerPage.text();
+      assert.match(crawlerHTML, /property="og:image"/);
+      assert.match(crawlerHTML, /The best feedback starts with one question/);
+      const previewURL = `${link}/preview.png?v=1`;
+      const previewResponse = await guest.request.get(previewURL);
+      assert.equal(previewResponse.status(), 200);
+      assert.equal(previewResponse.headers()["content-type"], "image/png");
+      assert.equal(
+        previewResponse.headers()["cache-control"],
+        "private, no-store",
+      );
+      assert.match(previewResponse.headers()["x-robots-tag"], /noindex/);
+      const previewBytes = await previewResponse.body();
+      const previewSize = await sharp(previewBytes).metadata();
+      assert.equal(previewSize.width, 1200);
+      assert.equal(previewSize.height, 630);
+      assert.equal(
+        (
+          await guest.request.get(`${baseURL}/r/${"A".repeat(43)}/preview.png`)
+        ).status(),
+        404,
+      );
       await reviewer.goto(link);
+      assert.equal(
+        await reviewer.locator('meta[property="og:title"]').count(),
+        1,
+      );
+      assert.equal(
+        await reviewer
+          .locator('meta[property="og:description"]')
+          .getAttribute("content"),
+        initial,
+      );
+      assert.equal(
+        await reviewer
+          .locator('meta[property="og:image"]')
+          .getAttribute("content"),
+        previewURL,
+      );
+      assert.equal(
+        await reviewer
+          .locator('meta[name="twitter:card"]')
+          .getAttribute("content"),
+        "summary_large_image",
+      );
       assert.equal(
         (await guest.request.get(`${avatarURL}?key=${shared.token}`)).status(),
         200,
@@ -685,6 +735,23 @@ test(
           .fill("UPDATED SHARED WORDING"),
       );
       await reviewer.reload();
+      assert.equal(
+        await reviewer
+          .locator('meta[property="og:description"]')
+          .getAttribute("content"),
+        "UPDATED SHARED WORDING",
+      );
+      assert.notEqual(
+        await reviewer
+          .locator('meta[property="og:image"]')
+          .getAttribute("content"),
+        previewURL,
+      );
+      assert.notDeepEqual(
+        await (await guest.request.get(previewURL)).body(),
+        previewBytes,
+        "old image query parameters must not select an older shared revision",
+      );
       assert.ok(
         (await reviewer.locator("body").innerText()).includes(
           "UPDATED SHARED WORDING",
@@ -795,6 +862,8 @@ test(
         .getByRole("button", { name: "Share draft", exact: true })
         .waitFor();
       assert.equal((await guest.request.get(link)).status(), 404);
+      assert.equal((await guest.request.get(previewURL)).status(), 404);
+      assert.equal((await owner.request.get(previewURL)).status(), 404);
       assert.equal(
         (await guest.request.get(`${avatarURL}?key=${shared.token}`)).status(),
         404,

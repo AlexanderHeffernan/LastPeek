@@ -20,6 +20,16 @@
   let feedbackForm = $state<HTMLFormElement>();
   let sent = $state(false);
   let signingIn = $state(false);
+  const previewTitle = $derived(
+    `${data.content.author.name} · ${data.content.posts.length > 1 ? "Thread" : "Post"} for review`,
+  );
+  const previewDescription = $derived(
+    Array.from(data.content.posts[0].text.trim()).slice(0, 300).join("") ||
+      "Take a look and leave your feedback.",
+  );
+  const previewImage = $derived(
+    `${data.reviewURL}/preview.png?v=${data.revision}`,
+  );
   beforeNavigate(({ cancel }) => {
     if (body && !confirm("Leave without sending your feedback?")) cancel();
   });
@@ -47,7 +57,31 @@
     }
   }}
 />
-<svelte:head><title>A second look · LastPeek</title></svelte:head>
+<svelte:head>
+  <title>{previewTitle} · LastPeek</title>
+  <meta name="description" content={previewDescription} />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="LastPeek" />
+  <meta property="og:title" content={previewTitle} />
+  <meta property="og:description" content={previewDescription} />
+  <meta property="og:url" content={data.reviewURL} />
+  <meta property="og:image" content={previewImage} />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta
+    property="og:image:alt"
+    content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
+  />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={previewTitle} />
+  <meta name="twitter:description" content={previewDescription} />
+  <meta name="twitter:image" content={previewImage} />
+  <meta
+    name="twitter:image:alt"
+    content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
+  />
+</svelte:head>
 <header class="topbar">
   <Brand href="/login" /><a class="small muted" href="/login"
     >Sign in<Icon name="arrow" size={12} /></a
