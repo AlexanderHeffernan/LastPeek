@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import { page } from "$app/state";
+  import { appleLaunchImages } from "$lib/pwa";
   let { children } = $props();
 </script>
 
@@ -12,11 +13,15 @@
     /><meta property="og:title" content="Take a peek on LastPeek" /><meta
       property="og:description"
       content="A friend has something they’d like your thoughts on. Open their private review link."
-    />{/if}<meta
-    name="robots"
-    content="noindex,nofollow,noarchive"
-  /></svelte:head
->
+    />{/if}<meta name="robots" content="noindex,nofollow,noarchive" />
+  {#each appleLaunchImages as image}
+    <link
+      rel="apple-touch-startup-image"
+      href={image.href}
+      media={image.media}
+    />
+  {/each}
+</svelte:head>
 <div class="app-content">{@render children()}</div>
 <footer class="footer-note">
   LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"

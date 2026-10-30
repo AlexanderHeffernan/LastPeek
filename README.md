@@ -64,6 +64,14 @@ Export `SEED_PASSWORD` in your shell before the bootstrap command, or supply it 
 
 Previews approximate X, not pixel-perfect parity. Avatars currently use initials; identity is entered manually. No link-card scraping, polls, quotes, Premium rich text, transcoding, real-time co-editing or automatic X sync. The previous Safari/HTML prototype is preserved in the first Git commit, not maintained as a second app in the active tree.
 
+## Installed web app
+
+In iPhone/iPad Safari, use **Share → Add to Home Screen** (enable **Open as Web App** if offered). Desktop Chrome/Edge and Android Chrome offer installation from their browser menu. LastPeek opens in its own window with a dark launch screen, its own icon, and safe-area spacing. Apple launch images cover common full-screen phone/tablet sizes in both orientations; iPad multitasking and future screen sizes may use the OS fallback.
+
+The app still needs a connection. A small service worker caches **only** a public offline retry page, never drafts, review links, accounts, or media. Failed edits retain the existing inline save errors; nothing is queued for background submission. Updates wait until existing app windows close rather than replacing an active composer. iOS controls when installed icons and launch screens refresh; an existing installation may need to be removed and added again to refresh its install assets (save any open edits first).
+
+`npm run pwa:generate` rebuilds the checked-in icons and Apple launch images from `static/favicon.svg`. Screen sizes and matching launch links share `src/lib/pwa.ts`.
+
 ## Optional AI second look
 
 Set `OPENAI_API_KEY` in the server's secret environment and restart web, then explicitly grant the account `ai-review` to enable **AI second look** beside author feedback. All accounts, including admins, default to off. With no key or grant, the control is hidden and the complete human-review workflow remains available. See [feature access and agent operations](docs/operations.md) for the audited CLI and restricted Pi tools. Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; overrides must support Responses structured outputs and low reasoning effort.

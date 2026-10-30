@@ -71,6 +71,113 @@ async function screenshot(page: Page, name: string) {
 }
 
 test(
+  "installed app assets and private, network-only offline recovery",
+  { timeout: 60000 },
+  async () => {
+    const browser = await engine.launch();
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+    });
+    const page = await context.newPage();
+    try {
+      await page.goto(`${baseURL}/login`);
+      const manifestLink = await page
+        .locator('link[rel="manifest"]')
+        .getAttribute("href");
+      assert.equal(manifestLink, "/manifest.webmanifest");
+      const manifest = await (
+        await context.request.get(`${baseURL}${manifestLink}`)
+      ).json();
+      assert.equal(manifest.display, "standalone");
+      assert.equal(
+        manifest.start_url,
+        "/",
+        "installation must not retain a private review URL",
+      );
+      for (const icon of manifest.icons) {
+        const response = await context.request.get(`${baseURL}${icon.src}`);
+        assert.equal(response.status(), 200);
+        const metadata = await sharp(await response.body()).metadata();
+        assert.equal(`${metadata.width}x${metadata.height}`, icon.sizes);
+      }
+      const launches = await page
+        .locator('link[rel="apple-touch-startup-image"]')
+        .evaluateAll((links) =>
+          links.map((link) => ({
+            href: (link as HTMLLinkElement).getAttribute("href")!,
+            media: (link as HTMLLinkElement).media,
+          })),
+        );
+      assert.ok(launches.length >= 2);
+      for (const launch of launches) {
+        const response = await context.request.get(`${baseURL}${launch.href}`);
+        assert.equal(response.status(), 200, launch.href);
+        const metadata = await sharp(await response.body()).metadata();
+        const [, width, height] = launch.href.match(/launch-(\d+)x(\d+)/)!;
+        const landscape = launch.media.includes("landscape");
+        assert.equal(metadata.width, Number(landscape ? height : width));
+        assert.equal(metadata.height, Number(landscape ? width : height));
+      }
+      await page.evaluate(() => navigator.serviceWorker.ready);
+      await page.reload();
+      await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+      const missing = await page.goto(`${baseURL}/does-not-exist`);
+      assert.equal(
+        missing?.status(),
+        404,
+        "HTTP errors must not be disguised as offline",
+      );
+      await page.goto(`${baseURL}/login`);
+      await context.setOffline(true);
+      await page.reload();
+      await page.getByRole("heading", { name: "You’re offline." }).waitFor();
+      assert.equal(
+        page.url(),
+        `${baseURL}/login`,
+        "retry retains the requested destination",
+      );
+      assert.equal(
+        await page.evaluate(async () => {
+          try {
+            await fetch("/api/drafts/not-a-draft", { method: "POST" });
+            return "sent";
+          } catch {
+            return "failed";
+          }
+        }),
+        "failed",
+        "offline writes must fail, never report a queued save",
+      );
+      const cached = await page.evaluate(async () => {
+        const keys = await caches.keys();
+        return (
+          await Promise.all(
+            keys.map(async (key) =>
+              (await (await caches.open(key)).keys()).map(
+                (request) => new URL(request.url).pathname,
+              ),
+            ),
+          )
+        ).flat();
+      });
+      assert.deepEqual(
+        cached,
+        ["/offline.html"],
+        "no private page, capability, API or media in Cache Storage",
+      );
+      await screenshot(page, "pwa-offline");
+      await context.setOffline(false);
+      await page.getByRole("button", { name: "Try again" }).click();
+      await page
+        .getByRole("button", { name: "Sign in", exact: true })
+        .waitFor();
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+test(
   "author → private draft → media → live guest review → revoke",
   { timeout: 150000 },
   async () => {
@@ -1343,6 +1450,23 @@ test(
       }
       await action(owner.request, focusId, { action: "revoke" });
       assert.equal((await guest.request.get(focusLink)).status(), 404);
+      for (const window of [page, reviewer]) {
+        const cachedPaths = await window.evaluate(async () => {
+          const entries = await Promise.all(
+            (await caches.keys()).map(async (key) =>
+              (await (await caches.open(key)).keys()).map(
+                (request) => new URL(request.url).pathname,
+              ),
+            ),
+          );
+          return entries.flat();
+        });
+        assert.deepEqual(
+          cachedPaths,
+          ["/offline.html"],
+          "private author/reviewer workflows must not populate offline storage",
+        );
+      }
       assert.deepEqual(crashes, [], "no browser exceptions");
     } catch (error) {
       console.error("Browser exceptions:", crashes);

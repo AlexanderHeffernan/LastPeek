@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0b0c" />
+    <meta name="color-scheme" content="dark" />
+    <title>LastPeek — Offline</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        background: #0b0b0c;
+        color: #f2f0ec;
+        font:
+          16px Arial,
+          Helvetica,
+          sans-serif;
+        padding: max(24px, env(safe-area-inset-top))
+          max(24px, env(safe-area-inset-right))
+          max(24px, env(safe-area-inset-bottom))
+          max(24px, env(safe-area-inset-left));
+      }
+      main {
+        max-width: 320px;
+        text-align: center;
+      }
+      svg {
+        width: 72px;
+        height: 72px;
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: -1px;
+        margin: 0 0 16px;
+      }
+      p {
+        color: #9a9894;
+        line-height: 1.6;
+        margin: 0 0 28px;
+      }
+      button {
+        min-height: 44px;
+        border: 0;
+        border-radius: 999px;
+        background: #ff6b5b;
+        color: #1f0805;
+        padding: 12px 24px;
+        font:
+          bold 15px Arial,
+          Helvetica,
+          sans-serif;
+        cursor: pointer;
+      }
+      button:focus-visible {
+        outline: 2px solid #ff6b5b;
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 64 64"
+        role="img"
+        aria-label="LastPeek"
+      >
+        <rect width="64" height="64" rx="16" fill="#161618" />
+        <g transform="translate(6 41.9) scale(.0419)">
+          <g fill="#ff6b5b" stroke="#ff6b5b">
+            <rect y="-764" width="1240" height="820" rx="300" />
+            <path
+              d="M190 -20L120 250L470 40Z"
+              stroke-width="50"
+              stroke-linejoin="round"
+            />
+          </g>
+          <g fill="#f2f0ec">
+            <circle cx="430" cy="-354" r="215" />
+            <circle cx="830" cy="-354" r="215" />
+          </g>
+          <g fill="#0b0b0c">
+            <circle cx="505" cy="-354" r="100" />
+            <circle cx="905" cy="-354" r="100" />
+          </g>
+        </g>
+      </svg>
+      <h1>You’re offline.</h1>
+      <p>
+        Reconnect to open LastPeek. If you have unsaved edits in another window,
+        keep it open until they’re saved.
+      </p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>
