@@ -296,6 +296,100 @@ test(
       );
       await tampered.close();
       await screenshot(page, "empty-drafts");
+      // Created order deliberately differs from updated order; search includes replies.
+      const feedIds = [randomUUID(), randomUUID(), randomUUID()];
+      for (const [index, feedId] of feedIds.entries()) {
+        const content: Content = {
+          title: "",
+          author: { name: "Old profile", handle: "old" },
+          posts: [
+            { id: randomUUID(), text: `Feed example ${index}`, media: [] },
+          ],
+        };
+        if (index === 1)
+          content.posts.push({
+            id: randomUUID(),
+            text: "Hidden kiwi reply",
+            media: [],
+          });
+        await db.query(
+          `INSERT INTO drafts(id,owner_id,content,created_at,updated_at)
+           VALUES($1,$2,$3,now()-($4::int * interval '1 day'),now()-($5::int * interval '1 hour'))`,
+          [
+            feedId,
+            userId,
+            JSON.stringify(content),
+            3 - index,
+            [1, 3, 2][index],
+          ],
+        );
+      }
+      await action(owner.request, feedIds[1], {
+        action: "publish",
+        version: 1,
+      });
+      await db.query(
+        "INSERT INTO comments(id,draft_id,revision,post_id,name,body,resolved) SELECT $1,id,shared_revision,(content->'posts'->0->>'id')::uuid,'Reviewer','Check this',false FROM drafts WHERE id=$2",
+        [randomUUID(), feedIds[1]],
+      );
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+      const feedLinks = page.getByRole("link", { name: /^Open draft:/ });
+      const feedOrder = () =>
+        feedLinks.evaluateAll((links) =>
+          links.map((link) => link.getAttribute("href")?.split("/").at(-1)),
+        );
+      assert.deepEqual(await feedOrder(), [feedIds[0], feedIds[2], feedIds[1]]);
+      await page
+        .getByRole("button", { name: "With feedback", exact: true })
+        .click();
+      assert.equal(
+        await feedLinks
+          .first()
+          .getByText("1 open comment", { exact: true })
+          .count(),
+        1,
+      );
+      assert.equal(
+        await feedLinks.first().getByText("Alex", { exact: true }).count(),
+        1,
+        "feed uses current profile",
+      );
+      await page.getByRole("button", { name: "All", exact: true }).click();
+      await page.getByLabel("Sort drafts").selectOption("oldest");
+      assert.deepEqual(await feedOrder(), feedIds);
+      await page.getByLabel("Sort drafts").selectOption("newest");
+      assert.deepEqual(await feedOrder(), [...feedIds].reverse());
+      await page
+        .getByRole("button", { name: "With feedback", exact: true })
+        .click();
+      assert.deepEqual(await feedOrder(), [feedIds[1]]);
+      await page.getByLabel("Search drafts").fill("  KIWI  ");
+      assert.deepEqual(await feedOrder(), [feedIds[1]]);
+      await page.getByRole("button", { name: "Private", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "No matching drafts." })
+        .waitFor();
+      await page
+        .getByRole("button", { name: "Clear search and filters" })
+        .click();
+      assert.equal(await feedLinks.count(), 3);
+      await page.getByRole("button", { name: "Shared", exact: true }).click();
+      assert.deepEqual(await feedOrder(), [feedIds[1]]);
+      const profileSave = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/drafts/${feedIds[1]}`) &&
+          response.request().postDataJSON()?.action === "save",
+      );
+      await feedLinks.first().click();
+      await page.getByLabel("Post 2 text", { exact: true }).waitFor();
+      assert.equal((await profileSave).status(), 200);
+      await page.getByText("All changes saved", { exact: true }).waitFor();
+      await page
+        .getByRole("link", { name: "LastPeek home", exact: true })
+        .click();
+      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      await db.query("DELETE FROM drafts WHERE id=ANY($1::uuid[])", [feedIds]);
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByLabel("X handle", { exact: true }).fill("not valid!");
       await page.getByRole("button", { name: "Save profile" }).click();

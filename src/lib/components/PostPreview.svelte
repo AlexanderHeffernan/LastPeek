@@ -21,6 +21,7 @@
     oncopy,
     onfocuspost,
     focusedPost,
+    timeline = false,
   }: {
     content: Content;
     media: Media[];
@@ -31,6 +32,7 @@
     oncopy?: (text: string) => void;
     onfocuspost?: (postId: string, quote: string) => void;
     focusedPost?: string;
+    timeline?: boolean;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -162,7 +164,9 @@
               rows={1}
             ></Textarea>{/if}
           <p class="post-text" aria-hidden={editing ? "true" : undefined}>
-            {#each textParts(post.text) as part}{#if part.href}<a
+            {#each textParts(post.text) as part}{#if part.href && timeline}<span
+                  class="post-link">{part.text}</span
+                >{:else if part.href}<a
                   href={part.href}
                   tabindex={editing ? -1 : undefined}
                   target="_blank"
@@ -191,15 +195,20 @@
               {#if item}<div class="media-item">
                   {#if item.mime.startsWith("video/")}<video
                       src={mediaURL(id, token)}
-                      controls
+                      controls={!timeline}
                       playsinline
                       preload="metadata"
                       aria-label={`Video on post ${index + 1}`}
-                      ><track kind="captions" /><a
-                        href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
-                        >Download video</a
-                      ></video
+                      ><track kind="captions" />{#if !timeline}<a
+                          href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
+                          >Download video</a
+                        >{/if}</video
                     >
+                  {:else if timeline}<img
+                      src={mediaURL(id, token)}
+                      alt={item.filename}
+                      loading="lazy"
+                    />
                   {:else}<a
                       href={mediaURL(id, token)}
                       target="_blank"
@@ -229,7 +238,7 @@
                           onchange();
                         }}><Icon name="close" size={13} /></Button
                       >
-                    </div>{:else if item.mime.startsWith("video/")}<div
+                    </div>{:else if !timeline && item.mime.startsWith("video/")}<div
                       class="media-actions"
                     >
                       <Button
