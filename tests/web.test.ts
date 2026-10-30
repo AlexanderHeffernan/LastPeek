@@ -224,6 +224,39 @@ test(
           .getAttribute("href"),
         "https://github.com/AlexanderHeffernan/LastPeek",
       );
+      // Native forms must work before hydration or with JavaScript disabled.
+      const native = await browser.newContext({
+        javaScriptEnabled: false,
+        viewport: { width: 390, height: 844 },
+      });
+      const nativePage = await native.newPage();
+      const nativeLogin = await nativePage.goto(`${baseURL}/login`);
+      assert.equal(nativeLogin?.headers()["referrer-policy"], "strict-origin");
+      await login(nativePage, email);
+      await nativePage.goto(`${baseURL}/settings`);
+      await nativePage
+        .getByRole("heading", { name: "Account.", exact: true })
+        .waitFor();
+      await nativePage
+        .getByRole("button", { name: "Sign out", exact: true })
+        .click();
+      await nativePage
+        .getByRole("button", { name: "Sign in", exact: true })
+        .waitFor();
+      assert.equal(
+        new URL((await native.request.get(`${baseURL}/settings`)).url())
+          .pathname,
+        "/login",
+      );
+      await native.close();
+      // Restoring the browser's origin must not trust cross-site or opaque origins.
+      for (const submittedOrigin of ["https://not-lastpeek.example", "null"]) {
+        const rejected = await guest.request.post(`${baseURL}/login`, {
+          form: { email, password },
+          headers: { Origin: submittedOrigin },
+        });
+        assert.equal(rejected.status(), 403);
+      }
       // A plausible signup request must not bypass the invitation capability.
       const invalidInvite = `${baseURL}/join/${"A".repeat(43)}`;
       assert.equal((await guest.request.get(invalidInvite)).status(), 404);
@@ -840,12 +873,14 @@ test(
       const crawlerPage = await guest.request.get(link, {
         headers: { "User-Agent": "facebookexternalhit/1.1" },
       });
+      assert.equal(crawlerPage.headers()["referrer-policy"], "no-referrer");
       const crawlerHTML = await crawlerPage.text();
       assert.match(crawlerHTML, /property="og:image"/);
       assert.match(crawlerHTML, /The best feedback starts with one question/);
       const previewURL = `${link}/preview.png?v=1`;
       const previewResponse = await guest.request.get(previewURL);
       assert.equal(previewResponse.status(), 200);
+      assert.equal(previewResponse.headers()["referrer-policy"], "no-referrer");
       assert.equal(previewResponse.headers()["content-type"], "image/png");
       assert.equal(
         previewResponse.headers()["cache-control"],
@@ -1209,9 +1244,13 @@ test(
       const invite = page.getByLabel("Invitation link", { exact: true });
       await invite.waitFor();
       const inviteURL = await invite.inputValue();
-      const invited = await browser.newContext();
+      const invited = await browser.newContext({ javaScriptEnabled: false });
       const joining = await invited.newPage();
-      await joining.goto(inviteURL);
+      const invitationPage = await joining.goto(inviteURL);
+      assert.equal(
+        invitationPage?.headers()["referrer-policy"],
+        "strict-origin",
+      );
       await joining.waitForLoadState("networkidle");
       await screenshot(joining, "join");
       await joining
