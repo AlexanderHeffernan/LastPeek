@@ -12,6 +12,8 @@
   import X from "phosphor-svelte/lib/X";
   import Trash from "phosphor-svelte/lib/Trash";
   import DownloadSimple from "phosphor-svelte/lib/DownloadSimple";
+  import Sparkle from "phosphor-svelte/lib/Sparkle";
+  import CaretDown from "phosphor-svelte/lib/CaretDown";
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const icons = {
     eye: Eye,
@@ -27,6 +29,8 @@
     close: X,
     trash: Trash,
     download: DownloadSimple,
+    sparkle: Sparkle,
+    down: CaretDown,
   };
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>

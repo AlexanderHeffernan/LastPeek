@@ -19,6 +19,8 @@
     onchange = () => {},
     onupload = () => {},
     oncopy,
+    onfocuspost,
+    focusedPost,
   }: {
     content: Content;
     media: Media[];
@@ -27,6 +29,8 @@
     onchange?: () => void;
     onupload?: (postId: string, files: File[]) => void;
     oncopy?: (text: string) => void;
+    onfocuspost?: (postId: string, quote: string) => void;
+    focusedPost?: string;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -66,13 +70,49 @@
   }
 </script>
 
+<svelte:document
+  onselectionchange={() => {
+    if (editing || !onfocuspost) return;
+    const selection = window.getSelection();
+    const text = selection?.anchorNode?.parentElement?.closest(".post-text");
+    const postId = text?.closest<HTMLElement>("article")?.dataset.postId;
+    if (
+      postId &&
+      selection?.toString().trim() &&
+      text?.contains(selection.focusNode) &&
+      content.posts.some((p) => p.id === postId)
+    ) {
+      onfocuspost(postId, selection.toString());
+    }
+  }}
+/>
 <section aria-label="Post thread">
   {#each content.posts as post, index (post.id)}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <article
       class="post"
+      data-post-id={post.id}
+      class:feedback-focused={focusedPost === post.id}
       class:inactive={editing && content.posts.length > 1 && post.id !== active}
       aria-label={`Post ${index + 1}`}
       onfocusin={() => (activeId = post.id)}
+      onclick={(event) => {
+        if (
+          !onfocuspost ||
+          (event.target as Element).closest("a,button,input,video")
+        )
+          return;
+        const selection = window.getSelection();
+        const text = event.currentTarget.querySelector(".post-text");
+        const quote =
+          selection &&
+          text?.contains(selection.anchorNode) &&
+          text.contains(selection.focusNode)
+            ? selection.toString()
+            : "";
+        onfocuspost(post.id, quote);
+      }}
     >
       <div class="avatar" aria-hidden="true">
         {#if content.author.avatar}<img
@@ -96,9 +136,7 @@
                 title="Remove post"
                 onclick={async () => {
                   if (
-                    !confirm(
-                      "Remove this post from the working draft? Shared versions and feedback will stay.",
-                    )
+                    !confirm("Remove this post? Existing feedback will stay.")
                   )
                     return;
                   const previous = content.posts[Math.max(index - 1, 0)];
@@ -132,6 +170,16 @@
                 >{:else}{part.text}{/if}{/each}
           </p>
         </div>
+        {#if onfocuspost}<Button
+            variant="ghost"
+            class="post-feedback-button"
+            aria-label={`Comment on post ${index + 1}`}
+            aria-pressed={focusedPost === post.id}
+            onclick={() => onfocuspost?.(post.id, "")}
+            ><Icon name="comment" size={16} />{focusedPost === post.id
+              ? "Selected for feedback"
+              : "Comment"}</Button
+          >{/if}
         {#if post.media.length}<div
             class="media-grid"
             class:multi={post.media.length > 1}

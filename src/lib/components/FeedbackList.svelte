@@ -8,18 +8,18 @@
     content,
     onresolve,
     onapply,
-    onversion,
+    emptyText = "No feedback yet.",
   }: {
     comments: Feedback[];
     revision: number | null;
     content: Content;
     onresolve?: (comment: Feedback) => void;
     onapply?: (comment: Feedback) => void;
-    onversion?: (revision: number) => void;
+    emptyText?: string;
   } = $props();
 </script>
 
-{#if !comments.length}<div class="feedback-empty">No feedback yet.</div>{/if}
+{#if !comments.length}<div class="feedback-empty">{emptyText}</div>{/if}
 {#each comments as comment (comment.id)}
   {@const index = content.posts.findIndex((p) => p.id === comment.post_id)}
   <article
@@ -33,20 +33,23 @@
         <strong>{comment.name}</strong>
         <div><small>{relativeTime(comment.created_at)}</small></div>
       </div>
-      <Badge
-        variant="secondary"
-        style="margin-left:auto"
-        class={[comment.revision !== revision && "old"]}
-        >v{comment.revision}{comment.revision !== revision
-          ? " · Earlier version"
-          : ""}</Badge
-      >
+      {#if comment.revision !== revision}<Badge
+          variant="secondary"
+          style="margin-left:auto"
+          class={[comment.revision !== revision && "old"]}
+          >Earlier feedback</Badge
+        >{/if}
     </div>
     <div class="small muted">
-      {index >= 0
-        ? `On post ${index + 1}`
-        : "On a removed post"}{comment.resolved ? " · Resolved" : ""}
+      {!comment.post_id
+        ? "General feedback"
+        : index >= 0
+          ? `On post ${index + 1}`
+          : "On a removed post"}{comment.resolved ? " · Resolved" : ""}
     </div>
+    {#if comment.quote}<blockquote class="feedback-quote">
+        {comment.quote}
+      </blockquote>{/if}
     <p class="comment">{comment.body}</p>
     {#if comment.suggestion}<div class="suggestion">
         <div class="eyebrow" style="margin-bottom:8px">Suggestion</div>
@@ -60,10 +63,6 @@
           variant="ghost"
           onclick={() => onresolve?.(comment)}
           >{comment.resolved ? "Reopen" : "Resolve"}</Button
-        >{/if}{#if onversion && comment.revision !== revision}<Button
-          variant="ghost"
-          onclick={() => onversion?.(comment.revision)}
-          >View v{comment.revision}</Button
         >{/if}
     </div>
   </article>

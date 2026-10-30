@@ -84,11 +84,40 @@ export async function saveDraft(
         409,
         "This draft changed in another tab. Your edits are still here. Copy them before reloading.",
       );
+    const draft = await ownedDraft(id, userId, client);
+    let revision = draft.shared_revision;
+    if (draft.share_token) {
+      revision = await snapshotDraft(client, draft);
+      await client.query("UPDATE drafts SET shared_revision=$1 WHERE id=$2", [
+        revision,
+        id,
+      ]);
+    }
     return {
       version: result.rows[0].edit_version as number,
       author: content.author,
+      revision,
     };
   });
+}
+
+async function snapshotDraft(client: PoolClient, draft: Draft) {
+  const last = await client.query(
+    "SELECT number,content FROM revisions WHERE draft_id=$1 ORDER BY number DESC LIMIT 1",
+    [draft.id],
+  );
+  let number = last.rows[0]?.number ?? 0;
+  if (
+    !last.rows[0] ||
+    JSON.stringify(last.rows[0].content) !== JSON.stringify(draft.content)
+  ) {
+    number++;
+    await client.query(
+      "INSERT INTO revisions(draft_id,number,content) VALUES($1,$2,$3)",
+      [draft.id, number, JSON.stringify(draft.content)],
+    );
+  }
+  return number;
 }
 export async function publishDraft(
   id: string,
@@ -99,26 +128,10 @@ export async function publishDraft(
     await client.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [id]);
     const draft = await ownedDraft(id, userId, client);
     if (draft.edit_version !== version)
-      error(409, "The draft changed. Save the latest version before sharing.");
+      error(409, "The draft changed. Save your latest edits before sharing.");
     if (!hasContent(draft.content))
       error(400, "Write a post or add media before sharing.");
-    if (draft.content.posts.some((p) => !p.text.trim() && !p.media.length))
-      error(400, "Remove empty posts before sharing.");
-    const last = await client.query(
-      "SELECT number,content FROM revisions WHERE draft_id=$1 ORDER BY number DESC LIMIT 1",
-      [id],
-    );
-    let number = last.rows[0]?.number ?? 0;
-    if (
-      !last.rows[0] ||
-      JSON.stringify(last.rows[0].content) !== JSON.stringify(draft.content)
-    ) {
-      number++;
-      await client.query(
-        "INSERT INTO revisions(draft_id,number,content) VALUES($1,$2,$3)",
-        [id, number, JSON.stringify(draft.content)],
-      );
-    }
+    const number = await snapshotDraft(client, draft);
     const shareToken = draft.share_token ?? token();
     await client.query(
       "UPDATE drafts SET share_token=$1,shared_revision=$2 WHERE id=$3",
@@ -138,7 +151,7 @@ export async function draftMedia(id: string): Promise<Media[]> {
 export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
-      "SELECT id,revision,post_id,name,body,suggestion,resolved,created_at FROM comments WHERE draft_id=$1 ORDER BY created_at DESC",
+      "SELECT id,revision,post_id,name,body,suggestion,quote,resolved,created_at FROM comments WHERE draft_id=$1 ORDER BY created_at DESC",
       [id],
     )
   ).rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));

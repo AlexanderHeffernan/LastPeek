@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db, transaction } from "$lib/server/db";
 import { rateLimit } from "$lib/server/auth";
 import { draftComments, draftMedia } from "$lib/server/drafts";
-import { mediaIds } from "$lib/contracts";
+import { mediaIds, contentSchema } from "$lib/contracts";
 import type { Actions, PageServerLoad } from "./$types";
 async function sharedDraft(token: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token))
@@ -18,44 +18,37 @@ async function sharedDraft(token: string) {
     error(404, "This review link is unavailable. It may have been revoked.");
   return draft;
 }
-export const load: PageServerLoad = async ({ params, url }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
   const draft = await sharedDraft(params.token);
-  const revisions = (
+  const revision = (
     await db.query(
-      "SELECT number,content,created_at FROM revisions WHERE draft_id=$1 ORDER BY number DESC",
-      [draft.id],
+      "SELECT content FROM revisions WHERE draft_id=$1 AND number=$2",
+      [draft.id, draft.shared_revision],
     )
-  ).rows;
-  const requested = url.searchParams.get("v");
-  const selected = requested ? Number(requested) : draft.shared_revision;
-  const revision = revisions.find((r) => r.number === selected);
-  if (!revision) error(404, "This version is unavailable.");
-  const allowedIds = new Set(revisions.flatMap((r) => mediaIds(r.content)));
+  ).rows[0];
+  if (!revision) error(404, "This draft is unavailable.");
+  const allowedIds = new Set(mediaIds(revision.content));
   return {
     token: params.token,
-    content: revision.content,
-    revision: selected,
-    latest: draft.shared_revision,
-    revisions: revisions.map((r) => ({
-      number: r.number,
-      created_at: r.created_at.toISOString(),
-    })),
+    reviewerName: locals.user?.name ?? null,
+    content: contentSchema.parse(revision.content),
+    revision: draft.shared_revision,
     media: (await draftMedia(draft.id)).filter((m) => allowedIds.has(m.id)),
     comments: await draftComments(draft.id),
   };
 };
 export const actions: Actions = {
-  comment: async ({ request, params, getClientAddress }) => {
+  comment: async ({ request, params, locals, getClientAddress }) => {
     await rateLimit(`feedback:${getClientAddress()}`, 15, 600);
     const draft = await sharedDraft(params.token);
     const form = await request.formData();
     const parsed = z
       .object({
-        name: z.string().trim().min(1).max(80),
+        name: z.string().trim().max(80),
         body: z.string().trim().min(1).max(2000),
-        suggestion: z.string().max(25000).optional(),
         revision: z.coerce.number().int().positive(),
-        postId: z.uuid(),
+        postId: z.union([z.uuid(), z.literal("")]).default(""),
+        quote: z.string().max(25000).default(""),
       })
       .safeParse(Object.fromEntries(form));
     if (!parsed.success)
@@ -63,14 +56,27 @@ export const actions: Actions = {
         message: "Add your name and a comment (up to 2,000 characters).",
         success: false,
       });
-    const { name, body, suggestion, revision, postId } = parsed.data;
+    const { body, revision, postId, quote } = parsed.data;
+    const name = locals.user?.name ?? parsed.data.name;
+    if (!name)
+      return fail(400, {
+        message: "Enter a name to send your feedback.",
+        success: false,
+      });
     const snapshot = (
       await db.query(
         "SELECT content FROM revisions WHERE draft_id=$1 AND number=$2",
         [draft.id, revision],
       )
     ).rows[0];
-    if (!snapshot?.content.posts.some((p: { id: string }) => p.id === postId))
+    const post = snapshot?.content.posts.find(
+      (p: { id: string }) => p.id === postId,
+    );
+    if (
+      !snapshot ||
+      (postId && !post) ||
+      (quote && (!post || !post.text.includes(quote)))
+    )
       return fail(400, {
         message: "That post is not in this version. Refresh the page.",
         success: false,
@@ -83,15 +89,15 @@ export const actions: Actions = {
       );
       if (!active.rowCount) error(404, "This review link is unavailable.");
       await client.query(
-        "INSERT INTO comments(id,draft_id,revision,post_id,name,body,suggestion) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote) VALUES($1,$2,$3,$4,$5,$6,$7)",
         [
           crypto.randomUUID(),
           draft.id,
           revision,
-          postId,
+          postId || null,
           name,
           body,
-          suggestion?.trim() || null,
+          quote || null,
         ],
       );
     });

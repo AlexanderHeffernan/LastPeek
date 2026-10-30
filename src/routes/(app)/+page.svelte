@@ -42,9 +42,7 @@
           href={`/drafts/${draft.id}`}
           ><div class="row between">
             <Badge variant="secondary" class={[draft.shared && "brand-tint"]}
-              >{draft.shared
-                ? `Shared · v${draft.shared_revision}`
-                : "Only you"}</Badge
+              >{draft.shared ? "Shared" : "Only you"}</Badge
             ><Icon name="arrow" size={17} />
           </div>
           <div class="draft-excerpt">

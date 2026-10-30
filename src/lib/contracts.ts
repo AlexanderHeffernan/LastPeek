@@ -47,7 +47,8 @@ export type Media = {
 export type Feedback = {
   id: string;
   revision: number;
-  post_id: string;
+  post_id: string | null;
+  quote: string | null;
   name: string;
   body: string;
   suggestion: string | null;

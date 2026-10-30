@@ -70,7 +70,7 @@ async function screenshot(page: Page, name: string) {
 }
 
 test(
-  "author → private draft → media → versioned guest review → revoke",
+  "author → private draft → media → live guest review → revoke",
   { timeout: 150000 },
   async () => {
     assert.ok(
@@ -263,7 +263,9 @@ test(
       );
       // Even administrators default to denied. Grants/revokes take effect without re-login.
       assert.equal(
-        await page.getByRole("region", { name: "AI second look" }).count(),
+        await page
+          .getByRole("button", { name: "AI Review", exact: true })
+          .count(),
         0,
       );
       const aiProbe = () =>
@@ -288,7 +290,9 @@ test(
       );
       await page.reload();
       assert.equal(
-        await page.getByRole("region", { name: "AI second look" }).count(),
+        await page
+          .getByRole("button", { name: "AI Review", exact: true })
+          .count(),
         process.env.OPENAI_API_KEY ? 1 : 0,
       );
       // Empty input rejects before a paid provider request.
@@ -300,7 +304,9 @@ test(
       assert.equal((await aiProbe()).status(), 403);
       await page.reload();
       assert.equal(
-        await page.getByRole("region", { name: "AI second look" }).count(),
+        await page
+          .getByRole("button", { name: "AI Review", exact: true })
+          .count(),
         0,
       );
       const access = await featureAccess(email);
@@ -323,7 +329,9 @@ test(
       await page.reload();
       if (!process.env.OPENAI_API_KEY) {
         assert.equal(
-          await page.getByRole("region", { name: "AI second look" }).count(),
+          await page
+            .getByRole("button", { name: "AI Review", exact: true })
+            .count(),
           0,
         );
         assert.equal(
@@ -470,7 +478,10 @@ test(
           await page.evaluate(() => navigator.clipboard.readText()),
           initial,
         );
-        await page.getByRole("button", { name: "Dismiss message" }).click();
+        assert.equal(
+          await page.getByRole("button", { name: "Dismiss message" }).count(),
+          0,
+        );
       }
       const download = page.waitForEvent("download");
       await page
@@ -626,22 +637,35 @@ test(
         .locator("video")
         .evaluate((video: HTMLVideoElement) => video.pause());
 
-      await reviewer.getByLabel("Your name", { exact: true }).fill("Sam");
+      assert.equal(
+        await reviewer.getByLabel("Your name", { exact: true }).isVisible(),
+        false,
+      );
+      await reviewer
+        .getByRole("button", { name: "Comment on post 1", exact: true })
+        .click();
       await reviewer
         .getByLabel("Your feedback", { exact: true })
         .fill("The question is a great opener. Try making it more direct.");
-      await reviewer
-        .getByText("Suggest different wording", { exact: false })
-        .click();
       const suggestion =
         "A good post starts with a second pair of eyes.\n\nMind taking a quick look? 👀";
-      await reviewer
-        .getByRole("textbox", { name: "Suggested wording" })
-        .fill(suggestion);
       await reviewer.getByRole("button", { name: "Send feedback" }).click();
       await reviewer
-        .getByText("Your feedback is in. Thank you!", { exact: true })
+        .getByRole("dialog", { name: "Who’s giving feedback?" })
         .waitFor();
+      await reviewer.getByLabel("Your name", { exact: true }).fill("Sam");
+      await reviewer
+        .getByRole("dialog")
+        .getByRole("button", { name: "Send feedback" })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      // Preserve existing suggested-wording feedback from before the simplified form.
+      await db.query("UPDATE comments SET suggestion=$1 WHERE draft_id=$2", [
+        suggestion,
+        id,
+      ]);
       await screenshot(reviewer, "review-desktop");
       await reviewer.setViewportSize({ width: 390, height: 844 });
       assert.equal(
@@ -654,16 +678,16 @@ test(
       await screenshot(reviewer, "review-mobile");
       await reviewer.setViewportSize({ width: 1440, height: 1000 });
 
-      // Private edits are invisible until explicit publication, including uploaded metadata.
+      // Saved edits update the same link without another publication action.
       const newVersion = await edited(page, () =>
         page
           .getByLabel("Post 1 text", { exact: true })
-          .fill("PRIVATE UNSHARED WORDING"),
+          .fill("UPDATED SHARED WORDING"),
       );
       await reviewer.reload();
       assert.ok(
-        !(await reviewer.locator("body").innerText()).includes(
-          "PRIVATE UNSHARED WORDING",
+        (await reviewer.locator("body").innerText()).includes(
+          "UPDATED SHARED WORDING",
         ),
       );
       await action(
@@ -683,7 +707,7 @@ test(
         { action: "save", version: 1, content: current },
         409,
       );
-      await page.getByRole("button", { name: "Refresh feedback" }).click();
+      await page.reload();
       await page.getByRole("button", { name: "Use suggestion" }).waitFor();
       await edited(page, () =>
         page.getByRole("button", { name: "Use suggestion" }).click(),
@@ -692,17 +716,8 @@ test(
         await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
         suggestion,
       );
-      const publish2 = page.waitForResponse(
-        (r) =>
-          r.url().endsWith(`/api/drafts/${id}`) &&
-          r.request().postDataJSON()?.action === "publish",
-      );
-      await page.getByRole("button", { name: "Update shared version" }).click();
-      assert.equal((await (await publish2).json()).revision, 2);
       await reviewer.goto(link);
-      await reviewer
-        .getByText("v1 · Earlier version", { exact: true })
-        .waitFor();
+      await reviewer.getByText("Earlier feedback", { exact: true }).waitFor();
       assert.equal(
         await reviewer
           .getByRole("article", { name: "Post 1", exact: true })
@@ -711,18 +726,15 @@ test(
         suggestion,
       );
       await screenshot(reviewer, "review-earlier-feedback");
-      await reviewer.getByLabel("Review version").selectOption("1");
-      await reviewer
-        .getByText("You’re looking at an earlier version.", { exact: false })
-        .waitFor();
+      await reviewer.goto(`${link}?v=1`);
       assert.equal(
         await reviewer
           .getByRole("article", { name: "Post 1", exact: true })
           .locator(".post-text")
           .innerText(),
-        initial,
+        suggestion,
       );
-      await screenshot(reviewer, "review-history");
+      assert.equal(await reviewer.getByLabel("Review version").count(), 0);
       // A genuinely stale browser keeps its unsaved text rather than overwriting another tab.
       const stale = await owner.newPage();
       await stale.goto(`${baseURL}/drafts/${id}`);
@@ -759,6 +771,9 @@ test(
       const latestVersion = (
         await db.query("SELECT edit_version FROM drafts WHERE id=$1", [id])
       ).rows[0].edit_version;
+      const latestRevision = (
+        await db.query("SELECT shared_revision FROM drafts WHERE id=$1", [id])
+      ).rows[0].shared_revision;
       assert.ok(latestVersion > newVersion);
       assert.equal(
         (
@@ -767,18 +782,17 @@ test(
             version: latestVersion,
           })
         ).revision,
-        2,
+        latestRevision,
       );
       await page.getByRole("button", { name: "Resolve", exact: true }).click();
       await page.getByRole("button", { name: "Reopen", exact: true }).waitFor();
       await screenshot(page, "author-shared");
+      await page.getByRole("button", { name: "Review link options" }).click();
       await page
-        .getByRole("button", { name: "Revoke link", exact: true })
+        .getByRole("button", { name: "Remove link", exact: true })
         .click();
       await page
-        .getByText("Link revoked. Your feedback is still here.", {
-          exact: true,
-        })
+        .getByRole("button", { name: "Share draft", exact: true })
         .waitFor();
       assert.equal((await guest.request.get(link)).status(), 404);
       assert.equal(
@@ -794,7 +808,7 @@ test(
         version: latestVersion,
       });
       assert.notEqual(renewed.token, shared.token);
-      assert.equal(renewed.revision, 2);
+      assert.equal(renewed.revision, latestRevision);
 
       // Account identity updates existing working drafts, never immutable shared versions.
       await page.getByRole("link", { name: "Account settings" }).click();
@@ -844,23 +858,10 @@ test(
       );
       await edited(page, () => page.goto(`${baseURL}/drafts/${id}`));
       await page.getByText("@alex_updated", { exact: true }).first().waitFor();
-      await page.getByText("Shared version history", { exact: true }).click();
-      await page.getByRole("button", { name: /^Version 1/ }).click();
       assert.equal(
-        await page.getByLabel("Post 1 text", { exact: true }).count(),
+        await page.getByText("Shared version history", { exact: true }).count(),
         0,
       );
-      await page.getByText("@alex", { exact: true }).first().waitFor();
-      await screenshot(page, "author-history");
-      await page.getByRole("button", { name: "Back to working draft" }).click();
-      await page.getByLabel("Post 1 text", { exact: true }).waitFor();
-      const updatedProfileShare = page.waitForResponse(
-        (r) =>
-          r.url().endsWith(`/api/drafts/${id}`) &&
-          r.request().postDataJSON()?.action === "publish",
-      );
-      await page.getByRole("button", { name: "Update shared version" }).click();
-      assert.equal((await (await updatedProfileShare).json()).revision, 3);
       await reviewer.goto(`${baseURL}/r/${renewed.token}`);
       assert.equal(
         (
@@ -874,12 +875,9 @@ test(
         await reviewer.getByText("Alex Updated", { exact: true }).count(),
         2,
       );
-      await reviewer.getByLabel("Review version").selectOption("1");
-      await reviewer
-        .getByText("You’re looking at an earlier version.", { exact: false })
-        .waitFor();
+      await reviewer.goto(`${baseURL}/r/${renewed.token}?v=1`);
       assert.equal(
-        await reviewer.getByText("Alex", { exact: true }).count(),
+        await reviewer.getByText("Alex Updated", { exact: true }).count(),
         2,
       );
 
@@ -944,6 +942,195 @@ test(
         (await guest.request.get(`${avatarURL}?key=${renewed.token}`)).status(),
         404,
       );
+      // Live review: empty posts do not block sharing; general, post and text focus stay distinct.
+      const focusId = randomUUID(),
+        firstPost = randomUUID(),
+        secondPost = randomUUID();
+      const focusContent: Content = {
+        title: "",
+        author: { name: "Alex Updated", handle: "alex_updated", avatar: null },
+        posts: [
+          {
+            id: firstPost,
+            text: "A focused opening with a specific phrase.",
+            media: [],
+          },
+          { id: secondPost, text: "A different closing thought.", media: [] },
+          { id: randomUUID(), text: "", media: [] },
+        ],
+      };
+      await db.query(
+        "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+        [focusId, userId, JSON.stringify(focusContent)],
+      );
+      await page.goto(`${baseURL}/drafts/${focusId}`);
+      const focusPublish = page.waitForResponse(
+        (r) => r.request().postDataJSON()?.action === "publish",
+      );
+      await page
+        .getByRole("button", { name: "Share draft", exact: true })
+        .click();
+      const focusShared = await (await focusPublish).json();
+      const focusLink = `${baseURL}/r/${focusShared.token}`;
+      await page
+        .getByRole("button", { name: "Copy link", exact: true })
+        .waitFor();
+      await reviewer.goto(focusLink);
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .fill("The thread works as a whole.");
+      await reviewer
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      await reviewer.getByText("General feedback", { exact: true }).waitFor();
+      await reviewer
+        .getByRole("button", { name: "Comment on post 2", exact: true })
+        .click();
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .fill("The closing thought could be stronger.");
+      await reviewer
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      await reviewer.getByText("On post 2", { exact: true }).waitFor();
+      // Real pointer selection, not a synthetic focus event.
+      const bounds = await reviewer
+        .getByText(focusContent.posts[0].text, { exact: true })
+        .boundingBox();
+      assert.ok(bounds);
+      await reviewer.mouse.move(bounds.x + 1, bounds.y + bounds.height / 2);
+      await reviewer.mouse.down();
+      await reviewer.mouse.move(bounds.x + 117, bounds.y + bounds.height / 2, {
+        steps: 12,
+      });
+      await reviewer.mouse.up();
+      const selected = await reviewer.evaluate(() =>
+        window.getSelection()?.toString(),
+      );
+      assert.ok(selected && selected.length > 5);
+      await reviewer
+        .getByRole("blockquote")
+        .filter({ hasText: selected })
+        .waitFor();
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .fill("Tighten this wording.");
+      // The author changes the text while the reviewer is writing. The comment must keep the original target.
+      await edited(page, () =>
+        page
+          .getByLabel("Post 1 text", { exact: true })
+          .fill("An updated opening without the old phrase."),
+      );
+      await reviewer
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      const quoteCard = reviewer
+        .getByRole("article", { name: "Feedback from Sam" })
+        .filter({ hasText: "Tighten this wording." });
+      await quoteCard.getByText("Earlier feedback", { exact: true }).waitFor();
+      assert.equal(
+        await quoteCard.getByRole("blockquote").innerText(),
+        selected,
+      );
+      await reviewer
+        .getByText("An updated opening without the old phrase.", {
+          exact: true,
+        })
+        .waitFor();
+      const stored = (
+        await db.query(
+          "SELECT body,post_id,quote,revision FROM comments WHERE draft_id=$1 ORDER BY created_at",
+          [focusId],
+        )
+      ).rows;
+      assert.deepEqual(
+        stored.map((c) => [c.body, c.post_id, c.quote, c.revision]),
+        [
+          ["The thread works as a whole.", null, null, 1],
+          ["The closing thought could be stronger.", secondPost, null, 1],
+          ["Tighten this wording.", firstPost, selected, 1],
+        ],
+      );
+      const badFocus = await guest.request.post(`${focusLink}?/comment`, {
+        headers: { Origin: origin },
+        form: {
+          name: "Sam",
+          body: "Invalid focus",
+          revision: "1",
+          postId: secondPost,
+          quote: selected,
+        },
+      });
+      assert.equal(
+        badFocus.status(),
+        400,
+        "quotes must belong to the selected post and snapshot",
+      );
+      const changedQuote = await guest.request.post(`${focusLink}?/comment`, {
+        headers: { Origin: origin },
+        form: {
+          name: "Sam",
+          body: "Invalid quote",
+          revision: "2",
+          postId: firstPost,
+          quote: selected,
+        },
+      });
+      assert.equal(
+        changedQuote.status(),
+        400,
+        "quotes must belong to the snapshot being commented on",
+      );
+      const signedFeedback = await owner.request.post(`${focusLink}?/comment`, {
+        headers: { Origin: origin },
+        form: {
+          name: "Forged name",
+          body: "Signed-in feedback",
+          revision: "2",
+          postId: "",
+        },
+      });
+      assert.equal(signedFeedback.status(), 200);
+      assert.equal(
+        (
+          await db.query(
+            "SELECT name FROM comments WHERE draft_id=$1 AND body='Signed-in feedback'",
+            [focusId],
+          )
+        ).rows[0].name,
+        "Alex Updated",
+      );
+      for (const width of [390, 320]) {
+        await reviewer.setViewportSize({ width, height: 844 });
+        await reviewer
+          .getByRole("button", { name: "Comment on post 2", exact: true })
+          .click();
+        assert.equal(
+          await reviewer.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+        await screenshot(reviewer, `review-focus-${width}`);
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+      }
+      await action(owner.request, focusId, { action: "revoke" });
+      assert.equal((await guest.request.get(focusLink)).status(), 404);
       assert.deepEqual(crashes, [], "no browser exceptions");
     } catch (error) {
       console.error("Browser exceptions:", crashes);
