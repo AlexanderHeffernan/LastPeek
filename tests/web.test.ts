@@ -437,6 +437,9 @@ test(
         200,
       );
       await page.getByRole("link", { name: "Account settings" }).click();
+      const originalHandle = await page
+        .getByLabel("X handle", { exact: true })
+        .inputValue();
       await page.getByLabel("X handle", { exact: true }).fill("test");
       await page.getByLabel("X handle", { exact: true }).press("~");
       assert.equal(
@@ -445,7 +448,7 @@ test(
       );
       assert.equal(new URL(page.url()).pathname, "/settings");
       await page
-        .getByRole("heading", { name: "Account.", exact: true })
+        .getByRole("heading", { name: "Settings", exact: true })
         .click();
       await page.keyboard.press("~");
       await page
@@ -465,7 +468,7 @@ test(
         "Opening and closing admin preserves the underlying form.",
       );
       await page
-        .getByRole("heading", { name: "Account.", exact: true })
+        .getByRole("heading", { name: "Settings", exact: true })
         .click();
       await page.keyboard.press("~");
       await page
@@ -571,6 +574,7 @@ test(
         "test~",
         "Backdrop dismissal preserves the underlying form.",
       );
+      await page.getByLabel("X handle", { exact: true }).fill(originalHandle);
       const secretMascot = page.getByRole("button", {
         name: "Back to top",
         exact: true,
@@ -1084,7 +1088,7 @@ test(
             .getByRole("link", { name: "Account settings", exact: true })
             .click();
           await page
-            .getByRole("heading", { name: "Account.", exact: true })
+            .getByRole("heading", { name: "Settings", exact: true })
             .waitFor();
           // Leaving Account must restore privacy, not keep its more permissive policy.
           await page.getByRole("link", { name: "Drafts", exact: true }).click();
@@ -1098,7 +1102,7 @@ test(
             .getByRole("link", { name: "Account settings", exact: true })
             .click();
           await page
-            .getByRole("heading", { name: "Account.", exact: true })
+            .getByRole("heading", { name: "Settings", exact: true })
             .waitFor();
           if (signIn) {
             await page
@@ -1107,6 +1111,10 @@ test(
             await page
               .getByRole("heading", { name: "Welcome back.", exact: true })
               .waitFor();
+          } else {
+            await page
+              .getByRole("link", { name: "Connections", exact: true })
+              .click();
           }
           assert.equal(
             await page.evaluate(() => Reflect.get(window, "accountNavigation")),
@@ -1175,7 +1183,7 @@ test(
         { name: "lastpeek_session", value: session, url: baseURL },
       ]);
       const page = await context.newPage();
-      await page.goto(`${baseURL}/settings`);
+      await page.goto(`${baseURL}/settings?tab=connections`);
       assert.equal(
         (
           await context.request.post(`${baseURL}/auth/x/start`, {
@@ -1228,6 +1236,7 @@ test(
       );
       assert.equal(blocked.status(), 400);
       await page.keyboard.press("Escape");
+      await page.getByRole("link", { name: "Password", exact: true }).click();
       await page.getByLabel("New password", { exact: true }).fill(password);
       await page
         .getByRole("button", { name: "Set password", exact: true })
@@ -1250,6 +1259,9 @@ test(
         ).rowCount,
         0,
       );
+      await page
+        .getByRole("link", { name: "Connections", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "X account actions", exact: true })
         .click();
@@ -1356,9 +1368,16 @@ test(
       reviewer = await guest.newPage(),
       stranger = await other.newPage();
     const crashes: string[] = [];
+    let dismissNextDialog = false;
     for (const p of [page, reviewer, stranger]) {
       p.on("pageerror", (e) => crashes.push(e.message));
-      p.on("dialog", (dialog) => dialog.accept());
+      p.on("dialog", (dialog) => {
+        if (p === page && dismissNextDialog) {
+          dismissNextDialog = false;
+          return dialog.dismiss();
+        }
+        return dialog.accept();
+      });
     }
     try {
       await page.goto(`${baseURL}/login`);
@@ -1389,7 +1408,7 @@ test(
       await login(nativePage, email);
       await nativePage.goto(`${baseURL}/settings`);
       await nativePage
-        .getByRole("heading", { name: "Account.", exact: true })
+        .getByRole("heading", { name: "Settings", exact: true })
         .waitFor();
       await nativePage
         .getByRole("button", { name: "Sign out", exact: true })
@@ -1516,7 +1535,7 @@ test(
       );
       await accountLink.click();
       await page
-        .getByRole("heading", { name: "Account.", exact: true })
+        .getByRole("heading", { name: "Settings", exact: true })
         .waitFor();
       assert.equal(await accountLink.getAttribute("aria-current"), "page");
       await navigation
@@ -2138,6 +2157,9 @@ test(
           [userId],
         );
         await page.reload();
+        await page
+          .getByRole("link", { name: "Connections", exact: true })
+          .click();
         await page.getByText("Connected", { exact: true }).waitFor();
         await page
           .getByRole("button", { name: "X account actions", exact: true })
@@ -2168,6 +2190,7 @@ test(
         await xProfileContext.close();
       }
       await page.reload();
+      await page.waitForLoadState("networkidle");
       await page.getByLabel("Display name", { exact: true }).fill("Alex");
       await page.getByLabel("X handle", { exact: true }).fill("alex");
       await page
@@ -2179,19 +2202,90 @@ test(
       })
         .png()
         .toBuffer();
-      const avatarUpload = page.waitForResponse(
-        (r) =>
-          r.url().endsWith("/api/profile/avatar") &&
-          r.request().method() === "POST",
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Save profile", exact: true })
+          .isDisabled(),
+        true,
       );
-      await page.getByLabel("Upload avatar", { exact: true }).setInputFiles({
+      const photoChooser = page.waitForEvent("filechooser");
+      await page
+        .getByRole("button", { name: "Add photo", exact: true })
+        .click();
+      await (
+        await photoChooser
+      ).setFiles({
         name: "profile.png",
         mimeType: "image/png",
         buffer: photo,
       });
-      assert.equal((await avatarUpload).status(), 201);
-      const avatarId = (await (await avatarUpload).json()).avatar;
-      await page.getByText("Avatar updated.", { exact: true }).waitFor();
+      assert.equal(
+        (await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId]))
+          .rows[0].avatar_id,
+        null,
+        "Selecting a photo must not save it",
+      );
+      dismissNextDialog = true;
+      await page
+        .getByRole("link", { name: "Connections", exact: true })
+        .click();
+      assert.equal(new URL(page.url()).searchParams.get("tab"), null);
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Save profile", exact: true })
+          .isEnabled(),
+        true,
+      );
+      await page
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Save profile", exact: true })
+          .isDisabled(),
+        true,
+      );
+      const avatarId = (
+        await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId])
+      ).rows[0].avatar_id;
+      await page
+        .getByRole("button", { name: "Remove photo", exact: true })
+        .click();
+      dismissNextDialog = true;
+      await page.getByRole("button", { name: "Sign out", exact: true }).click();
+      assert.equal(
+        (await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId]))
+          .rows[0].avatar_id,
+        avatarId,
+        "Removing a photo is staged until Save profile",
+      );
+      await page.getByRole("link", { name: "Allowances", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Media storage", exact: true })
+        .waitFor();
+      await page.getByRole("link", { name: "Profile", exact: true }).click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Save profile", exact: true })
+          .isDisabled(),
+        true,
+        "Accepting navigation discards staged edits",
+      );
+      await page
+        .getByRole("button", { name: "Remove photo", exact: true })
+        .waitFor();
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+          "Profile photo controls must not introduce horizontal scrolling",
+        );
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
       const avatarURL = `${baseURL}/avatars/${avatarId}`;
       const avatarResponse = await owner.request.get(avatarURL);
       assert.equal(avatarResponse.status(), 200);
@@ -2226,7 +2320,13 @@ test(
         mimeType: "image/svg+xml",
         buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
       });
-      await page.getByRole("alert").filter({ hasText: "Use a JPEG" }).waitFor();
+      await page
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await page
+        .getByRole("status")
+        .filter({ hasText: "Use a JPEG" })
+        .waitFor();
       await screenshot(page, "avatar-upload-error");
       await page.getByRole("link", { name: "LastPeek home" }).click();
       await page
@@ -3264,18 +3364,18 @@ test(
       })
         .png()
         .toBuffer();
-      const replacementUpload = page.waitForResponse(
-        (r) =>
-          r.url().endsWith("/api/profile/avatar") &&
-          r.request().method() === "POST",
-      );
       await page.getByLabel("Upload avatar", { exact: true }).setInputFiles({
         name: "replacement.png",
         mimeType: "image/png",
         buffer: replacementPhoto,
       });
-      const replacementId = (await (await replacementUpload).json()).avatar;
-      await page.getByText("Avatar updated.", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
+      const replacementId = (
+        await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId])
+      ).rows[0].avatar_id;
       assert.equal(
         (
           await guest.request.get(
@@ -3326,10 +3426,12 @@ test(
       // Invitations actually create a new author, are single-use, and grant no admin power.
       await page.goto(`${baseURL}/settings`);
       await screenshot(page, "settings");
-      await page.getByRole("button", { name: "Create invitation" }).click();
-      const invite = page.getByLabel("Invitation link", { exact: true });
-      await invite.waitFor();
-      const inviteURL = await invite.inputValue();
+      const invitation = token();
+      await db.query(
+        "INSERT INTO invites(id,hash,created_by,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
+        [randomUUID(), tokenHash(invitation), userId],
+      );
+      const inviteURL = `${baseURL}/join/${invitation}`;
       const invited = await browser.newContext({ javaScriptEnabled: false });
       const joining = await invited.newPage();
       const invitationPage = await joining.goto(inviteURL);
@@ -3386,6 +3488,9 @@ test(
         "/settings",
       );
       const changedPassword = `changed-${randomUUID()}`;
+      await joining
+        .getByRole("link", { name: "Password", exact: true })
+        .click();
       await joining
         .getByLabel("Current password", { exact: true })
         .fill("incorrect-password");
@@ -3457,7 +3562,10 @@ test(
       await legacy.close();
       await invited.close();
       await page.getByRole("button", { name: "Remove photo" }).click();
-      await page.getByText("Avatar removed.", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
       assert.equal(
         await page.getByRole("button", { name: "Remove photo" }).count(),
         0,

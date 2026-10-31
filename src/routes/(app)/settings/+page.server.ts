@@ -1,4 +1,4 @@
-import { error, fail, redirect } from "@sveltejs/kit";
+import { error, fail, isHttpError, redirect } from "@sveltejs/kit";
 import { db, transaction } from "$lib/server/db";
 import {
   requireUser,
@@ -12,6 +12,7 @@ import {
 } from "$lib/server/auth";
 import { storageLimit } from "$lib/server/media";
 import { authorSchema } from "$lib/contracts";
+import { avatarLimit, storeAvatar } from "$lib/server/avatars";
 import {
   importXAvatar,
   xAuthEnabled,
@@ -153,6 +154,21 @@ export const actions: Actions = {
     });
     if (!parsed.success)
       return fail(400, { message: parsed.error.issues[0].message });
+    const photo = form.get("photo");
+    if (photo instanceof File && photo.size) {
+      if (photo.size > avatarLimit)
+        return fail(413, { message: "Choose an avatar smaller than 5 MB." });
+      await rateLimit(`avatar:${user.id}`, 20, 3600);
+      try {
+        await storeAvatar(Buffer.from(await photo.arrayBuffer()), user.id);
+      } catch (cause) {
+        if (isHttpError(cause))
+          return fail(cause.status, { message: cause.body.message });
+        throw cause;
+      }
+    } else if (form.get("removePhoto") === "yes") {
+      await db.query("UPDATE users SET avatar_id=NULL WHERE id=$1", [user.id]);
+    }
     await db.query("UPDATE users SET name=$1,handle=$2 WHERE id=$3", [
       parsed.data.name,
       parsed.data.handle.replace(/^@/, ""),
