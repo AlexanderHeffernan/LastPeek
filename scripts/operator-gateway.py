@@ -2,11 +2,32 @@
 """Root-owned forced-command gateway. No shell, caller paths, SQL or deploy actions."""
 import json
 import os
+from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
 
-COMPOSE = ["/usr/bin/docker", "compose", "--project-directory", "/home/alexh/lastpeek-deploy", "-p", "lastpeek"]
+DEPLOYMENT = Path("/home/alexh/lastpeek-deploy")
+COMPOSE = ["/usr/bin/docker", "compose", "--project-directory", str(DEPLOYMENT), "-p", "lastpeek"]
+
+
+def deployment():
+    route = DEPLOYMENT / "routing" / "active.conf"
+    if not route.exists():
+        return COMPOSE, "web"
+    match = re.fullmatch(r"upstream lastpeek \{ server (blue|green):3000; \}\n", route.read_text())
+    if not match:
+        raise ValueError("Unrecognised deployment route")
+    compose = COMPOSE + ["--env-file", str(DEPLOYMENT / ".env"),
+                         "--env-file", str(DEPLOYMENT / "images.env"),
+                         "-f", str(DEPLOYMENT / "compose.yaml")]
+    override = next((DEPLOYMENT / name for name in ("compose.override.yaml", "compose.override.yml")
+                     if (DEPLOYMENT / name).exists()), None)
+    if override:
+        compose.extend(["-f", str(override)])
+    compose.extend(["-f", str(DEPLOYMENT / "compose.blue-green.yaml"), "--profile", "blue-green"])
+    return compose, match[1]
 
 
 def run(args, stdin=None):
@@ -36,13 +57,14 @@ def dispatch(command, role):
         raise ValueError("Unknown command or fields.")
     if action == "set_feature_access" and role != "flags":
         raise ValueError("Flag-write credential required.")
+    compose, web = deployment()
     if action in ("admin_overview", "admin_users", "admin_usage", "admin_history", "admin_flags", "feature_access", "set_feature_access"):
         # Full field validation is repeated inside the application CLI.
-        return json.loads(run(COMPOSE + ["exec", "-T", "-e", "LASTPEEK_OPERATOR_ROLE=" + role,
+        return json.loads(run(compose + ["exec", "-T", "-e", "LASTPEEK_OPERATOR_ROLE=" + role,
             "-e", "LASTPEEK_OPERATOR_ACTOR=ssh:lastpeek-" + role,
-            "web", "npm", "run", "--silent", "operator"], json.dumps(command)))
+            web, "npm", "run", "--silent", "operator"], json.dumps(command)))
     if action == "service_status":
-        rows = run(COMPOSE + ["ps", "--format", "json"])
+        rows = run(compose + ["ps", "--format", "json"])
         try:
             services = json.loads(rows)
             if not isinstance(services, list):
@@ -53,7 +75,7 @@ def dispatch(command, role):
     minutes, lines = command.get("minutes"), command.get("lines")
     if type(minutes) is not int or not 1 <= minutes <= 60 or type(lines) is not int or not 1 <= lines <= 200:
         raise ValueError("Logs require minutes 1–60 and lines 1–200.")
-    raw = run(COMPOSE + ["logs", "--no-color", "--no-log-prefix", "--since", str(minutes) + "m", "--tail", str(lines), "web"])
+    raw = run(compose + ["logs", "--no-color", "--no-log-prefix", "--since", str(minutes) + "m", "--tail", str(lines), web])
     events = []
     for line in raw.splitlines():
         try:

@@ -170,6 +170,14 @@ are exposed. Flag commands remain unavailable until a compatible app image is
 deployed and migration runs. Installing the gateway is not an app deploy. The
 Pi's existing deployment directory and Docker-capable owner remain trusted.
 
+After the optional blue-green installation, the updated gateway reads only the
+fixed `routing/active.conf` path, accepts only `blue` or `green`, and uses the fixed
+Compose overlay/env-file paths for administration, status and bounded logs. With
+no active route it retains the legacy `web` target. A malformed route fails closed;
+callers still cannot choose a service, filename or command. Install this gateway
+update during the one-time cutover; the old gateway cannot find the active app
+after legacy web is stopped. See [deployment](deployment.md).
+
 ## Tailnet setup (tailnet administrator, once)
 
 1. Create `tag:lastpeek-operator` owned by an administrator. Grant that source tag

@@ -1,0 +1,33 @@
+# Overlay the operator's existing compose.yaml; preserve its environment and volumes.
+# Requires Docker Compose >= 2.24.4 for !override. Do not run `compose up` without
+# explicit service names: update.py owns app startup, routing and retirement.
+x-slot: &slot
+  extends:
+    file: .web-template.json
+    service: web
+  ports: !override []
+  command: ["node", "build"]
+  stop_grace_period: 6m
+  profiles: [blue-green]
+
+services:
+  web:
+    profiles: [legacy]
+  blue:
+    <<: *slot
+    image: ${BLUE_IMAGE:-ghcr.io/alexanderheffernan/lastpeek:latest}
+  green:
+    <<: *slot
+    image: ${GREEN_IMAGE:-ghcr.io/alexanderheffernan/lastpeek:latest}
+  maintenance:
+    image: ${MAINTENANCE_IMAGE:-ghcr.io/alexanderheffernan/lastpeek:latest}
+    depends_on: !reset {}
+  proxy:
+    image: nginx:1.28-alpine
+    ports:
+      - "127.0.0.1:3013:3000"
+    volumes:
+      - ./routing:/etc/lastpeek:ro
+      - ./assets:/srv/assets:ro
+    command: ["nginx", "-c", "/etc/lastpeek/nginx.conf", "-g", "daemon off;"]
+    restart: unless-stopped

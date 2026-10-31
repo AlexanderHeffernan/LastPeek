@@ -5,6 +5,7 @@ build/
 .env
 .env.*
 !.env.example
+.web-template.json
 data/
 .amp/portals/
 .amp/in/
