@@ -1,13 +1,21 @@
 <script lang="ts">
   import "../app.css";
   import { page } from "$app/state";
-  import { setContext } from "svelte";
+  import { dev } from "$app/env";
+  import { onMount, setContext } from "svelte";
   import SiteAdmin from "$lib/components/SiteAdmin.svelte";
   import PortraitOrientation from "$lib/components/PortraitOrientation.svelte";
   import AppShell from "$lib/components/AppShell.svelte";
   import { appleLaunchImages } from "$lib/pwa";
   import { referrerPolicy } from "$lib/referrer-policy";
+  import { registerServiceWorker } from "$lib/register-service-worker";
   let { children } = $props();
+  onMount(() => {
+    if (!dev && "serviceWorker" in navigator)
+      void registerServiceWorker().catch((error) => {
+        console.error("Service worker registration failed", error);
+      });
+  });
   const shellUser = $derived(
     page.route.id?.startsWith("/(app)")
       ? page.data.user

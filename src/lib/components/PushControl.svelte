@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { registerServiceWorker } from "$lib/register-service-worker";
   let supported = $state(false),
     ready = $state(false),
     enabled = $state(false),
@@ -58,8 +59,7 @@
             "Couldn’t enable notifications. Sign in again and retry.",
           );
         const { publicKey } = await response.json();
-        const registration =
-          await navigator.serviceWorker.register("/service-worker.js");
+        const registration = await registerServiceWorker();
         await navigator.serviceWorker.ready;
         const subscription =
           (await registration.pushManager.getSubscription()) ??

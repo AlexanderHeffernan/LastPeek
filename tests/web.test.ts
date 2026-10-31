@@ -347,6 +347,21 @@ test(
       await page.evaluate(() => navigator.serviceWorker.ready);
       await page.reload();
       await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+      const buildVersion = await (
+        await context.request.get(`${baseURL}/_app/version.json`)
+      ).json();
+      const worker = await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        return {
+          url: registration.active!.scriptURL,
+          updateViaCache: registration.updateViaCache,
+        };
+      });
+      assert.equal(
+        new URL(worker.url).searchParams.get("v"),
+        buildVersion.version,
+      );
+      assert.equal(worker.updateViaCache, "none");
       if (engine === chromium) {
         await context.grantPermissions(["notifications"]);
         const cdp = await context.newCDPSession(page);

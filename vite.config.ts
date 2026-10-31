@@ -8,6 +8,8 @@ export default defineConfig({
     sveltekit({
       adapter: adapter(),
       alias: { $lib: "./src/lib" },
+      // Registration includes the build version so edge caches cannot retain an older worker.
+      serviceWorker: { register: false },
       // Kit 3 reads the fixed CSRF/adapter origin at build time, not server startup.
       paths: { origin: process.env.ORIGIN || undefined },
       csp: {
