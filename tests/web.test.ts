@@ -151,6 +151,10 @@ test(
         "-an",
         "-c:v",
         "libx264",
+        // Put the 4s/7s targets on keyframes: this checks position retention,
+        // not decoder convergence from a distant keyframe after a paused seek.
+        "-g",
+        "12",
         "-pix_fmt",
         "yuv420p",
         "-movflags",
