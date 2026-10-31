@@ -217,6 +217,7 @@
   color: var(--primary);
 }
 .app-navigation .drafts-link {
+  position: relative;
   background: transparent;
   transition:
     background-color 180ms ease,
@@ -989,6 +990,19 @@ progress {
   border-right: 1px solid var(--line);
   padding-top: 24px;
 }
+.notification-preference {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+}
+.settings form.notification-preferences {
+  gap: 0;
+}
+.notification-preferences > [data-slot="button"] {
+  margin-top: 16px;
+  justify-self: start;
+}
 .settings-sidebar h1,
 .settings-body h2 {
   font-size: 20px;
@@ -1091,10 +1105,12 @@ progress {
     padding: 0 16px 16px;
   }
   .settings-sidebar nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: flex;
+    overflow-x: auto;
   }
   .settings-sidebar nav [data-slot="button"] {
-    padding: 10px 2px;
+    padding: 10px 14px;
+    flex-shrink: 0;
     min-width: 0;
     min-height: 44px;
     border-right: 0;

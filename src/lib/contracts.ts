@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+export type FriendConnection = {
+  id: string;
+  user_id: string;
+  name: string;
+  handle: string;
+  avatar_id: string | null;
+  accepted: boolean;
+  incoming: boolean;
+  active: boolean;
+};
+
 export const xPostURLSchema = z
   .string()
   .trim()
@@ -62,6 +73,7 @@ export type Media = {
 };
 export type Feedback = {
   id: string;
+  user_id?: string | null;
   revision: number;
   post_id: string | null;
   quote: string | null;

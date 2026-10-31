@@ -19,9 +19,31 @@
   const openAdmin = getContext<() => void>("open-siteadmin");
   let shell = $state<HTMLDivElement>();
   let header = $state<HTMLElement>();
+  let requests = $state(0),
+    unread = $state(0);
+  $effect(() => {
+    requests =
+      page.data.connections?.filter((c) => c.incoming && !c.accepted).length ??
+      0;
+    unread = page.data.unreadNotifications;
+  });
   const navigation = { reveal: () => {} };
   setContext("mobile-navigation", navigation);
   afterNavigate(() => navigation.reveal());
+  onMount(() => {
+    const refresh = setInterval(() => {
+      if (document.visibilityState === "visible")
+        void fetch("/api/notifications")
+          .then(async (response) => {
+            if (!response.ok) return;
+            const counts = await response.json();
+            requests = counts.requests;
+            unread = counts.unread;
+          })
+          .catch(() => {});
+    }, 30000);
+    return () => clearInterval(refresh);
+  });
   onMount(() => {
     const element = shell!;
     const mobile = matchMedia("(max-width: 600px)");
@@ -180,6 +202,42 @@
         weight={page.url.pathname === "/feedback" ? "fill" : "regular"}
       /></Button
     >
+    <Button
+      variant="ghost"
+      class="icon-button drafts-link"
+      href="/friends"
+      aria-current={page.url.pathname === "/friends" ? "page" : undefined}
+      aria-label="Friends"
+      title="Friends"
+      ><Icon
+        name="users"
+        size={30}
+        weight={page.url.pathname === "/friends" ? "fill" : "regular"}
+      />
+      {#if requests}<span
+          class="nav-count"
+          aria-label={`${requests} pending friend requests`}>{requests}</span
+        >{/if}
+    </Button>
+    <Button
+      variant="ghost"
+      class="icon-button drafts-link"
+      href="/notifications"
+      aria-current={page.url.pathname === "/notifications" ? "page" : undefined}
+      aria-label="Notifications"
+      title="Notifications"
+    >
+      <Icon
+        name="bell"
+        size={30}
+        weight={page.url.pathname === "/notifications" ? "fill" : "regular"}
+      />
+      {#if unread}<span
+          class="nav-count"
+          aria-label={`${unread} unread notifications`}
+          >{unread > 99 ? "99+" : unread}</span
+        >{/if}
+    </Button>
     <div class="desktop-account">{@render account()}</div>
   </nav>
   {#key page.url.pathname}{@render children()}{/key}
@@ -201,3 +259,22 @@
     ></Button
   >
 {/snippet}
+
+<style>
+  .nav-count {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    min-width: 17px;
+    height: 17px;
+    padding-inline: 4px;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--primary-foreground);
+    border-radius: 12px;
+    background: var(--primary);
+  }
+</style>

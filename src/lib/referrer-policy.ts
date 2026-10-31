@@ -5,6 +5,7 @@ export function referrerPolicy(routeId: string | null) {
     "/join/[token]",
     "/(app)/settings",
     "/(app)/drafts/[id]",
+    "/(app)/notifications",
   ].includes(routeId ?? "")
     ? "strict-origin"
     : "no-referrer";

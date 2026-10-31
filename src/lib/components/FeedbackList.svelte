@@ -2,6 +2,7 @@
   import { page } from "$app/state";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import FriendControl from "$lib/components/FriendControl.svelte";
   import {
     avatarURL,
     relativeTime,
@@ -13,6 +14,7 @@
     revision,
     content,
     token,
+    draftId,
     onresolve,
     onapply,
     emptyText = "No feedback yet.",
@@ -21,6 +23,7 @@
     revision: number | null;
     content: Content;
     token?: string;
+    draftId?: string;
     onresolve?: (comment: Feedback) => void;
     onapply?: (comment: Feedback) => void;
     emptyText?: string;
@@ -50,6 +53,12 @@
         <strong>{comment.name}</strong>
         <div><small>{relativeTime(comment.created_at)}</small></div>
       </div>
+      {#if comment.user_id && (draftId || token)}<FriendControl
+          userId={comment.user_id}
+          name={comment.name}
+          {draftId}
+          {token}
+        />{/if}
       {#if comment.revision !== revision}<Badge
           variant="secondary"
           style="margin-left:auto"

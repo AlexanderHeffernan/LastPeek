@@ -2,6 +2,15 @@ import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import { sessionUser } from "$lib/server/auth";
 import { referrerPolicy } from "$lib/referrer-policy";
 import { db } from "$lib/server/db";
+import { deliverPush } from "$lib/server/notifications";
+export function init() {
+  const timer = setInterval(() => {
+    void deliverPush().catch(() =>
+      console.error("Notification delivery unavailable"),
+    );
+  }, 10000);
+  timer.unref();
+}
 export const handle: Handle = async ({ event, resolve }) => {
   event.locals.user = await sessionUser(event);
   if (event.locals.user)

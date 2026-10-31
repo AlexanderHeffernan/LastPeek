@@ -30,12 +30,16 @@
   import Minus from "phosphor-svelte/lib/Minus";
   import MagnifyingGlass from "phosphor-svelte/lib/MagnifyingGlass";
   import ArrowUp from "phosphor-svelte/lib/ArrowUp";
+  import Bell from "phosphor-svelte/lib/Bell";
+  import GearSix from "phosphor-svelte/lib/GearSix";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    bell: Bell,
+    settings: GearSix,
     up: ArrowUp,
     refresh: ArrowsClockwise,
     overview: SquaresFour,

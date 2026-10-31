@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { db } from "$lib/server/db";
 import { mediaIds } from "$lib/contracts";
 import { mediaPath } from "$lib/server/media";
+import { sharedDraft } from "$lib/server/drafts";
 import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async ({ params, locals, url, request }) => {
   if (!/^[0-9a-f-]{36}$/i.test(params.id))
@@ -18,8 +19,9 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
   if (!row) error(404, "Attachment unavailable.");
   if (locals.user?.id !== row.owner_id) {
     const key = url.searchParams.get("key");
-    if (!key || key !== row.share_token || !row.shared_revision)
-      error(404, "Attachment unavailable.");
+    if (!key) error(404, "Attachment unavailable.");
+    const draft = await sharedDraft(key, locals.user?.id);
+    if (draft.id !== row.draft_id) error(404, "Attachment unavailable.");
     const revisions = await db.query(
       "SELECT content FROM revisions WHERE draft_id=$1",
       [row.draft_id],

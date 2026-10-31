@@ -3,7 +3,14 @@ import { db, transaction } from "../src/lib/server/db";
 import { mediaDir, mediaPath } from "../src/lib/server/media";
 import { mediaIds } from "../src/lib/contracts";
 import { avatarDir, avatarPath } from "../src/lib/server/avatars";
+import { activePushSession } from "../src/lib/server/notifications";
 try {
+  await db.query(
+    `DELETE FROM push_subscriptions s WHERE NOT ${activePushSession}`,
+  );
+  await db.query(
+    "DELETE FROM notifications WHERE created_at<now()-interval '90 days'",
+  );
   await db.query("DELETE FROM sessions WHERE expires_at<now()");
   await db.query('DELETE FROM auth_sessions WHERE "expiresAt"<now()');
   await db.query('DELETE FROM auth_verifications WHERE "expiresAt"<now()');

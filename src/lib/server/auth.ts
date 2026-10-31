@@ -195,6 +195,7 @@ export async function sessionUser(event: RequestEvent): Promise<User | null> {
       "SELECT id,name,handle,avatar_id,email,is_admin FROM users WHERE id=$1",
       [result.response.user.id],
     );
+    event.locals.pushSession = `auth:${result.response.session.id}`;
     return user.rows[0] ?? null;
   }
   // Hashed author sessions (including X OAuth) remain usable until expiry/revocation.
@@ -204,6 +205,7 @@ export async function sessionUser(event: RequestEvent): Promise<User | null> {
     "SELECT u.id,u.name,u.handle,u.avatar_id,u.email,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=$1 AND s.expires_at>now()",
     [hash(value)],
   );
+  if (result.rowCount) event.locals.pushSession = `legacy:${hash(value)}`;
   return result.rows[0] ?? null;
 }
 export async function createDevSession(

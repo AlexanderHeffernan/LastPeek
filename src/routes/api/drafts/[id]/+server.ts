@@ -1,6 +1,11 @@
 import { error, json } from "@sveltejs/kit";
 import { requireUser, sameOrigin } from "$lib/server/auth";
-import { ownedDraft, saveDraft, publishDraft } from "$lib/server/drafts";
+import {
+  ownedDraft,
+  saveDraft,
+  publishDraft,
+  shareWithFriend,
+} from "$lib/server/drafts";
 import { db, transaction } from "$lib/server/db";
 import { readBody } from "$lib/server/request";
 import { rm } from "node:fs/promises";
@@ -35,6 +40,27 @@ export const POST: RequestHandler = async (event) => {
     await db.query(
       "UPDATE drafts SET share_token=NULL WHERE id=$1 AND owner_id=$2",
       [id, user.id],
+    );
+    return json({ ok: true });
+  }
+  if (body.action === "friend") {
+    if (
+      !Number.isInteger(body.version) ||
+      typeof body.userId !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(body.userId)
+    )
+      error(400, "Choose a friend and save your latest edits.");
+    return json(await shareWithFriend(id, user.id, body.version, body.userId));
+  }
+  if (body.action === "unshare-friend") {
+    if (
+      typeof body.userId !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(body.userId)
+    )
+      error(400, "Choose a friend.");
+    await db.query(
+      "DELETE FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
+      [id, body.userId],
     );
     return json({ ok: true });
   }

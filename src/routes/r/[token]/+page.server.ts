@@ -5,16 +5,23 @@ import { rateLimit } from "$lib/server/auth";
 import { draftComments, draftMedia, sharedDraft } from "$lib/server/drafts";
 import { mediaIds } from "$lib/contracts";
 import { sourcePost } from "$lib/server/x-post";
+import { notify } from "$lib/server/notifications";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
-  const draft = await sharedDraft(params.token);
+  const draft = await sharedDraft(params.token, locals.user?.id);
   const allowedIds = new Set(mediaIds(draft.content));
   return {
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     token: params.token,
+    ownerId: draft.owner_id,
+    private: draft.private,
     reviewURL: new URL(`/r/${params.token}`, url.origin).href,
     reviewer: locals.user
-      ? { name: locals.user.name, avatar_id: locals.user.avatar_id }
+      ? {
+          id: locals.user.id,
+          name: locals.user.name,
+          avatar_id: locals.user.avatar_id,
+        }
       : null,
     content: draft.content,
     revision: draft.shared_revision,
@@ -25,7 +32,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 export const actions: Actions = {
   comment: async ({ request, params, locals, getClientAddress }) => {
     await rateLimit(`feedback:${getClientAddress()}`, 15, 600);
-    const draft = await sharedDraft(params.token);
+    const draft = await sharedDraft(params.token, locals.user?.id);
     const form = await request.formData();
     const parsed = z
       .object({
@@ -69,14 +76,27 @@ export const actions: Actions = {
     await transaction(async (client) => {
       // A revocation and a comment serialize on the draft: a revoked capability cannot write.
       const active = await client.query(
-        "SELECT id FROM drafts WHERE id=$1 AND share_token=$2 FOR SHARE",
+        "SELECT id,owner_id,friend_token FROM drafts WHERE id=$1 AND (share_token=$2 OR friend_token=$2) FOR SHARE",
         [draft.id, params.token],
       );
       if (!active.rowCount) error(404, "This review link is unavailable.");
+      if (
+        active.rows[0].friend_token &&
+        active.rows[0].owner_id !== locals.user?.id
+      ) {
+        const access = await client.query(
+          `SELECT fr.draft_id FROM friend_reviews fr
+          JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
+          WHERE fr.draft_id=$1 AND fr.recipient_id=$2 FOR SHARE OF fr,f`,
+          [draft.id, locals.user?.id ?? null],
+        );
+        if (!access.rowCount) error(404, "This review link is unavailable.");
+      }
+      const commentId = crypto.randomUUID();
       await client.query(
         "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
         [
-          crypto.randomUUID(),
+          commentId,
           draft.id,
           revision,
           postId || null,
@@ -86,6 +106,13 @@ export const actions: Actions = {
           locals.user?.id ?? null,
         ],
       );
+      await notify(client, {
+        userId: draft.owner_id,
+        actorId: locals.user?.id,
+        kind: "feedback",
+        draftId: draft.id,
+        commentId,
+      });
     });
     return { message: "Your feedback is in. Thank you!", success: true };
   },

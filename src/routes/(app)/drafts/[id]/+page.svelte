@@ -8,12 +8,15 @@
   import AIReview from "$lib/components/AIReview.svelte";
   import XPublish from "$lib/components/XPublish.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
   import {
     contentSchema,
     authorSchema,
     type Content,
     type Media,
     type Feedback,
+    avatarURL,
   } from "$lib/contracts";
   let { data } = $props();
   // The layout remounts this editor on draft changes. Refreshing feedback must not reset edits.
@@ -42,6 +45,8 @@
   let shareOpen = $state(false),
     origin = $state("");
   let copied = $state(false);
+  let sharingOpen = $state(false);
+  let shareError = $state("");
   let moreOpen = $state(false);
   const postKind = $derived(
     content.source?.kind === "reply"
@@ -50,7 +55,7 @@
         ? "Quote"
         : "Post",
   );
-  let deleteDialog = $state<HTMLDialogElement>();
+  let confirmation: ConfirmDialog;
   let deleting = $state(false);
   let pending: {
     id: string;
@@ -136,27 +141,86 @@
     }
   }
   async function publish() {
+    if (
+      data.recipients.length &&
+      !(await confirmation.ask({
+        title: "Create a review link?",
+        description:
+          "Anyone with the new link will be able to read and comment. Friend-only sharing will end.",
+        confirmLabel: "Create review link",
+        destructive: false,
+      }))
+    )
+      return;
     busy = true;
-    error = "";
+    shareError = "";
     try {
       if (pending.some((p) => p.error))
         throw new Error("Retry or dismiss failed uploads before sharing.");
-      if (!(await save())) return;
+      if (!(await save())) {
+        shareError = error || "Wait for your edits to finish saving.";
+        return;
+      }
       const result = await api({ action: "publish", version });
       await invalidateAll();
       shareToken = result.token;
       sharedRevision = result.revision;
+      sharingOpen = false;
     } catch (e) {
-      error = (e as Error).message;
+      shareError = (e as Error).message;
+    } finally {
+      busy = false;
+    }
+  }
+  async function sendToFriend(userId: string, remove = false) {
+    if (
+      !remove &&
+      shareToken &&
+      !(await confirmation.ask({
+        title: "Switch to friends only?",
+        description:
+          "The existing review link will stop working. Only the friends you select will have access.",
+        confirmLabel: "Switch to friends only",
+        destructive: false,
+      }))
+    )
+      return;
+    busy = true;
+    shareError = "";
+    try {
+      if (!remove) {
+        if (pending.some((p) => p.error))
+          throw new Error("Retry or dismiss failed uploads before sharing.");
+        if (!(await save())) {
+          shareError = error || "Wait for your edits to finish saving.";
+          return;
+        }
+      }
+      const result = await api({
+        action: remove ? "unshare-friend" : "friend",
+        userId,
+        version,
+      });
+      if (!remove) {
+        shareToken = null;
+        sharedRevision = result.revision;
+      }
+      await invalidateAll();
+    } catch (e) {
+      shareError = (e as Error).message;
     } finally {
       busy = false;
     }
   }
   async function revoke() {
     if (
-      !confirm(
-        "Revoke this link? Anyone with it will lose access, including to attachments. Feedback will stay.",
-      )
+      !(await confirmation.ask({
+        title: "Revoke this link?",
+        description:
+          "Anyone with it will lose access, including to attachments. Feedback will stay.",
+        confirmLabel: "Revoke link",
+        cancelLabel: "Keep link",
+      }))
     )
       return;
     try {
@@ -197,13 +261,17 @@
       error = (e as Error).message;
     }
   }
-  function apply(comment: Feedback) {
+  async function apply(comment: Feedback) {
     const post = content.posts.find((p) => p.id === comment.post_id);
     if (!post || !comment.suggestion) return;
     if (
-      !confirm(
-        "Replace this post’s wording with the suggestion? An active review link will update too.",
-      )
+      !(await confirmation.ask({
+        title: "Use this suggestion?",
+        description:
+          "This replaces the post’s wording. An active review link will update too.",
+        confirmLabel: "Use suggestion",
+        destructive: false,
+      }))
     )
       return;
     post.text = comment.suggestion;
@@ -298,15 +366,23 @@
     }
   }
   async function removeDraft() {
+    if (
+      !(await confirmation.ask({
+        title: "Delete this draft?",
+        description:
+          "This permanently deletes the draft, all feedback and all attachments. Review links will stop working. This can’t be undone.",
+        confirmLabel: "Delete draft",
+        cancelLabel: "Keep draft",
+      }))
+    )
+      return;
     deleting = true;
     clearTimeout(timer);
     try {
       await api({ action: "delete" });
       saved = JSON.stringify(content);
-      deleteDialog?.close();
       await goto("/");
     } catch (e) {
-      deleteDialog?.close();
       error = (e as Error).message;
     } finally {
       deleting = false;
@@ -397,7 +473,13 @@
           variant={shareToken ? "secondary" : "default"}
           aria-busy={busy}
           disabled={busy || saving || uploading || deleting}
-          onclick={() => (shareToken ? copyLink() : publish())}
+          onclick={() => {
+            if (shareToken) void copyLink();
+            else {
+              shareError = "";
+              sharingOpen = true;
+            }
+          }}
           ><Icon
             name={copied ? "check" : shareToken ? "copy" : "link"}
             size={15}
@@ -407,7 +489,9 @@
               ? copied
                 ? "Copied!"
                 : "Copy link"
-              : "Share draft"}</Button
+              : data.recipients.length
+                ? "Friends only"
+                : "Share draft"}</Button
         >
         {#if shareToken}<Popover.Root bind:open={shareOpen}>
             <Popover.Trigger
@@ -424,6 +508,14 @@
               align="end"
               aria-label="Review link actions"
             >
+              <Button
+                variant="ghost"
+                onclick={() => {
+                  shareOpen = false;
+                  shareError = "";
+                  sharingOpen = true;
+                }}><Icon name="users" size={16} />Share with friends</Button
+              >
               <Button variant="ghost" class="danger" onclick={revoke}
                 ><Icon name="trash" size={16} />Remove link</Button
               >
@@ -457,7 +549,7 @@
               disabled={uploading || saving || busy || deleting}
               onclick={() => {
                 moreOpen = false;
-                deleteDialog?.showModal();
+                void removeDraft();
               }}><Icon name="trash" size={16} />Delete draft</Button
             >
           </Popover.Content>
@@ -474,47 +566,113 @@
     <div id="feedback" class="draft-feedback">
       <FeedbackList
         comments={data.comments}
+        draftId={data.draft.id}
         revision={dirty ? null : sharedRevision}
         {content}
-        emptyText={shareToken
-          ? "No feedback yet. Send your link to get a second look."
-          : "A second pair of eyes? Share your draft to get feedback."}
+        emptyText={data.recipients.length
+          ? "No feedback yet. Your friends can find this post in Friends."
+          : shareToken
+            ? "No feedback yet. Send your link to get a second look."
+            : "A second pair of eyes? Share your draft to get feedback."}
         onresolve={resolveComment}
         onapply={apply}
       />
     </div>
   </aside>
 </main>
-<dialog
-  bind:this={deleteDialog}
-  class="confirm-dialog"
-  aria-labelledby="delete-title"
-  aria-describedby="delete-description"
-  oncancel={(event) => {
-    if (deleting) event.preventDefault();
-  }}
->
-  <div class="dialog-icon"><Icon name="trash" size={24} /></div>
-  <h2 id="delete-title">Delete this draft?</h2>
-  <p id="delete-description">
-    This permanently deletes the draft, all feedback and all attachments. Review
-    links will stop working. This can’t be undone.
-  </p>
-  <div class="row dialog-actions">
-    <Button
-      variant="outline"
-      disabled={deleting}
-      onclick={() => deleteDialog?.close()}>Keep draft</Button
-    >
-    <Button
-      variant="destructive"
-      disabled={deleting || saving}
-      onclick={removeDraft}>{deleting ? "Deleting…" : "Delete draft"}</Button
-    >
-  </div>
-</dialog>
+<Dialog.Root bind:open={sharingOpen}>
+  <Dialog.Content
+    showCloseButton={false}
+    class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[440px] rounded-[20px] bg-card p-7"
+    onEscapeKeydown={(event) => {
+      if (busy) event.preventDefault();
+    }}
+    onInteractOutside={(event) => {
+      if (busy) event.preventDefault();
+    }}
+  >
+    <div class="row between">
+      <Dialog.Title class="text-xl font-semibold">Share draft</Dialog.Title>
+      <Button
+        variant="ghost"
+        class="icon-button"
+        aria-label="Close sharing"
+        disabled={busy}
+        onclick={() => (sharingOpen = false)}
+        ><Icon name="close" size={20} /></Button
+      >
+    </div>
+    <h3 class="small">Friends only</h3>
+    <Dialog.Description class="small muted">
+      Only selected friends can open this review while signed in.
+    </Dialog.Description>
+    <div class="share-friends">
+      {#each data.connections.filter((c) => c.accepted) as friend (friend.id)}
+        {@const sent = data.recipients.includes(friend.user_id)}
+        <div class="share-friend">
+          <span class="avatar" aria-hidden="true"
+            >{#if friend.avatar_id}<img
+                src={avatarURL(friend.avatar_id)}
+                alt=""
+              />{:else}{friend.name.slice(0, 1).toUpperCase()}{/if}</span
+          ><strong>{friend.name}</strong>
+          <Button
+            variant={sent ? "ghost" : "secondary"}
+            disabled={busy || saving || uploading}
+            aria-label={sent
+              ? `Remove ${friend.name}’s review access`
+              : `Send to ${friend.name}`}
+            onclick={() => sendToFriend(friend.user_id, sent)}
+            >{sent ? "Remove access" : "Send"}</Button
+          >
+        </div>
+      {:else}<Button variant="outline" href="/friends"
+          >Add friends<Icon name="users" size={16} /></Button
+        >{/each}
+    </div>
+    <div class="share-link-option">
+      <h3 class="small">Review link</h3>
+      <p class="small muted">
+        Anyone with the link can read and comment, without an account.
+      </p>
+      <Button
+        variant="outline"
+        disabled={busy || saving || uploading}
+        onclick={publish}
+        ><Icon name="link" size={16} />{busy
+          ? "Preparing…"
+          : "Create review link"}</Button
+      >
+    </div>
+    {#if shareError}<p class="action-error" role="alert">{shareError}</p>{/if}
+  </Dialog.Content>
+</Dialog.Root>
+<ConfirmDialog bind:this={confirmation} />
 
 <style>
+  .share-friends {
+    max-height: 40dvh;
+    overflow-y: auto;
+  }
+  .share-friend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+  }
+  .share-friend strong {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .share-friend .avatar {
+    flex-shrink: 0;
+  }
+  .share-link-option {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
   .draft-heading :global(.edit-shortcut) {
     margin-left: auto;
     color: var(--muted-foreground);

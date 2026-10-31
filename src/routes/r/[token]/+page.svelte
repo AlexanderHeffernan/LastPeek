@@ -9,6 +9,7 @@
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import FriendControl from "$lib/components/FriendControl.svelte";
   let { data, form } = $props();
   let busy = $state(false),
     body = $state(""),
@@ -67,27 +68,29 @@
 <svelte:head>
   <title>{previewTitle} · LastPeek</title>
   <meta name="description" content={previewDescription} />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="LastPeek" />
-  <meta property="og:title" content={previewTitle} />
-  <meta property="og:description" content={previewDescription} />
-  <meta property="og:url" content={data.reviewURL} />
-  <meta property="og:image" content={previewImage} />
-  <meta property="og:image:type" content="image/png" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta
-    property="og:image:alt"
-    content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
-  />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content={previewTitle} />
-  <meta name="twitter:description" content={previewDescription} />
-  <meta name="twitter:image" content={previewImage} />
-  <meta
-    name="twitter:image:alt"
-    content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
-  />
+  {#if !data.private}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LastPeek" />
+    <meta property="og:title" content={previewTitle} />
+    <meta property="og:description" content={previewDescription} />
+    <meta property="og:url" content={data.reviewURL} />
+    <meta property="og:image" content={previewImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={previewTitle} />
+    <meta name="twitter:description" content={previewDescription} />
+    <meta name="twitter:image" content={previewImage} />
+    <meta
+      name="twitter:image:alt"
+      content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
+    />
+  {/if}
 </svelte:head>
 {#if !data.reviewer}
   <header class="topbar">
@@ -111,6 +114,14 @@
       }}><Icon name="back" size={20} /></Button
     >
     <h1>{postKind}</h1>
+    {#if data.private}<span class="small muted"
+        ><Icon name="lock" size={16} />Friends only</span
+      >{/if}
+    <FriendControl
+      userId={data.ownerId}
+      name={data.content.author.name}
+      token={data.token}
+    />
   </header>
   <section class="editor-posts" aria-label="Post for review">
     <PostPreview

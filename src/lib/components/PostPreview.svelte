@@ -3,6 +3,7 @@
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "./Icon.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import XSourcePost from "./XSourcePost.svelte";
   import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
   import type { XSourcePost as SourcePost } from "$lib/x-post";
@@ -46,8 +47,7 @@
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
-  let removeDialog = $state<HTMLDialogElement>();
-  let removingPost = $state<string | null>(null);
+  let confirmation = $state<ConfirmDialog>();
   const active = $derived(
     content.posts.some((p) => p.id === activeId)
       ? activeId
@@ -58,8 +58,6 @@
     const previous = content.posts[Math.max(index - 1, 0)];
     content.posts = content.posts.filter((post) => post.id !== id);
     activeId = (previous.id === id ? content.posts[0] : previous).id;
-    removeDialog?.close();
-    removingPost = null;
     onchange();
     await tick();
     document.getElementById(`post-text-${activeId}`)?.focus();
@@ -176,10 +174,19 @@
                 class="icon-button remove-post"
                 aria-label={`Remove post ${index + 1}`}
                 title="Remove post"
-                onclick={() => {
+                onclick={async () => {
                   if (post.text.trim() || post.media.length) {
-                    removingPost = post.id;
-                    removeDialog?.showModal();
+                    if (
+                      !(await confirmation?.ask({
+                        title: "Remove this post?",
+                        description:
+                          "Its text and attachments will be removed from this draft. Existing feedback will stay. This can’t be undone.",
+                        confirmLabel: "Remove post",
+                        cancelLabel: "Keep post",
+                      }))
+                    )
+                      return;
+                    await removePost(post.id);
                   } else void removePost(post.id);
                 }}><Icon name="close" size={16} /></Button
               >{/if}{/if}
@@ -391,27 +398,7 @@
 </section>
 
 {#if editing}
-  <dialog
-    bind:this={removeDialog}
-    class="confirm-dialog"
-    aria-labelledby="remove-post-title"
-    aria-describedby="remove-post-description"
-  >
-    <div class="dialog-icon"><Icon name="trash" size={24} /></div>
-    <h2 id="remove-post-title">Remove this post?</h2>
-    <p id="remove-post-description">
-      Its text and attachments will be removed from this draft. Existing
-      feedback will stay. This can’t be undone.
-    </p>
-    <div class="row dialog-actions">
-      <Button variant="outline" onclick={() => removeDialog?.close()}
-        >Keep post</Button
-      >
-      <Button variant="destructive" onclick={() => removePost(removingPost!)}
-        >Remove post</Button
-      >
-    </div>
-  </dialog>
+  <ConfirmDialog bind:this={confirmation} />
 {/if}
 
 <style>

@@ -4,6 +4,7 @@ import { aiEnabled } from "$lib/server/openai";
 import { isPro } from "$lib/server/plans";
 import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
+import { db } from "$lib/server/db";
 import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   const draft = await ownedDraft(params.id, requireUser(locals).id);
@@ -18,5 +19,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     draft: { ...draft, updated_at: draft.updated_at.toISOString() },
     media,
     comments,
+    recipients: (
+      await db.query<{ recipient_id: string }>(
+        "SELECT recipient_id FROM friend_reviews WHERE draft_id=$1",
+        [draft.id],
+      )
+    ).rows.map((r) => r.recipient_id),
   };
 };

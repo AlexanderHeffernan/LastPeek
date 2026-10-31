@@ -9,6 +9,7 @@ import {
   rateLimit,
 } from "$lib/server/auth";
 import { planUsage } from "$lib/server/plans";
+import { notificationPreferences } from "$lib/server/notifications";
 import { authorSchema } from "$lib/contracts";
 import { avatarLimit, storeAvatar } from "$lib/server/avatars";
 import {
@@ -37,6 +38,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   ).rows[0].bytes;
   const usage = await planUsage(user.id);
   return {
+    notificationPreferences: await notificationPreferences(user.id),
     xEnabled: xAuthEnabled(),
     hasPassword: account.has_password as boolean,
     xProfile: linked ? (linked.profile as XProfile) : null,
@@ -50,6 +52,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   };
 };
 export const actions: Actions = {
+  notifications: async ({ locals, request }) => {
+    const user = requireUser(locals);
+    const form = await request.formData();
+    await db.query(
+      `INSERT INTO notification_preferences(user_id,friend_request,friend_accepted,feedback,shared_draft)
+      VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id) DO UPDATE SET
+      friend_request=$2,friend_accepted=$3,feedback=$4,shared_draft=$5`,
+      [
+        user.id,
+        ...[
+          "friend_request",
+          "friend_accepted",
+          "feedback",
+          "shared_draft",
+        ].map((key) => form.get(key) === "on"),
+      ],
+    );
+    return { notificationsSaved: true };
+  },
   importX: async ({ locals, request }) => {
     const user = requireUser(locals);
     const form = await request.formData();

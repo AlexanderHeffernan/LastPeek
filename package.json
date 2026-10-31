@@ -24,13 +24,14 @@
     "verify:release": "node --env-file-if-exists=.env scripts/verify-release.mjs",
     "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts tests/release-policy.test.mjs",
     "test:deployment": "node --test tests/deployment.test.mjs",
-    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts tests/plans.test.ts && node --env-file-if-exists=.env --import tsx --test tests/x-publishing.test.ts"
+    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts tests/plans.test.ts tests/notifications.test.ts && node --env-file-if-exists=.env --import tsx --test tests/x-publishing.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
     "@types/twitter-text": "^3.1.10",
+    "@types/web-push": "^3.6.4",
     "playwright": "^1.56.1",
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
@@ -56,6 +57,7 @@
     "tailwind-variants": "^3.3.1",
     "tsx": "^4.23.15",
     "twitter-text": "^3.1.0",
+    "web-push": "^3.6.7",
     "zod": "^4.6.7"
   }
 }

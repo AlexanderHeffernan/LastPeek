@@ -108,7 +108,10 @@ test(
   "installed app assets and private, network-only offline recovery",
   { timeout: 60000 },
   async () => {
-    const browser = await engine.launch();
+    // Full Chromium supports OS notification permission; headless-shell does not.
+    const browser = await engine.launch(
+      engine === chromium ? { channel: "chromium" } : {},
+    );
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
     });
@@ -198,6 +201,57 @@ test(
       await page.evaluate(() => navigator.serviceWorker.ready);
       await page.reload();
       await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+      if (engine === chromium) {
+        await context.grantPermissions(["notifications"]);
+        const cdp = await context.newCDPSession(page);
+        const registration = new Promise<string>((resolve) => {
+          cdp.on(
+            "ServiceWorker.workerRegistrationUpdated",
+            ({ registrations }) => {
+              const current = registrations.find(
+                (item: { scopeURL: string }) => item.scopeURL === `${origin}/`,
+              );
+              if (current) resolve(current.registrationId);
+            },
+          );
+        });
+        await cdp.send("ServiceWorker.enable");
+        const pushId = randomUUID();
+        await cdp.send("ServiceWorker.deliverPushMessage", {
+          origin,
+          registrationId: await registration,
+          data: JSON.stringify({
+            id: pushId,
+            body: "A friend shared a draft with you.",
+          }),
+        });
+        let displayed: unknown[] = [];
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          displayed = await page.evaluate(async (id) => {
+            const items = await (
+              await navigator.serviceWorker.ready
+            ).getNotifications();
+            return items
+              .filter((item) => item.tag === `lastpeek-${id}`)
+              .map((item) => ({
+                title: item.title,
+                body: item.body,
+                data: item.data,
+              }));
+          }, pushId);
+          if (displayed.length) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        assert.deepEqual(displayed, [
+          {
+            title: "LastPeek",
+            body: "A friend shared a draft with you.",
+            data: { id: pushId },
+          },
+        ]);
+        await cdp.detach();
+      }
       const missing = await page.goto(`${baseURL}/does-not-exist`);
       assert.equal(
         missing?.status(),
@@ -1589,6 +1643,579 @@ test(
 );
 
 test(
+  "friends require consent and private reviews enforce recipient access everywhere",
+  { timeout: 90000 },
+  async () => {
+    const browser = await engine.launch();
+    const ids = [randomUUID(), randomUUID(), randomUUID()];
+    const contexts = await Promise.all(ids.map(() => browser.newContext()));
+    const guest = await browser.newContext();
+    const [author, friend, other] = contexts;
+    const draftId = randomUUID(),
+      postId = randomUUID();
+    const files: string[] = [],
+      avatars: string[] = [];
+    const names = ["Mina", "Jules", "Robin"];
+    const emails = ids.map((id) => `friends-${id}@example.test`);
+    const headers = { Origin: origin };
+    const friendAction = async (
+      context: typeof author,
+      body: object,
+      status = 200,
+    ) => {
+      const response = await context.request.post(`${baseURL}/api/friends`, {
+        data: body,
+        headers,
+      });
+      assert.equal(response.status(), status, await response.text());
+    };
+    try {
+      for (const [i, id] of ids.entries()) {
+        await db.query(
+          "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4)",
+          [id, emails[i], names[i], await passwordHash(password)],
+        );
+        const key = token();
+        await db.query(
+          "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+          [tokenHash(key), id],
+        );
+        await contexts[i].addCookies([
+          { name: "lastpeek_session", value: key, url: baseURL },
+        ]);
+      }
+      const content: Content = {
+        title: "",
+        author: { name: names[0], handle: "" },
+        posts: [
+          {
+            id: postId,
+            text: "A private second opinion before Friday.",
+            media: [],
+          },
+        ],
+      };
+      await db.query(
+        "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+        [draftId, ids[0], JSON.stringify(content)],
+      );
+      const page = await author.newPage(),
+        reviewer = await friend.newPage();
+      await page.goto(`${baseURL}/friends`);
+      await page.getByLabel("Add by email").fill(emails[1].toUpperCase());
+      await page
+        .getByRole("button", { name: "Send request", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Cancel friend request to Jules" })
+        .waitFor();
+      await friendAction(author, { action: "email", email: emails[1] });
+      assert.equal(
+        Number(
+          (
+            await db.query(
+              "SELECT count(*) FROM notifications WHERE user_id=$1 AND kind='friend_request'",
+              [ids[1]],
+            )
+          ).rows[0].count,
+        ),
+        1,
+        "Repeated requests do not duplicate notifications.",
+      );
+      const requestId = (
+        await db.query("SELECT id FROM friendships WHERE requester_id=$1", [
+          ids[0],
+        ])
+      ).rows[0].id;
+      await friendAction(author, { action: "accept", id: requestId }, 404);
+      await friendAction(other, { action: "remove", id: requestId }, 404);
+      await friendAction(author, { action: "email", email: emails[0] }, 400);
+      await action(
+        author.request,
+        draftId,
+        { action: "friend", version: 1, userId: ids[1] },
+        400,
+      );
+      await reviewer.goto(`${baseURL}/friends`);
+      await reviewer.getByLabel("1 pending friend requests").waitFor();
+      await reviewer
+        .getByRole("button", { name: "Accept Mina’s friend request" })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Remove Mina as a friend" })
+        .waitFor();
+      // A second accepted friend is not implicitly a recipient.
+      await friendAction(author, { action: "email", email: emails[2] });
+      const second = (
+        await db.query("SELECT id FROM friendships WHERE recipient_id=$1", [
+          ids[2],
+        ])
+      ).rows[0].id;
+      await friendAction(other, { action: "accept", id: second });
+      await friendAction(
+        other,
+        { action: "request", userId: ids[1], draftId },
+        404,
+      );
+      const image = await sharp({
+        create: { width: 64, height: 64, channels: 3, background: "#cc7766" },
+      })
+        .png()
+        .toBuffer();
+      const upload = await author.request.post(
+        `${baseURL}/api/drafts/${draftId}/media`,
+        {
+          headers,
+          multipart: {
+            file: { name: "private.png", mimeType: "image/png", buffer: image },
+          },
+        },
+      );
+      assert.equal(upload.status(), 201);
+      const media = await upload.json();
+      files.push(media.id);
+      const photo = await author.request.post(`${baseURL}/api/profile/avatar`, {
+        headers,
+        data: image,
+      });
+      assert.equal(photo.status(), 201);
+      const avatar = (await photo.json()).avatar;
+      avatars.push(avatar);
+      content.posts[0].media = [media.id];
+      const saved = await action(author.request, draftId, {
+        action: "save",
+        version: 1,
+        content,
+      });
+      const publicReview = await action(author.request, draftId, {
+        action: "publish",
+        version: saved.version,
+      });
+      // Profile discovery works through a review, without exposing email addresses.
+      await reviewer.goto(`${baseURL}/r/${publicReview.token}`);
+      await page.goto(`${baseURL}/drafts/${draftId}`);
+      await page.getByRole("button", { name: "Review link options" }).click();
+      await page
+        .getByRole("button", { name: "Share with friends", exact: true })
+        .click();
+      const sharing = page.waitForResponse(
+        (r) => r.request().postDataJSON()?.action === "friend",
+      );
+      await page
+        .getByRole("button", { name: "Send to Jules", exact: true })
+        .click();
+      await page
+        .getByRole("alertdialog", { name: "Switch to friends only?" })
+        .getByRole("button", { name: "Switch to friends only", exact: true })
+        .click();
+      const privateReview = await (await sharing).json();
+      await page
+        .getByRole("button", { name: "Remove Jules’s review access" })
+        .waitFor();
+      const reviewURL = `${baseURL}/r/${privateReview.token}`;
+      const sharedNotification = (
+        await db.query(
+          "SELECT id FROM notifications WHERE user_id=$1 AND draft_id=$2 AND kind='shared_draft'",
+          [ids[1], draftId],
+        )
+      ).rows[0].id;
+      assert.equal(
+        (
+          await other.request.get(
+            `${baseURL}/notifications/${sharedNotification}`,
+          )
+        ).status(),
+        404,
+      );
+      const mediaURL = `${baseURL}/media/${media.id}?key=${privateReview.token}`;
+      const avatarURL = `${baseURL}/avatars/${avatar}?key=${privateReview.token}`;
+      assert.equal(
+        (
+          await guest.request.get(`${baseURL}/r/${publicReview.token}`)
+        ).status(),
+        404,
+      );
+      for (const context of [guest, other]) {
+        for (const path of [
+          reviewURL,
+          mediaURL,
+          avatarURL,
+          `${reviewURL}/preview.png`,
+        ])
+          assert.equal((await context.request.get(path)).status(), 404, path);
+        assert.equal(
+          (
+            await context.request.post(`${reviewURL}?/comment`, {
+              headers,
+              form: {
+                name: "No",
+                body: "Not allowed",
+                revision: privateReview.revision,
+              },
+            })
+          ).status(),
+          404,
+        );
+      }
+      assert.equal((await friend.request.get(mediaURL)).status(), 200);
+      assert.equal((await friend.request.get(avatarURL)).status(), 200);
+      assert.equal(
+        (await friend.request.get(`${reviewURL}/preview.png`)).status(),
+        404,
+        "private reviews never generate crawler previews, even for a recipient",
+      );
+      await reviewer.goto(`${baseURL}/notifications`);
+      await reviewer
+        .getByRole("button", { name: /Mina.*A friend shared a draft/ })
+        .first()
+        .click();
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .fill("The Friday timing works.");
+      await reviewer
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await reviewer
+        .getByText("The Friday timing works.", { exact: true })
+        .waitFor();
+      content.posts[0].text = "Updated private wording.";
+      const updated = await action(author.request, draftId, {
+        action: "save",
+        version: saved.version,
+        content,
+      });
+      assert.ok(updated.revision > privateReview.revision);
+      await reviewer.reload();
+      await reviewer
+        .getByText("Updated private wording.", { exact: true })
+        .waitFor();
+      await reviewer.getByText("Earlier feedback", { exact: true }).waitFor();
+      await action(author.request, draftId, {
+        action: "unshare-friend",
+        userId: ids[1],
+      });
+      assert.equal((await friend.request.get(reviewURL)).status(), 404);
+      assert.equal(
+        (
+          await friend.request.get(
+            `${baseURL}/notifications/${sharedNotification}`,
+          )
+        ).status(),
+        404,
+        "A notification never restores removed access.",
+      );
+      assert.equal((await friend.request.get(mediaURL)).status(), 404);
+      await action(author.request, draftId, {
+        action: "friend",
+        version: updated.version,
+        userId: ids[1],
+      });
+      await friendAction(friend, { action: "remove", id: requestId });
+      assert.equal((await friend.request.get(reviewURL)).status(), 404);
+      assert.equal((await friend.request.get(mediaURL)).status(), 404);
+      // Re-friending does not resurrect earlier review grants.
+      await friendAction(author, { action: "email", email: emails[1] });
+      const next = (
+        await db.query(
+          "SELECT id FROM friendships WHERE requester_id=$1 AND recipient_id=$2",
+          [ids[0], ids[1]],
+        )
+      ).rows[0].id;
+      await friendAction(friend, { action: "accept", id: next });
+      assert.equal((await friend.request.get(reviewURL)).status(), 404);
+      const publicAgain = await action(author.request, draftId, {
+        action: "publish",
+        version: updated.version,
+      });
+      assert.equal(
+        (await guest.request.get(`${baseURL}/r/${publicAgain.token}`)).status(),
+        200,
+      );
+      assert.equal((await friend.request.get(reviewURL)).status(), 404);
+      // Quick requests from account-linked feedback are bound to the actual draft.
+      await friendAction(author, { action: "remove", id: next });
+      await page.getByRole("button", { name: "Close sharing" }).click();
+      await page.reload();
+      await page.getByRole("button", { name: "Add Jules as a friend" }).click();
+      await page
+        .getByRole("button", { name: "Cancel friend request to Jules" })
+        .waitFor();
+      await reviewer.goto(`${baseURL}/friends`);
+      await reviewer
+        .getByRole("button", { name: "Decline Mina’s friend request" })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Decline Mina’s friend request" })
+        .waitFor({ state: "hidden" });
+      await reviewer.goto(`${baseURL}/r/${publicAgain.token}`);
+      await reviewer
+        .getByRole("button", { name: "Add Mina as a friend" })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Cancel friend request to Mina" })
+        .waitFor();
+      await reviewer
+        .getByRole("button", { name: "Cancel friend request to Mina" })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Add Mina as a friend" })
+        .waitFor();
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(`${baseURL}/friends`);
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+        await page
+          .getByRole("link", { name: "Friends", exact: true })
+          .waitFor();
+      }
+      const kinds = (
+        await db.query(
+          "SELECT DISTINCT kind FROM notifications WHERE user_id=ANY($1::uuid[]) ORDER BY kind",
+          [ids],
+        )
+      ).rows.map((row) => row.kind);
+      assert.deepEqual(kinds, [
+        "feedback",
+        "friend_accepted",
+        "friend_request",
+        "shared_draft",
+      ]);
+      await page.goto(`${baseURL}/settings?tab=notifications`);
+      await page
+        .getByRole("checkbox", { name: "Friend requests", exact: true })
+        .uncheck();
+      await page
+        .getByRole("button", { name: "Save preferences", exact: true })
+        .click();
+      await page.getByRole("button", { name: "Saved", exact: true }).waitFor();
+      await page.reload();
+      assert.equal(
+        await page
+          .getByRole("checkbox", { name: "Friend requests", exact: true })
+          .isChecked(),
+        false,
+      );
+      assert.equal(
+        await page
+          .getByRole("checkbox", { name: "Feedback", exact: true })
+          .isChecked(),
+        true,
+      );
+      if (engine === chromium) {
+        // Exercise the refusal state without depending on an OS permission prompt.
+        await page.evaluate(`Object.defineProperty(Notification, "requestPermission", {
+          configurable: true, value: () => Promise.resolve("denied")
+        })`);
+        await page
+          .getByRole("button", { name: "Enable notifications", exact: true })
+          .click();
+        await page
+          .getByRole("alert")
+          .filter({ hasText: "Notifications are blocked" })
+          .waitFor();
+      }
+      const beforeRequests = Number(
+        (
+          await db.query(
+            "SELECT count(*) FROM notifications WHERE user_id=$1 AND kind='friend_request'",
+            [ids[0]],
+          )
+        ).rows[0].count,
+      );
+      await friendAction(friend, { action: "email", email: emails[0] });
+      assert.equal(
+        Number(
+          (
+            await db.query(
+              "SELECT count(*) FROM notifications WHERE user_id=$1 AND kind='friend_request'",
+              [ids[0]],
+            )
+          ).rows[0].count,
+        ),
+        beforeRequests,
+      );
+      await page.goto(`${baseURL}/notifications`);
+      await page.getByRole("button", { name: "Mark all as read" }).click();
+      await page
+        .getByRole("button", { name: "Mark all as read" })
+        .waitFor({ state: "hidden" });
+      assert.equal(
+        (
+          await author.request
+            .get(`${baseURL}/api/notifications`)
+            .then((r) => r.json())
+        ).unread,
+        0,
+      );
+      const pushKeys = await (
+        await author.request.get(`${baseURL}/api/push`)
+      ).json();
+      assert.match(pushKeys.publicKey, /^[A-Za-z0-9_-]{87}$/);
+      assert.equal(pushKeys.privateKey, undefined);
+      const endpoint = `https://fcm.googleapis.com/test-${randomUUID()}`;
+      assert.equal(
+        (
+          await author.request.post(`${baseURL}/api/push`, {
+            headers,
+            data: {
+              endpoint,
+              keys: { p256dh: pushKeys.publicKey, auth: "a".repeat(22) },
+            },
+          })
+        ).status(),
+        200,
+      );
+      assert.equal(
+        (await author.request.get(`${baseURL}/api/push`).then((r) => r.json()))
+          .enabled,
+        true,
+      );
+      await other.request.delete(`${baseURL}/api/push`, {
+        headers,
+        data: { endpoint },
+      });
+      assert.equal(
+        (await author.request.get(`${baseURL}/api/push`).then((r) => r.json()))
+          .enabled,
+        true,
+        "Another account cannot disable this device.",
+      );
+      assert.equal(
+        (
+          await author.request.delete(`${baseURL}/api/push`, {
+            headers,
+            data: { endpoint },
+          })
+        ).status(),
+        200,
+      );
+      assert.equal(
+        (await author.request.get(`${baseURL}/api/push`).then((r) => r.json()))
+          .enabled,
+        false,
+      );
+      assert.equal(
+        (
+          await author.request.post(`${baseURL}/api/push`, {
+            headers,
+            data: {
+              endpoint: "https://127.0.0.1/private",
+              keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) },
+            },
+          })
+        ).status(),
+        400,
+      );
+      assert.equal(
+        (
+          await other.request.post(`${baseURL}/api/notifications`, {
+            headers,
+            data: { id: sharedNotification },
+          })
+        ).status(),
+        404,
+      );
+      assert.equal(
+        (
+          await author.request.post(`${baseURL}/notifications?/delete`, {
+            headers,
+            form: { id: sharedNotification },
+          })
+        ).status(),
+        404,
+        "Deleting a notification requires its owner.",
+      );
+      const beforeDelete = Number(
+        (
+          await db.query(
+            "SELECT count(*) FROM notifications WHERE user_id=$1",
+            [ids[0]],
+          )
+        ).rows[0].count,
+      );
+      assert.ok(beforeDelete > 1);
+      await page
+        .getByRole("button", { name: /^Delete notification from / })
+        .first()
+        .click();
+      await page
+        .getByRole("button", { name: "Delete all", exact: true })
+        .click();
+      assert.equal(
+        Number(
+          (
+            await db.query(
+              "SELECT count(*) FROM notifications WHERE user_id=$1",
+              [ids[0]],
+            )
+          ).rows[0].count,
+        ),
+        beforeDelete - 1,
+      );
+      const deleteDialog = page.getByRole("alertdialog", {
+        name: "Delete all notifications?",
+      });
+      await deleteDialog
+        .getByRole("button", { name: "Keep notifications" })
+        .click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: /^Delete notification from / })
+          .count(),
+        beforeDelete - 1,
+      );
+      await page
+        .getByRole("button", { name: "Delete all", exact: true })
+        .click();
+      await deleteDialog
+        .getByRole("button", { name: "Delete all notifications", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Not a peep.", exact: true })
+        .waitFor();
+      assert.equal(
+        (
+          await author.request
+            .get(`${baseURL}/api/notifications`)
+            .then((r) => r.json())
+        ).unread,
+        0,
+      );
+      assert.equal(
+        (
+          await db.query("SELECT id FROM notifications WHERE id=$1", [
+            sharedNotification,
+          ])
+        ).rowCount,
+        1,
+        "Delete all preserves other accounts’ notifications.",
+      );
+      assert.equal(
+        (await db.query("SELECT id FROM drafts WHERE id=$1", [draftId]))
+          .rowCount,
+        1,
+        "Deleting notifications preserves the draft.",
+      );
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [
+        ids,
+      ]);
+      await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
+      await Promise.all(files.map((id) => rm(mediaPath(id), { force: true })));
+      await Promise.all(
+        avatars.map((id) => rm(avatarPath(id), { force: true })),
+      );
+    }
+  },
+);
+
+test(
   "author → private draft → media → live guest review → revoke",
   { timeout: 150000 },
   async () => {
@@ -1799,7 +2426,7 @@ test(
       await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       for (const width of [390, 320]) {
         await page.setViewportSize({ width, height: 844 });
-        assert.equal(await navigation.getByRole("link").count(), 2);
+        assert.equal(await navigation.getByRole("link").count(), 4);
         assert.ok(
           (await page
             .getByRole("link", { name: "Account settings" })
@@ -2870,9 +3497,12 @@ test(
       await page
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
-      const deletion = page.getByRole("dialog", { name: "Delete this draft?" });
+      const deletion = page.getByRole("alertdialog", {
+        name: "Delete this draft?",
+      });
       await deletion.waitFor();
       await deletion.getByRole("button", { name: "Keep draft" }).click();
+      await deletion.waitFor({ state: "hidden" });
       assert.equal(await deletion.isVisible(), false);
       // AI remains owner-only and optional; no key must not break normal editing.
       const aiURL = `${baseURL}/api/drafts/${id}/ai-review`;
@@ -3067,7 +3697,7 @@ test(
       );
       assert.equal(
         await page
-          .getByRole("dialog", { name: "Remove this post?" })
+          .getByRole("alertdialog", { name: "Remove this post?" })
           .isVisible(),
         false,
       );
@@ -3082,7 +3712,7 @@ test(
       await page
         .getByRole("button", { name: "Remove post 2", exact: true })
         .click();
-      const removePostDialog = page.getByRole("dialog", {
+      const removePostDialog = page.getByRole("alertdialog", {
         name: "Remove this post?",
       });
       await removePostDialog.waitFor();
@@ -3269,6 +3899,9 @@ test(
       );
       await page
         .getByRole("button", { name: "Share draft", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Create review link", exact: true })
         .click();
       const shared = await (await publishResponse).json();
       assert.equal(shared.revision, 1);
@@ -3495,8 +4128,12 @@ test(
       );
       await page.reload();
       await page.getByRole("button", { name: "Use suggestion" }).waitFor();
+      await page.getByRole("button", { name: "Use suggestion" }).click();
       await edited(page, () =>
-        page.getByRole("button", { name: "Use suggestion" }).click(),
+        page
+          .getByRole("alertdialog", { name: "Use this suggestion?" })
+          .getByRole("button", { name: "Use suggestion", exact: true })
+          .click(),
       );
       assert.equal(
         await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
@@ -3582,6 +4219,10 @@ test(
       );
       await page
         .getByRole("button", { name: "Remove link", exact: true })
+        .click();
+      await page
+        .getByRole("alertdialog", { name: "Revoke this link?" })
+        .getByRole("button", { name: "Revoke link", exact: true })
         .click();
       await page
         .getByRole("button", { name: "Share draft", exact: true })
@@ -3851,7 +4492,7 @@ test(
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
       await page
-        .getByRole("dialog", { name: "Delete this draft?" })
+        .getByRole("alertdialog", { name: "Delete this draft?" })
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
       await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
@@ -3890,6 +4531,9 @@ test(
       );
       await page
         .getByRole("button", { name: "Share draft", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Create review link", exact: true })
         .click();
       const focusShared = await (await focusPublish).json();
       const focusLink = `${baseURL}/r/${focusShared.token}`;

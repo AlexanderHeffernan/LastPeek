@@ -9,10 +9,13 @@
   import { onMount, untrack } from "svelte";
   import { avatarURL } from "$lib/contracts";
   import Icon from "$lib/components/Icon.svelte";
+  import PushControl from "$lib/components/PushControl.svelte";
+  import { notificationKinds } from "$lib/notifications";
   let { data, form } = $props();
   const sections = [
     { id: "profile", label: "Profile", icon: "users" },
     { id: "connections", label: "Connections", icon: "link" },
+    { id: "notifications", label: "Notifications", icon: "bell" },
     { id: "allowances", label: "Allowances", icon: "chart" },
     { id: "password", label: "Password", icon: "lock" },
   ];
@@ -43,13 +46,28 @@
   let passwordBusy = $state(false);
   let passwordError = $state("");
   let passwordSaved = $state(false);
+  let preferences = $state(
+    untrack(() => ({ ...data.notificationPreferences })),
+  );
+  let notificationsBusy = $state(false),
+    notificationsError = $state("");
+  const notificationsDirty = $derived(
+    notificationKinds.some(
+      (kind) => preferences[kind.id] !== data.notificationPreferences[kind.id],
+    ),
+  );
+  $effect(() => {
+    preferences = { ...data.notificationPreferences };
+  });
   const profileDirty = $derived(
     name !== data.user.name ||
       handle !== data.user.handle ||
       !!photo ||
       removePhoto,
   );
-  const dirty = $derived(profileDirty || !!currentPassword || !!newPassword);
+  const dirty = $derived(
+    profileDirty || notificationsDirty || !!currentPassword || !!newPassword,
+  );
   $effect(() => {
     name = data.user.name;
     handle = data.user.handle;
@@ -65,7 +83,7 @@
   });
   function canLeave() {
     return (
-      !(dirty || profileBusy || passwordBusy) ||
+      !(dirty || profileBusy || passwordBusy || notificationsBusy) ||
       confirm("You have unsaved changes. Discard them and leave settings?")
     );
   }
@@ -79,6 +97,7 @@
     newPassword = "";
     profileError = "";
     passwordError = "";
+    preferences = { ...data.notificationPreferences };
   }
   beforeNavigate(({ cancel, type }) => {
     // The browser handles full-page exits through beforeunload.
@@ -111,7 +130,7 @@
 
 <svelte:window
   onbeforeunload={(event) => {
-    if (dirty || profileBusy || passwordBusy) {
+    if (dirty || profileBusy || passwordBusy || notificationsBusy) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -150,6 +169,54 @@
     </form>
   </aside>
   <div class="settings-body">
+    <section
+      hidden={selected !== "notifications"}
+      aria-labelledby="notifications-heading"
+    >
+      <h2 id="notifications-heading">Notifications</h2>
+      <p class="small muted">
+        Choose what appears in your inbox and on devices with push enabled.
+      </p>
+      <form
+        method="POST"
+        action="?/notifications"
+        class="notification-preferences"
+        use:enhance={() => {
+          notificationsBusy = true;
+          notificationsError = "";
+          return async ({ result, update }) => {
+            try {
+              if (result.type === "success")
+                await update({ reset: false, navigate: false });
+              else notificationsError = "Couldn’t save preferences. Try again.";
+            } finally {
+              notificationsBusy = false;
+            }
+          };
+        }}
+      >
+        {#each notificationKinds as kind}
+          <label class="notification-preference"
+            ><Checkbox
+              name={kind.id}
+              bind:checked={preferences[kind.id]}
+              disabled={notificationsBusy}
+            />{kind.label}</label
+          >
+        {/each}
+        {#if notificationsError}<p class="action-error" role="alert">
+            {notificationsError}
+          </p>{/if}
+        <Button type="submit" disabled={notificationsBusy}
+          >{notificationsBusy
+            ? "Saving…"
+            : form?.notificationsSaved && !notificationsDirty
+              ? "Saved"
+              : "Save preferences"}</Button
+        >
+      </form>
+      {#if selected === "notifications"}<PushControl />{/if}
+    </section>
     <section hidden={selected !== "profile"} aria-labelledby="profile-heading">
       <h2 id="profile-heading">Profile</h2>
       <p class="small muted">Your identity in post previews.</p>

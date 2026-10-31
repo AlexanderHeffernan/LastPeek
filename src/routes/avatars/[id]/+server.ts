@@ -3,28 +3,35 @@ import { readFile } from "node:fs/promises";
 import { db } from "$lib/server/db";
 import { avatarPath } from "$lib/server/avatars";
 import { canViewAdmin } from "$lib/server/admin";
+import { sharedDraft } from "$lib/server/drafts";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) error(404, "Avatar unavailable.");
+  const key = url.searchParams.get("key");
+  const review = key ? await sharedDraft(key, locals.user?.id) : null;
   const allowed = await db.query(
     `SELECT id FROM avatars WHERE id=$1 AND (
       owner_id=$2 OR ($4 AND EXISTS (SELECT 1 FROM users WHERE avatar_id=avatars.id)) OR EXISTS (
         SELECT 1 FROM drafts d JOIN revisions r ON r.draft_id=d.id
-        WHERE d.share_token=$3 AND d.shared_revision IS NOT NULL
+        WHERE d.id=$3::uuid AND d.shared_revision IS NOT NULL
           AND r.content->'author'->>'avatar'=$1::text
       ) OR EXISTS (
         SELECT 1 FROM comments c JOIN users u ON u.id=c.user_id
         JOIN drafts d ON d.id=c.draft_id
         WHERE u.avatar_id=$1 AND (d.owner_id=$2 OR (
-          d.share_token=$3 AND d.shared_revision IS NOT NULL
+          d.id=$3::uuid AND d.shared_revision IS NOT NULL
         ))
+      ) OR EXISTS (
+        SELECT 1 FROM users u JOIN friendships f
+          ON (f.requester_id=u.id AND f.recipient_id=$2) OR (f.recipient_id=u.id AND f.requester_id=$2)
+        WHERE u.avatar_id=$1
       )
     )`,
     [
       params.id,
       locals.user?.id ?? null,
-      url.searchParams.get("key"),
+      review?.id ?? null,
       canViewAdmin(locals.user),
     ],
   );

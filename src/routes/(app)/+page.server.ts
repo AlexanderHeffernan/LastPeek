@@ -22,7 +22,8 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     shared_revision: number | null;
     feedback: number;
   }>(
-    `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,d.share_token IS NOT NULL AS shared,
+    `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,
+    (d.share_token IS NOT NULL OR EXISTS (SELECT 1 FROM friend_reviews fr WHERE fr.draft_id=d.id)) AS shared,
     (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
     FROM drafts d WHERE owner_id=$1 ORDER BY updated_at DESC`,
     [user.id],

@@ -9,6 +9,7 @@ import {
   type Feedback,
 } from "../contracts";
 import { db, transaction } from "./db";
+import { notify } from "./notifications";
 import { token } from "./auth";
 
 export type Draft = {
@@ -17,18 +18,22 @@ export type Draft = {
   content: Content;
   edit_version: number;
   share_token: string | null;
+  friend_token: string | null;
   shared_revision: number | null;
   updated_at: Date;
 };
-export async function sharedDraft(shareToken: string) {
+export async function sharedDraft(shareToken: string, userId?: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(shareToken))
     error(404, "This review link is unavailable. It may have been revoked.");
   const row = (
     await db.query(
-      `SELECT d.id,d.owner_id,d.shared_revision,r.content FROM drafts d
+      `SELECT d.id,d.owner_id,d.shared_revision,r.content,d.friend_token IS NOT NULL AS private FROM drafts d
        JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
-       WHERE d.share_token=$1`,
-      [shareToken],
+       WHERE d.share_token=$1 OR (d.friend_token=$1 AND
+         (d.owner_id=$2 OR EXISTS (SELECT 1 FROM friend_reviews fr
+          JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
+          WHERE fr.draft_id=d.id AND fr.recipient_id=$2)))`,
+      [shareToken, userId ?? null],
     )
   ).rows[0];
   if (!row)
@@ -36,6 +41,7 @@ export async function sharedDraft(shareToken: string) {
   return {
     id: row.id as string,
     owner_id: row.owner_id as string,
+    private: row.private as boolean,
     shared_revision: row.shared_revision as number,
     content: contentSchema.parse(row.content),
   };
@@ -106,7 +112,7 @@ export async function saveDraft(
       );
     const draft = await ownedDraft(id, userId, client);
     let revision = draft.shared_revision;
-    if (draft.share_token) {
+    if (draft.share_token || draft.friend_token) {
       revision = await snapshotDraft(client, draft);
       await client.query("UPDATE drafts SET shared_revision=$1 WHERE id=$2", [
         revision,
@@ -154,10 +160,53 @@ export async function publishDraft(
     const number = await snapshotDraft(client, draft);
     const shareToken = draft.share_token ?? token();
     await client.query(
-      "UPDATE drafts SET share_token=$1,shared_revision=$2 WHERE id=$3",
+      "UPDATE drafts SET share_token=$1,shared_revision=$2,friend_token=NULL WHERE id=$3",
       [shareToken, number, id],
     );
+    await client.query("DELETE FROM friend_reviews WHERE draft_id=$1", [id]);
     return { token: shareToken, revision: number };
+  });
+}
+export async function shareWithFriend(
+  id: string,
+  userId: string,
+  version: number,
+  recipientId: string,
+) {
+  return transaction(async (client) => {
+    await client.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [id]);
+    const draft = await ownedDraft(id, userId, client);
+    if (draft.edit_version !== version)
+      error(409, "Save your latest edits before sharing.");
+    if (!hasContent(draft.content))
+      error(400, "Write a post or add media before sharing.");
+    const friendship = (
+      await client.query(
+        `SELECT id FROM friendships WHERE accepted_at IS NOT NULL
+      AND ((requester_id=$1 AND recipient_id=$2) OR (requester_id=$2 AND recipient_id=$1)) FOR SHARE`,
+        [userId, recipientId],
+      )
+    ).rows[0];
+    if (!friendship) error(400, "Choose an accepted friend.");
+    const revision = await snapshotDraft(client, draft);
+    const key = draft.friend_token ?? token();
+    await client.query(
+      "UPDATE drafts SET share_token=NULL,friend_token=$1,shared_revision=$2 WHERE id=$3",
+      [key, revision, id],
+    );
+    const added = await client.query(
+      `INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)
+      ON CONFLICT DO NOTHING RETURNING draft_id`,
+      [id, recipientId, friendship.id],
+    );
+    if (added.rowCount)
+      await notify(client, {
+        userId: recipientId,
+        actorId: userId,
+        kind: "shared_draft",
+        draftId: id,
+      });
+    return { token: key, revision };
   });
 }
 export async function draftMedia(id: string): Promise<Media[]> {
@@ -171,7 +220,7 @@ export async function draftMedia(id: string): Promise<Media[]> {
 export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
-      `SELECT c.id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
+      `SELECT c.id,c.user_id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
        u.avatar_id,c.body,c.suggestion,c.quote,c.resolved,c.created_at
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
        WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
