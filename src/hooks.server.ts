@@ -3,6 +3,7 @@ import { sessionUser } from "$lib/server/auth";
 import { referrerPolicy } from "$lib/referrer-policy";
 import { db } from "$lib/server/db";
 import { deliverPush } from "$lib/server/notifications";
+import { syncXCredits } from "$lib/server/x-usage";
 export function init() {
   const timer = setInterval(() => {
     void deliverPush().catch(() =>
@@ -10,6 +11,17 @@ export function init() {
     );
   }, 10000);
   timer.unref();
+  let syncing = false;
+  const credits = setInterval(() => {
+    if (syncing) return;
+    syncing = true;
+    void syncXCredits()
+      .catch(() => console.error("X credit reconciliation unavailable"))
+      .finally(() => {
+        syncing = false;
+      });
+  }, 300000);
+  credits.unref();
 }
 export const handle: Handle = async ({ event, resolve }) => {
   event.locals.user = await sessionUser(event);

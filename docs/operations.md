@@ -8,7 +8,7 @@ The owner manages account plans from `/siteadmin/accounts` and creates email/pla
 
 `/siteadmin/model` models hypothetical revenue, fees, tax, API utilisation, storage, database/backup/transfer assumptions and fixed hosting. **Save model** persists the owner's assumptions in PostgreSQL (migration 015), shared across browsers and admin sessions; unsaved edits remain local. API budgets are USD and the NZD scenario uses an editable exchange-rate assumption. Complimentary Pro accounts incur costs without revenue. Full-allowance profit and average-use profit are estimates, not invoices or a live price. No simulation changes live entitlements. Saving requires same-origin owner access and is audited.
 
-The Feature flags page and audited grant framework control the optional `x-publishing` experiment, off by default. It also requires Pro, a connected account with explicit `tweet.write` permission (`media.write` for attachments) and sufficient existing X allowance. Existing connections upgrade through Allow posting in the draft. Text posting reserves US$0.015 (US$0.20 with URLs, media or a native quote); each upload/processing API call conservatively reserves US$0.05. Media/quote and upload costs remain unknown reservations, not asserted provider prices. The global safety budget rounds up to cents. Threads retain confirmed post IDs; Continue posting advances only unfinished posts in the same revision/account. Unknown tweet results block retries; do not clear their records to retry without independently confirming the X state. Native quotes may be rejected without Enterprise access. No production grants or real-account test posts are made just by deploying the code. Retired flag commands are rejected. Feature revocation/plan downgrade affects subsequent requests; already-running provider calls are not cancelled. X cache reads require the draft owner's Pro plan; reviewers need no account. Provider credentials and instance budgets remain independent safety requirements.
+The Feature flags page and audited grant framework control the optional `x-publishing` experiment, off by default. It also requires Pro, a connected account with explicit `tweet.write` permission (`media.write` for attachments) and sufficient existing X allowance. Existing connections upgrade through Allow posting in the draft. Text posting reserves US$0.015 (US$0.20 with URLs, media or a native quote); each upload/processing API call conservatively reserves US$0.05. These are safety reservations, not provider charges; see API accounting below for tariffs. The global safety budget rounds up to cents. Threads retain confirmed post IDs; Continue posting advances only unfinished posts in the same revision/account. Unknown tweet results block retries; do not clear their records to retry without independently confirming the X state. Native quotes may be rejected without Enterprise access. No production grants or real-account test posts are made just by deploying the code. Retired flag commands are rejected. Feature revocation/plan downgrade affects subsequent requests; already-running provider calls are not cancelled. X cache reads require the draft owner's Pro plan; reviewers need no account. Provider credentials and instance budgets remain independent safety requirements.
 
 ## Site administration
 
@@ -88,14 +88,62 @@ changing models requires adding its verified rates, not an admin form. Missing r
 token counts stay explicitly unpriced, including failed/interrupted requests.
 Historical OpenAI usage cannot be reconstructed from this ledger.
 
-X records each paid attempt transactionally with its budget reservation. Cache
-hits, denied requests and exhausted budgets create no new event. Gross cost
-estimates use the public post-read price ($0.005) and expansion pricing effective
-22 November 2026 ($0.010 per user, $0.005 per media/poll/place/post expansion).
-These estimates do not apply daily provider deduplication, credits or discounts
-and are not invoices. The existing five-cent-per-attempt safety reservation is
-reported separately. Earlier X reservations remain globally unattributed, not
-invented per-user costs. Month filters use UTC; all-time covers tracked events.
+Migration `023_x_cost_accounting.sql` snapshots X tariffs before HTTP. Standard
+PPU post creation costs $0.015, or $0.200 when the submitted text contains a URL.
+One completed media object adds $0.015, not one charge per initialize/append/finalize/status
+request. Append, finalize and status transport entries carry zero additional cost.
+The initialization entry receives its snapshotted object price after a confirmed
+successful finalization. An abandoned/failed initialization remains unsettled:
+X has not documented when those objects are billed. Failed writes/timeouts also
+remain unsettled instead of assuming that a failed publication was free.
+Native quotes require Enterprise and retain an unsettled cost rather than
+borrowing a standard PPU rate for a negotiated contract.
+
+Source reads cost $0.005 per post; connection/sign-in profile reads cost $0.010
+per user. Profile reads are now recorded even for Free accounts; token exchange
+is not treated as a paid content request. New/login identities are attributed
+after resolving their LastPeek account; unsuccessful unlinked identities remain
+unattributed app costs. Source cache hits, denied lookups and exhausted budgets
+create no new event. Expansion charging begins 22 November 2026 ($0.010 per user,
+$0.005 per media/poll/place/post). Returned-resource hashes and UTC dates apply
+X's daily payer-wide deduplication, including concurrent reads and shared resources
+across LastPeek users. The first recorded resource consumer bears its cost; later
+consumers that day cost zero. No post/profile text or raw resource IDs enter the
+accounting tables. X calls deduplication a soft guarantee, not an invoice promise.
+
+Admin shows one **Estimated spend** figure, never a cost plus a provision. The
+`cost_usd` aggregate is null if any included event lacks a price; admin displays
+**Needs reconciliation**, not an incomplete subtotal or a guessed billable total.
+`estimated_usd` remains the backward-compatible known subtotal for diagnostics,
+and `reserved_usd` remains safety metadata, not an alternative spending measure.
+Operation-level counts/outcomes identify what needs investigation. Legacy
+`media-upload` entries lack stage information and are not silently backfilled.
+Month filters use UTC; all-time covers tracked events. Account allowance checks
+continue to reserve conservatively; this does not turn on customer billing.
+
+Every five minutes, the existing web process uses the optional app bearer token
+to read `/2/usage/credits`. It saves prepaid/free balances separately (including
+negative prepaid balances), a grant fingerprint and the corresponding global
+ledger totals. A stable interval matches only when its balance debit agrees with
+the ledger and neither endpoint has unsettled activity. Top-ups, grant changes,
+concurrent activity and unexplained differences require review, never arbitrary
+allocations to users. Review remains sticky: a later quiet interval cannot erase
+an earlier discrepancy. Failed checks leave the last snapshot stale; admin shows
+the check timestamp/overdue state. No balance is available when credentials are
+missing. This is a payer-wide cross-check, not an itemized bill or proof of each
+user's charges; other apps on the payer, adjustments and historical gaps need
+provider-console evidence before billing. There is no automatic adjustment or
+manual reconciliation write endpoint in this release.
+
+Tariff sources checked 31 October 2026:
+
+- https://docs.x.com/x-api/getting-started/pricing (prices and daily UTC deduplication)
+- https://console.x.com/api/credits/pricing (current tariff catalog)
+- https://devcommunity.x.com/t/undocumented-postcreate-usage-for-media-uploads-please-clarify-pay-per-use-billing/274646/2 (X staff's per-media-object clarification; supersedes the conflicting calculator's older ContentCreate mapping)
+- https://docs.x.com/x-api/usage/get-usage-credits (payer balance schema, not individual charges)
+
+Historical seven-call gaps cannot be priced accurately from counts alone. Do not
+charge customers a reservation, a partial subtotal or an unexplained balance delta.
 
 ### Production activation
 

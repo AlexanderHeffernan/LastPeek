@@ -18,6 +18,7 @@ import {
 import { avatarLimit, storeAvatar } from "./avatars";
 import { hasFeature } from "./features";
 import { ownedDraft } from "./drafts";
+import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
 
 const scopes = "tweet.read users.read offline.access";
 const cookie = "lastpeek_x_oauth";
@@ -176,6 +177,9 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
       scope: string;
     },
     profile: XProfile;
+  let usageId: string | undefined;
+  let identityStatus: number | null = null;
+  let identityBody: unknown;
   try {
     const response = await fetch("https://api.x.com/2/oauth2/token", {
       method: "POST",
@@ -209,6 +213,14 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
       ].every((scope) => credentials.scope.split(" ").includes(scope))
     )
       throw new Error("Missing X permissions");
+    usageId = crypto.randomUUID();
+    // Sign-in remains independent of Pro allowances. Attribute new/login users
+    // after identity resolution; unsuccessful unlinked sign-ins stay app costs.
+    await db.query(
+      `INSERT INTO api_usage(id,user_id,provider,model,x_unit_usd,x_pricing_basis,x_read_rates)
+       VALUES($1,$2,'x','user-lookup',0.01,$3,$4)`,
+      [usageId, flow.user_id, xPricingBasis, xReadRates()],
+    );
     const identity = await fetch(
       "https://api.x.com/2/users/me?user.fields=profile_image_url",
       {
@@ -217,14 +229,21 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
         signal: AbortSignal.timeout(10000),
       },
     );
+    identityStatus = identity.status;
     if (!identity.ok) throw new Error("X identity unavailable");
-    profile = profileSchema.parse((await identity.json()).data);
+    identityBody = await identity.json();
+    profile = profileSchema.parse(
+      z.object({ data: z.unknown() }).parse(identityBody).data,
+    );
   } catch {
+    if (usageId)
+      await finishXRead(usageId, "User", identityBody, identityStatus, "error");
     error(
       502,
       "Couldn’t connect to X. Return to the account or invitation page and try again.",
     );
   }
+  await finishXRead(usageId!, "User", identityBody, identityStatus, "success");
   const accessToken = await encryptXToken(credentials.access_token);
   const refreshToken = credentials.refresh_token
     ? await encryptXToken(credentials.refresh_token)
@@ -310,6 +329,10 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
         Boolean(flow.user_id && !flow.publish_draft),
       ],
     );
+    await client.query("UPDATE api_usage SET user_id=$2 WHERE id=$1", [
+      usageId,
+      userId,
+    ]);
     return { userId, created };
   });
   if (!flow.user_id)

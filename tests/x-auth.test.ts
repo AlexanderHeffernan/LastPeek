@@ -190,6 +190,17 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
     assert.equal(joined.handle, profile.username);
     assert.equal(joined.has_password, false);
     assert.ok(joined.avatar_id);
+    const identityUsage = (
+      await db.query(
+        "SELECT estimated_usd::float8 AS usd FROM api_usage WHERE user_id=$1 AND model='user-lookup'",
+        [joined.id],
+      )
+    ).rows;
+    assert.deepEqual(
+      identityUsage,
+      [{ usd: 0 }],
+      "A new user's sign-in is attributed even when an earlier unlinked lookup already paid for that profile today",
+    );
     assert.ok(
       (
         await db.query("SELECT used_at FROM invites WHERE hash=$1", [

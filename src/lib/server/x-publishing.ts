@@ -10,6 +10,7 @@ import { rateLimit } from "./auth";
 import { decryptXToken, encryptXToken, xAuthEnabled } from "./x-auth";
 import { postingProblem, type XPublishing } from "../x-publishing";
 import { mediaIds } from "../contracts";
+import { xPricingBasis, xWriteRate } from "./x-usage";
 import {
   prepareXMedia,
   preparedMime,
@@ -228,17 +229,30 @@ export async function postToX(
       if (!reserved.rowCount)
         error(429, "The site’s X allowance is used. Try after it renews.");
       usageId = randomUUID();
+      const operation = upload
+        ? `media-${upload.stage === "processing" ? "status" : upload.stage}`
+        : "post-create";
       await client.query(
-        "INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd) VALUES($1,$2,'x',$3,$4,$5,$6)",
+        "INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd,x_unit_usd,x_pricing_basis) VALUES($1,$2,'x',$3,$4,$5,$6,$7,$8)",
         [
           usageId,
           userId,
-          upload ? "media-upload" : "post-create",
+          operation,
           cents,
           period,
           cost,
+          // Native quotes require Enterprise; do not borrow standard PPU rates
+          // for a successful request on a potentially negotiated contract.
+          !upload && index === 0 && content.source?.kind === "quote"
+            ? null
+            : xWriteRate(
+                operation,
+                Boolean(twitter.extractUrls(content.posts[index].text).length),
+              ),
+          xPricingBasis,
         ],
       );
+      if (upload?.stage === "initialize") upload.usageId = usageId;
     }
     if (!upload) step.sending = true; // Durable before the non-idempotent POST.
     delete progress.message;
@@ -263,6 +277,9 @@ export async function postToX(
   let status: number | null = null;
   let failure = "";
   let uncertain = false;
+  const operation = claim.upload?.stage;
+  const mediaUsageId = claim.upload?.usageId;
+  let finalized = false;
   const step = claim.progress.posts[claim.index];
   const upload = claim.upload;
   const request = async (path: string, init: RequestInit = {}) => {
@@ -360,6 +377,9 @@ export async function postToX(
             }),
           })
           .parse(await response.json()).data;
+        finalized =
+          operation === "finalize" &&
+          result.processing_info?.state !== "failed";
         upload.remote = result.id;
         if (result.expires_after_secs)
           upload.expires = Date.now() + result.expires_after_secs * 1000;
@@ -462,18 +482,23 @@ export async function postToX(
       ]);
     if (claim.usageId)
       await client.query(
-        "UPDATE api_usage SET outcome=$2,http_status=$3,estimated_usd=$4,completed_at=now() WHERE id=$1",
+        `UPDATE api_usage SET outcome=$2,http_status=$3,
+         estimated_usd=CASE WHEN model='media-initialize' THEN NULL
+          WHEN x_unit_usd=0 OR $3::smallint BETWEEN 200 AND 299 THEN x_unit_usd ELSE NULL END,
+         completed_at=now() WHERE id=$1`,
         [
           claim.usageId,
           failure ? (uncertain ? "incomplete" : "error") : "success",
           status,
-          !failure &&
-          !upload &&
-          !step.media.length &&
-          !(claim.index === 0 && claim.content.source?.kind === "quote")
-            ? claim.cost
-            : null,
         ],
+      );
+    // Count one completed media object, never each transport stage. Whether X
+    // charges an abandoned INIT is undocumented; keep it unsettled, not zero.
+    if (finalized && mediaUsageId)
+      await client.query(
+        `UPDATE api_usage SET estimated_usd=x_unit_usd
+         WHERE id=$1 AND user_id=$2 AND model='media-initialize' AND outcome='success'`,
+        [mediaUsageId, userId],
       );
   });
   if (failure) error(uncertain ? 409 : 502, failure);

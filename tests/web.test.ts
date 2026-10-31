@@ -1280,6 +1280,13 @@ test(
         ),
         [0, 0],
       );
+      await db.query(
+        `INSERT INTO api_usage(id,user_id,provider,model,outcome,estimated_usd,reserved_usd,reserved_cents)
+        SELECT gen_random_uuid(),$1::uuid,'x','post-lookup','success',0.005,0.05,5 FROM generate_series(1,5)
+        UNION ALL SELECT gen_random_uuid(),$1::uuid,'x','media-upload','success',NULL,0.05,5 FROM generate_series(1,6)
+        UNION ALL SELECT gen_random_uuid(),$1::uuid,'x','post-create','error',NULL,0.2,20`,
+        [ids[1]],
+      );
       await page.getByRole("link", { name: "Accounts", exact: true }).click();
       await page
         .getByRole("textbox", { name: "Search accounts" })
@@ -1294,6 +1301,29 @@ test(
         .click();
       await page.waitForURL((url) => url.searchParams.get("userId") === ids[1]);
       await page.getByText(emails[1], { exact: true }).waitFor();
+      const xUsage = page.getByRole("region", { name: "X usage", exact: true });
+      await xUsage.getByText("Needs reconciliation", { exact: true }).waitFor();
+      assert.equal(
+        await xUsage.getByText("US$0.525", { exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await xUsage.getByText("US$0.5", { exact: true }).count(),
+        0,
+      );
+      await xUsage
+        .getByText("Media uploads (legacy)", { exact: true })
+        .waitFor();
+      for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+        await screenshot(page, `siteadmin-usage-${width}`);
+      }
       await page.getByRole("button", { name: "All time", exact: true }).click();
       await page.waitForURL((url) => url.searchParams.get("period") === "all");
       await page
@@ -1651,6 +1681,9 @@ test(
         avatars.rows.map((row) => rm(avatarPath(row.id), { force: true })),
       );
       await db.query("DELETE FROM invites WHERE created_by=ANY($1::uuid[])", [
+        ids,
+      ]);
+      await db.query("DELETE FROM api_usage WHERE user_id=ANY($1::uuid[])", [
         ids,
       ]);
       await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);

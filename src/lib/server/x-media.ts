@@ -24,6 +24,7 @@ export type Upload = {
   stage:
     "prepare" | "initialize" | "append" | "finalize" | "processing" | "ready";
   remote?: string;
+  usageId?: string;
   segment?: number;
   expires?: number;
   checkAt?: number;

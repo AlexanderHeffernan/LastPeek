@@ -4,7 +4,7 @@ import type { XSourcePost } from "../x-post";
 import { db, transaction } from "./db";
 import { isPro, reserveAPI } from "./plans";
 import { randomUUID } from "node:crypto";
-import { xEstimatedCost } from "./usage";
+import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
 
 const imageURL = z.url().refine((value) => {
   const url = new URL(value);
@@ -186,9 +186,9 @@ export async function sourcePost(
     if (!reserved.rowCount) return { content: null };
     const usageId = randomUUID();
     await client.query(
-      `INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd)
-      VALUES($1,$2,'x','post-lookup',5,$3,0.05)`,
-      [usageId, ownerId, period],
+      `INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd,x_unit_usd,x_pricing_basis,x_read_rates)
+      VALUES($1,$2,'x','post-lookup',5,$3,0.05,0.005,$4,$5)`,
+      [usageId, ownerId, period, xPricingBasis, xReadRates()],
     );
     await client.query(
       `INSERT INTO x_source_posts(post_id,content,expires_at)
@@ -201,9 +201,8 @@ export async function sourcePost(
   if ("content" in lookup) return lookup.content ?? null;
   // The reservation and miss marker have committed before any billable request.
   let card: XSourcePost | null = null;
-  let estimatedUsd: number | null = null;
+  let raw: unknown;
   let httpStatus: number | null = null;
-  const started = new Date();
   try {
     const endpoint = new URL(`https://api.x.com/2/tweets/${id}`);
     endpoint.searchParams.set("expansions", "author_id,attachments.media_keys");
@@ -223,22 +222,18 @@ export async function sourcePost(
     });
     httpStatus = response.status;
     if (response.ok) {
-      const raw = await response.json();
-      estimatedUsd = xEstimatedCost(raw, started);
+      raw = await response.json();
       card = sourceCard(raw, id);
     }
   } catch {
     // Credentials, provider response bodies and draft/review URLs never enter logs.
   }
-  await db.query(
-    `UPDATE api_usage SET outcome=$2,estimated_usd=$3,http_status=$4,completed_at=now()
-    WHERE id=$1 AND outcome='pending'`,
-    [
-      lookup.usageId,
-      card ? "success" : httpStatus === 200 ? "unusable" : "error",
-      estimatedUsd,
-      httpStatus,
-    ],
+  await finishXRead(
+    lookup.usageId,
+    "Post",
+    raw,
+    httpStatus,
+    card ? "success" : httpStatus === 200 ? "unusable" : "error",
   );
   await db.query(
     `

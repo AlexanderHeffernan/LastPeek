@@ -40,6 +40,9 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     "CREATE TABLE invites(used_at timestamptz,revoked_at timestamptz)",
   );
   await db.query(await readFile("migrations/016_plans.sql", "utf8"));
+  await db.query(
+    await readFile("migrations/023_x_cost_accounting.sql", "utf8"),
+  );
   await db.query("INSERT INTO users(id) VALUES($1)", [ownerId]);
   let calls = 0;
   let status = 200;
@@ -215,6 +218,14 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   text = "An updated source";
   await expire(1);
   assert.equal((await sourcePost(url(1)))?.text, text);
+  assert.equal(
+    Number(
+      (await db.query("SELECT sum(estimated_usd) AS usd FROM api_usage"))
+        .rows[0].usd,
+    ),
+    0.005,
+    "Refreshing a cached resource on the same UTC day must not double charge",
+  );
   status = 404;
   await expire(1);
   assert.equal(
@@ -279,6 +290,6 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   assert.deepEqual(usage.rows[0], {
     requests: calls,
     reserved: spent + 5,
-    unpriced_failures: 1,
+    unpriced_failures: 0,
   });
 });

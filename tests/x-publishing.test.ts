@@ -143,6 +143,12 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
     await t.test(
       "media completes before posting; threads resume only unfinished posts and retain reply/quote relationships",
       async (t) => {
+        const { apiUsage } = await import("../src/lib/server/usage");
+        const previousPostCost = (
+          await apiUsage({ userId, period: "all" })
+        ).operations.find(
+          (row) => row.operation === "post-create",
+        )!.estimated_usd;
         await db.query(
           "UPDATE x_accounts SET scope=scope || ' media.write' WHERE user_id=$1",
           [userId],
@@ -305,6 +311,35 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
             "Original review media stays intact",
           );
           assert.equal(checks, 1, "Wait for media readiness before posting");
+          const usage = await apiUsage({ userId, period: "all" });
+          assert.ok(
+            Math.abs(
+              usage.operations.find((row) => row.operation === "post-create")!
+                .estimated_usd -
+                previousPostCost -
+                0.015,
+            ) < 0.0000001,
+            "Attaching media does not turn a URL-free post into a $0.20 URL post",
+          );
+          assert.deepEqual(
+            usage.operations
+              .filter((row) => row.operation.startsWith("media-"))
+              .map((row) => ({
+                operation: row.operation,
+                requests: row.requests,
+                cost: row.cost_usd,
+              })),
+            [
+              "media-append",
+              "media-finalize",
+              "media-initialize",
+              "media-status",
+            ].map((operation) => ({
+              operation,
+              requests: 1,
+              cost: operation === "media-initialize" ? 0.015 : 0,
+            })),
+          );
           const partial = await xPublishing(userId, id);
           assert.equal(partial.publication?.completed, 1);
           assert.equal(partial.publication?.resumable, true);

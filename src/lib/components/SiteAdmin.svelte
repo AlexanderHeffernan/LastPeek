@@ -65,6 +65,19 @@
   };
   const money = (value: number) =>
     `US$${value.toLocaleString("en-US", { maximumFractionDigits: 6 })}`;
+  const operationName = (operation: string) =>
+    (
+      ({
+        "post-lookup": "Source post reads",
+        "user-lookup": "Connected profile reads",
+        "post-create": "Post creation",
+        "media-upload": "Media uploads (legacy)",
+        "media-initialize": "Upload initialization",
+        "media-append": "Upload chunks",
+        "media-finalize": "Upload finalization",
+        "media-status": "Processing checks",
+      }) as Record<string, string>
+    )[operation] || operation;
   const joined = (value: string) =>
     new Date(value).toLocaleDateString(undefined, {
       year: "numeric",
@@ -287,12 +300,16 @@
                 aria-label={`${usage.provider === "openai" ? "OpenAI" : "X"} usage this month`}
               >
                 <h3>{usage.provider === "openai" ? "OpenAI" : "X"}</h3>
-                <p class="cost">{money(usage.estimated_usd)}</p>
-                <p class="small muted">Estimated USD · this month</p>
+                <p class="cost">
+                  {usage.cost_usd === null
+                    ? "Needs reconciliation"
+                    : money(usage.cost_usd)}
+                </p>
+                <p class="small muted">Estimated spend · USD this month</p>
                 <div class="row between">
                   <span class="small muted"
                     >{usage.requests.toLocaleString()} requests{#if usage.unpriced}
-                      · {usage.unpriced} unpriced{/if}</span
+                      · {usage.unpriced} awaiting reconciliation{/if}</span
                   >
                   <Button
                     variant="ghost"
@@ -433,9 +450,11 @@
                       {#each account.usage as usage}<span
                           class="row between small"
                           >{usage.provider === "openai" ? "OpenAI" : "X"}
-                          <strong>{money(usage.estimated_usd)}</strong
-                          >{#if usage.unpriced}
-                            · {usage.unpriced} unpriced{/if}</span
+                          <strong
+                            >{usage.cost_usd === null
+                              ? "Needs reconciliation"
+                              : money(usage.cost_usd)}</strong
+                          ></span
                         >{/each}
                     </Button>
                   </td>
@@ -701,10 +720,14 @@
                 aria-label={`${usage.provider === "openai" ? "OpenAI" : "X"} usage`}
               >
                 <h3>{usage.provider === "openai" ? "OpenAI" : "X"}</h3>
-                <p class="cost">{money(usage.estimated_usd)}</p>
+                <p class="cost">
+                  {usage.cost_usd === null
+                    ? "Needs reconciliation"
+                    : money(usage.cost_usd)}
+                </p>
                 <p class="small muted">
-                  Estimated USD{#if usage.unpriced}
-                    · {usage.unpriced} unpriced requests{/if}
+                  Estimated spend · USD{#if usage.unpriced}
+                    · {usage.unpriced} requests awaiting reconciliation{/if}
                 </p>
                 <dl class="usage-stats">
                   <div>
@@ -738,17 +761,43 @@
                     <div>
                       <dt>Output tokens</dt>
                       <dd>{usage.output_tokens.toLocaleString()}</dd>
-                    </div>{:else}<div>
-                      <dt>Budget reserved</dt>
-                      <dd>{money(usage.reserved_usd)}</dd>
                     </div>{/if}
                 </dl>
+                {#if usage.provider === "x"}
+                  <p class="small muted">
+                    Payer balance check:
+                    {#if !data.usage.xBalance}not available yet
+                    {:else if Date.now() - new Date(data.usage.xBalance.observedAt).getTime() > 600000}overdue
+                    {:else if data.usage.xBalance.state === "matched"}matched
+                    {:else if data.usage.xBalance.state === "review"}review
+                      required
+                    {:else}baseline captured{/if}
+                    {#if data.usage.xBalance}
+                      · {date(data.usage.xBalance.observedAt)}{/if}
+                  </p>
+                {/if}
+                {#each data.usage.operations.filter((operation) => operation.provider === usage.provider) as operation}
+                  <div class="usage-operation">
+                    <strong class="small"
+                      >{operationName(operation.operation)}</strong
+                    >
+                    <p class="small muted">
+                      {operation.requests} requests · {operation.successful} successful
+                      · {operation.failed} failed · {operation.pending} pending
+                    </p>
+                    <p class="small muted">
+                      {operation.cost_usd === null
+                        ? `${operation.unpriced} awaiting reconciliation`
+                        : money(operation.cost_usd)}
+                    </p>
+                  </div>
+                {/each}
               </section>
             {/each}
           </div>
-          {#if data.usage.legacyXReservedUsd}<p class="notice">
-              {money(data.usage.legacyXReservedUsd)} of earlier X budget reservations
-              have no per-user attribution. They are not included in estimated costs.
+          {#if data.usage.legacyXReservedUsd}<p class="small muted">
+              Earlier X activity has no per-user attribution and needs
+              reconciliation before billing.
             </p>{/if}
         {:else}
           {#if !data.history.length}<p class="muted empty">
@@ -1147,6 +1196,14 @@
   .usage-stats dd {
     font-size: 14px;
     margin: 0;
+  }
+  .usage-operation {
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+  .usage-operation p {
+    margin: 6px 0 0;
   }
   .flag-scope {
     margin: 24px 0 16px;

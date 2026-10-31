@@ -60,33 +60,6 @@ export async function finishOpenAIUsage(id: string, usage: AIUsageReport) {
   );
 }
 
-// Gross public PPU estimate, before X's daily deduplication or account-specific adjustments.
-// Expansion charging starts 22 November 2026, not on the announcement date.
-export function xEstimatedCost(raw: unknown, date = new Date()) {
-  if (
-    !raw ||
-    typeof raw !== "object" ||
-    !("data" in raw) ||
-    !raw.data ||
-    typeof raw.data !== "object"
-  )
-    return null;
-  const includes =
-    "includes" in raw && raw.includes && typeof raw.includes === "object"
-      ? (raw.includes as Record<string, unknown>)
-      : {};
-  const count = (key: string) =>
-    Array.isArray(includes[key]) ? includes[key].length : 0;
-  return (
-    0.005 +
-    (date >= new Date("2026-11-22T00:00:00Z")
-      ? count("users") * 0.01 +
-        (count("media") + count("polls") + count("places") + count("tweets")) *
-          0.005
-      : 0)
-  );
-}
-
 const sums = `count(*)::float8 AS requests,
   count(*) FILTER(WHERE outcome='success')::float8 AS successful,
   count(*) FILTER(WHERE outcome IN ('error','incomplete','unusable'))::float8 AS failed,
@@ -97,6 +70,8 @@ const sums = `count(*)::float8 AS requests,
   COALESCE(sum(cache_write_tokens),0)::float8 AS cache_write_tokens,
   COALESCE(sum(output_tokens),0)::float8 AS output_tokens,
   COALESCE(sum(estimated_usd),0)::float8 AS estimated_usd,
+  CASE WHEN count(*) FILTER(WHERE estimated_usd IS NULL)=0
+    THEN COALESCE(sum(estimated_usd),0)::float8 ELSE NULL END AS cost_usd,
   COALESCE(sum(reserved_cents),0)::float8/100 AS reserved_usd`;
 const monthStart = `date_trunc('month',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
 function providers(rows: APIUsage[]): APIUsage[] {
@@ -114,6 +89,7 @@ function providers(rows: APIUsage[]): APIUsage[] {
         cache_write_tokens: 0,
         output_tokens: 0,
         estimated_usd: 0,
+        cost_usd: 0,
         reserved_usd: 0,
       },
   );
@@ -126,7 +102,7 @@ export async function apiUsage(input: UsageQuery): Promise<UsageData> {
     WHERE ($1::uuid IS NULL OR user_id=$1) AND ($2='all' OR created_at>=${monthStart}) GROUP BY provider`,
     [query.userId ?? null, query.period],
   );
-  const [tracking, legacy, account] = await Promise.all([
+  const [tracking, legacy, account, operations, balance] = await Promise.all([
     db.query(
       "SELECT applied_at FROM schema_migrations WHERE name='013_api_usage.sql'",
     ),
@@ -138,6 +114,15 @@ export async function apiUsage(input: UsageQuery): Promise<UsageData> {
     query.userId
       ? db.query("SELECT email FROM users WHERE id=$1", [query.userId])
       : Promise.resolve({ rows: [] }),
+    db.query<APIUsage & { operation: string }>(
+      `SELECT provider,model AS operation,${sums} FROM api_usage
+      WHERE ($1::uuid IS NULL OR user_id=$1) AND ($2='all' OR created_at>=${monthStart})
+      GROUP BY provider,model ORDER BY provider,model`,
+      [query.userId ?? null, query.period],
+    ),
+    db.query(
+      "SELECT state,observed_at FROM x_credit_snapshots ORDER BY id DESC LIMIT 1",
+    ),
   ]);
   return {
     ...query,
@@ -146,7 +131,14 @@ export async function apiUsage(input: UsageQuery): Promise<UsageData> {
       : null,
     trackingSince: tracking.rows[0].applied_at.toISOString(),
     providers: providers(result.rows),
+    operations: operations.rows,
     legacyXReservedUsd: query.userId ? 0 : legacy.rows[0].amount,
+    xBalance: balance.rows[0]
+      ? {
+          state: balance.rows[0].state,
+          observedAt: balance.rows[0].observed_at.toISOString(),
+        }
+      : null,
   };
 }
 
