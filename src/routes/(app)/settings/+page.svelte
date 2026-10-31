@@ -516,6 +516,40 @@
     {/if}
     <section hidden={selected !== "allowances"} aria-label="Allowances">
       <h2>Allowances</h2>
+      <h3>{data.usage.plan === "pro" ? "Pro" : "Free"} plan</h3>
+      <p>{data.usage.drafts} of {data.usage.limits.drafts} drafts used.</p>
+      {#if data.usage.plan === "pro"}
+        <p class="small muted">
+          Allowance renews {new Date(data.usage.end).toLocaleDateString()}.
+        </p>
+        {#each [["AI allowance", data.usage.ai, data.usage.limits.ai_usd], ["X allowance", data.usage.x, data.usage.limits.x_usd]] as [label, used, limit]}
+          <label>
+            {label} · {Number(limit)
+              ? Math.round((Number(used) / Number(limit)) * 100)
+              : 100}% used
+            <progress
+              value={Number(used)}
+              max={Number(limit) || 1}
+              aria-label={String(label)}
+            ></progress>
+          </label>
+        {/each}
+        {#if data.usage.downgradeAtEnd}<p>
+            Free starts {new Date(data.usage.end).toLocaleDateString()}.
+            Existing drafts and feedback stay available.
+          </p>{/if}
+        {#if JSON.stringify(data.usage.limits) !== JSON.stringify(data.usage.nextLimits)}
+          <h3>Next period’s allowances</h3>
+          <p>
+            {data.usage.nextLimits.drafts} drafts · {data.usage.nextLimits
+              .storage_mb} MB storage · {data.usage.nextLimits.upload_mb} MB per upload.
+          </p>
+          <p>
+            AI: US${data.usage.nextLimits.ai_usd} · X: US${data.usage.nextLimits
+              .x_usd} per period.
+          </p>
+        {/if}
+      {/if}
       <h3>Media storage</h3>
       <p class="small muted">{mb(data.used)} MB of {mb(data.limit)} MB used.</p>
       <progress

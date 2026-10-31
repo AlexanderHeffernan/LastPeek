@@ -4,7 +4,7 @@ import { ownedDraft } from "$lib/server/drafts";
 import { readBody } from "$lib/server/request";
 import { aiEnabled, aiModel, generateStructured } from "$lib/server/openai";
 import { aiReviewSchema, reviewInputSchema } from "$lib/ai";
-import { hasFeature } from "$lib/server/features";
+import { isPro } from "$lib/server/plans";
 import { startOpenAIUsage, finishOpenAIUsage } from "$lib/server/usage";
 import type { RequestHandler } from "./$types";
 
@@ -12,8 +12,7 @@ export const POST: RequestHandler = async (event) => {
   sameOrigin(event);
   const user = requireUser(event.locals);
   await ownedDraft(event.params.id, user.id);
-  if (!(await hasFeature(user.id, "ai-review")))
-    error(403, "AI review is not enabled for this account.");
+  if (!(await isPro(user.id))) error(403, "AI review requires Pro.");
   if (!aiEnabled()) error(503, "AI review is not configured on this instance.");
   const raw = await readBody(event.request, 100000);
   let body;

@@ -11,7 +11,7 @@ import {
 } from "playwright";
 import sharp from "sharp";
 import { db } from "../src/lib/server/db";
-import { featureAccess, setFeatureAccess } from "../src/lib/server/features";
+import { setPlan, entitlement } from "../src/lib/server/plans";
 import { passwordHash, token, hash as tokenHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
 import { avatarPath } from "../src/lib/server/avatars";
@@ -248,6 +248,7 @@ test(
     });
     const member = await browser.newContext();
     const author = await browser.newContext();
+    const guest = await browser.newContext();
     const page = await owner.newPage();
     const memberPage = await member.newPage();
     const authorPage = await author.newPage();
@@ -281,10 +282,7 @@ test(
             i === 0 ? 14 : 0,
           ],
         );
-      await db.query(
-        "INSERT INTO feature_grants(user_id,feature) VALUES($1,'ai-review')",
-        [ids[2]],
-      );
+      await db.query("UPDATE users SET plan='pro' WHERE id=$1", [ids[2]]);
       await login(authorPage, emails[2]);
       const activity = (index: number) =>
         operator({ action: "admin_users", search: emails[index] }).users[0]
@@ -654,7 +652,9 @@ test(
       const authorRow = page.getByRole("row").filter({
         has: page.getByRole("cell", { name: emails[2], exact: true }),
       });
-      await authorRow.getByRole("cell", { name: "2", exact: true }).waitFor();
+      await authorRow
+        .getByRole("cell", { name: "2 / 100", exact: true })
+        .waitFor();
       await authorRow.getByText("Last online", { exact: true }).waitFor();
       assert.equal(
         await authorRow
@@ -679,7 +679,7 @@ test(
       await page.setViewportSize({ width: 1280, height: 900 });
       await authorRow
         .getByRole("cell", {
-          name: `${expectedStorage.toLocaleString()} B`,
+          name: `${expectedStorage.toLocaleString()} B / 2,048 MB`,
           exact: true,
         })
         .waitFor();
@@ -687,10 +687,9 @@ test(
         directory.users.find((u: { id: string }) => u.id === ids[2]).avatar_id,
         avatarId,
       );
-      assert.equal(
-        directory.users.find((u: { id: string }) => u.id === ids[2])
-          .features[0],
-        "ai-review",
+      assert.deepEqual(
+        directory.users.find((u: { id: string }) => u.id === ids[2]).features,
+        [],
       );
       await page.getByRole("button", { name: "Next", exact: true }).click();
       await page.getByText("Page 2 of 2", { exact: true }).waitFor();
@@ -838,71 +837,10 @@ test(
         .getByRole("link", { name: "Feature flags", exact: true })
         .click();
       const flags = operator({ action: "admin_flags" });
-      assert.equal(flags.flags.length, 2);
-      assert.equal(flags.total, overview.accounts);
-      await page
-        .getByRole("button", {
-          name: "Enable x-source-posts for all users",
-          exact: true,
-        })
-        .click();
-      await page.getByText("All existing accounts", { exact: true }).waitFor();
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      assert.equal(flags.flags.length, 0);
       await page
         .getByRole("textbox", { name: "Search users for feature flags" })
-        .fill(emails[1]);
-      await page.getByRole("button", { name: "Search", exact: true }).click();
-      await page
-        .getByRole("button", { name: `Select ${emails[1]}`, exact: true })
-        .click();
-      await page
-        .getByRole("table", {
-          name: `Feature flags for ${emails[1]}`,
-          exact: true,
-        })
         .waitFor();
-      assert.equal(
-        operator({ action: "admin_flags", userId: ids[1] }).flags.find(
-          (flag: { feature: string }) => flag.feature === "x-source-posts",
-        ).enabled,
-        false,
-      );
-      await page
-        .getByRole("button", {
-          name: `Enable x-source-posts for ${emails[1]}`,
-          exact: true,
-        })
-        .click();
-      assert.equal(
-        await page
-          .getByLabel("Reason", { exact: true })
-          .getAttribute("required"),
-        null,
-      );
-      await page
-        .getByRole("button", { name: "Confirm change", exact: true })
-        .click();
-      await page
-        .getByRole("button", {
-          name: `Disable x-source-posts for ${emails[1]}`,
-          exact: true,
-        })
-        .waitFor();
-      assert.equal(
-        await page.getByRole("status").count(),
-        0,
-        "Successful flag changes do not show notices.",
-      );
-      assert.equal(
-        (await featureAccess(emails[1])).features["x-source-posts"],
-        true,
-      );
-      assert.equal(
-        operator({ action: "admin_flags", userId: ids[1] }).flags.find(
-          (flag: { feature: string }) => flag.feature === "x-source-posts",
-        ).enabled,
-        true,
-      );
       for (const action of ["feature-access", "all-feature-access"]) {
         assert.equal(
           (
@@ -917,22 +855,15 @@ test(
             })
           ).status(),
           400,
-          "Revocations still require a reason.",
+          "Retired flags cannot be changed.",
         );
       }
       await page
         .getByRole("link", { name: "Access history", exact: true })
         .click();
-      await page
-        .getByText("x-source-posts · Granted", { exact: true })
-        .first()
-        .waitFor();
       assert.ok(
         operator({ action: "admin_history" }).some(
-          (change: { account: string; feature: string; reason: string }) =>
-            change.account === emails[1] &&
-            change.feature === "x-source-posts" &&
-            change.reason === "",
+          (change: { kind: string }) => change.kind === "admin",
         ),
       );
       await page.getByRole("link", { name: "API usage", exact: true }).click();
@@ -967,11 +898,14 @@ test(
           exact: true,
         })
         .click();
+      await page.waitForURL((url) => url.searchParams.get("userId") === ids[1]);
       await page.getByText(emails[1], { exact: true }).waitFor();
       await page.getByRole("button", { name: "All time", exact: true }).click();
+      await page.waitForURL((url) => url.searchParams.get("period") === "all");
       await page
         .getByRole("button", { name: "All accounts", exact: true })
         .click();
+      await page.waitForURL((url) => url.searchParams.get("userId") === "");
       for (const command of [
         {
           action: "feature-access",
@@ -996,6 +930,286 @@ test(
           ).status(),
           404,
         );
+      await page.goto(
+        `${baseURL}/siteadmin/accounts?search=${encodeURIComponent(emails[1])}`,
+      );
+      await page.waitForLoadState("networkidle");
+      await page
+        .getByRole("button", { name: `Actions for ${emails[1]}`, exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Manage plan", exact: true })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Manage account plan" })
+        .getByLabel("Plan", { exact: true })
+        .click();
+      await page.getByRole("option", { name: "Pro", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Confirm plan", exact: true })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Manage account plan" })
+        .waitFor({ state: "hidden" });
+      assert.equal((await entitlement(ids[1])).plan, "pro");
+      await page
+        .getByRole("link", { name: "Invitations", exact: true })
+        .click();
+      await page.getByRole("button", { name: "Invite", exact: true }).click();
+      const invitationEmail = `invite-${ownerId}@example.test`;
+      const invitationDialog = page.getByRole("dialog", {
+        name: "Invite an author",
+      });
+      await invitationDialog
+        .getByLabel("Email", { exact: true })
+        .fill(invitationEmail);
+      await invitationDialog.getByLabel("Plan", { exact: true }).click();
+      await page.getByRole("option", { name: "Pro", exact: true }).click();
+      await page.getByRole("listbox").waitFor({ state: "hidden" });
+      await invitationDialog.getByLabel("Plan", { exact: true }).click();
+      await page.getByRole("option", { name: "Pro", exact: true }).click();
+      await page.getByRole("listbox").waitFor({ state: "hidden" });
+      assert.equal(
+        (
+          await invitationDialog
+            .getByLabel("Plan", { exact: true })
+            .textContent()
+        )?.trim(),
+        "Pro",
+      );
+      await invitationDialog
+        .getByRole("button", { name: "Create invitation", exact: true })
+        .click();
+      const invitationURL = await invitationDialog
+        .getByLabel("Invitation link", { exact: true })
+        .inputValue();
+      assert.equal((await guest.request.get(invitationURL)).status(), 200);
+      const wrongEmail = await guest.request.post(invitationURL, {
+        headers: { Origin: origin },
+        form: { name: "Wrong person", email: "wrong@example.test", password },
+      });
+      assert.equal(
+        wrongEmail.status(),
+        400,
+        "An invitation cannot register another email.",
+      );
+      await invitationDialog
+        .getByRole("button", { name: "Close invitation", exact: true })
+        .click();
+      const invitationRow = page
+        .getByRole("row")
+        .filter({ hasText: invitationEmail });
+      await invitationRow.getByText("Pending", { exact: true }).waitFor();
+      await page
+        .getByRole("button", {
+          name: `Revoke invitation for ${invitationEmail}`,
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Revoke invitation", exact: true })
+        .getByRole("button", { name: "Revoke invitation", exact: true })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Revoke invitation", exact: true })
+        .waitFor({ state: "hidden" });
+      assert.equal((await guest.request.get(invitationURL)).status(), 404);
+      await invitationRow.getByText("Revoked", { exact: true }).waitFor();
+      for (const state of ["Accepted", "Expired"]) {
+        await db.query(
+          "INSERT INTO invites(id,hash,created_by,email,expires_at,used_at) VALUES($1,$2,$3,$4,now()-interval '1 day',$5)",
+          [
+            randomUUID(),
+            randomUUID(),
+            ownerId,
+            `${state.toLowerCase()}-${ownerId}@example.test`,
+            state === "Accepted" ? new Date() : null,
+          ],
+        );
+      }
+      await page.reload();
+      for (const state of ["Accepted", "Expired"])
+        await page
+          .getByRole("row")
+          .filter({ hasText: `${state.toLowerCase()}-${ownerId}@example.test` })
+          .getByText(state, { exact: true })
+          .waitFor();
+      await page
+        .getByRole("combobox", { name: "Invitation status", exact: true })
+        .click();
+      await page.getByRole("option", { name: "Revoked", exact: true }).click();
+      assert.equal(
+        await page
+          .getByRole("row")
+          .filter({ hasText: `accepted-${ownerId}@example.test` })
+          .count(),
+        0,
+      );
+      await invitationRow.getByText("Revoked", { exact: true }).waitFor();
+      await page.goto(`${baseURL}/siteadmin/plans`);
+      const freePlan = page
+        .getByRole("heading", { name: "Free", exact: true })
+        .locator("..");
+      const proPlan = page
+        .getByRole("heading", { name: "Pro", exact: true })
+        .locator("..");
+      await freePlan.getByLabel("Saved drafts", { exact: true }).fill("9");
+      await page
+        .getByRole("button", { name: "Save Free allowances", exact: true })
+        .click();
+      const allowanceDialog = page.getByRole("dialog", {
+        name: "Confirm allowance changes",
+        exact: true,
+      });
+      await allowanceDialog
+        .getByRole("heading", { name: "Effective immediately", exact: true })
+        .waitFor();
+      assert.equal(
+        await allowanceDialog
+          .getByRole("heading", { name: "Next billing period", exact: true })
+          .count(),
+        0,
+      );
+      await allowanceDialog
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await proPlan.getByLabel("Saved drafts", { exact: true }).fill("99");
+      await page
+        .getByRole("button", { name: "Save Pro allowances", exact: true })
+        .click();
+      await allowanceDialog
+        .getByRole("heading", { name: "Next billing period", exact: true })
+        .waitFor();
+      assert.equal(
+        await allowanceDialog
+          .getByRole("heading", { name: "Effective immediately", exact: true })
+          .count(),
+        0,
+      );
+      await allowanceDialog
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await proPlan.getByLabel("Storage (MB)", { exact: true }).fill("3000");
+      await page
+        .getByRole("button", { name: "Save Pro allowances", exact: true })
+        .click();
+      await allowanceDialog
+        .getByRole("heading", { name: "Next billing period", exact: true })
+        .waitFor();
+      await allowanceDialog
+        .getByRole("heading", { name: "Effective immediately", exact: true })
+        .waitFor();
+      await allowanceDialog
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await page.goto(`${baseURL}/siteadmin/model`);
+      await page.waitForLoadState("networkidle");
+      await page.getByLabel("Free users", { exact: true }).fill("0");
+      await page.getByLabel("Paying Pro users", { exact: true }).fill("3");
+      await page
+        .getByLabel("Complimentary Pro users", { exact: true })
+        .fill("1");
+      await page.getByLabel("Pro monthly price", { exact: true }).fill("10");
+      await page.getByLabel("Fixed hosting / month", { exact: true }).fill("0");
+      await page
+        .getByLabel("Storage cost / GB-month", { exact: true })
+        .fill("0");
+      await page.getByLabel("Payment fee (%)", { exact: true }).fill("0");
+      await page
+        .getByLabel("Payment fee per subscription", { exact: true })
+        .fill("0");
+      await page.getByLabel("Pro AI usage", { exact: true }).fill("100");
+      await page.getByLabel("Pro X usage", { exact: true }).fill("50");
+      await page.getByText("USD 25.00", { exact: true }).waitFor();
+      await page
+        .getByRole("combobox", { name: "Currency", exact: true })
+        .click();
+      await page.getByRole("option", { name: "NZD", exact: true }).click();
+      await page.getByLabel("NZD per USD", { exact: true }).fill("2");
+      await page.getByText("NZD 20.00", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Save model", exact: true })
+        .click();
+      await page.getByRole("button", { name: "Saved", exact: true }).waitFor();
+      const savedModel = (
+        await (
+          await owner.request.get(`${baseURL}/siteadmin/snapshot?view=model`)
+        ).json()
+      ).financialModel;
+      assert.equal(savedModel.currency, "NZD");
+      assert.equal(savedModel.price, 10);
+      assert.equal(savedModel.fx, 2);
+      assert.equal(savedModel.aiUse, 100);
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+      assert.equal(
+        await page
+          .getByLabel("Pro monthly price", { exact: true })
+          .inputValue(),
+        "10",
+      );
+      await page.getByText("NZD 20.00", { exact: true }).waitFor();
+      await page.getByLabel("Pro monthly price", { exact: true }).fill("");
+      await page
+        .getByRole("button", { name: "Save model", exact: true })
+        .click();
+      await page
+        .getByRole("alert")
+        .getByText("Check the model’s numeric inputs and ranges.", {
+          exact: true,
+        })
+        .waitFor();
+      await page.reload();
+      assert.equal(
+        await page
+          .getByLabel("Pro monthly price", { exact: true })
+          .inputValue(),
+        "10",
+      );
+      for (const request of [member.request, author.request])
+        assert.equal(
+          (
+            await request.post(`${baseURL}/siteadmin/snapshot`, {
+              headers: { Origin: origin },
+              data: { action: "financial-model", model: savedModel },
+            })
+          ).status(),
+          404,
+        );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+            headers: { Origin: "https://not-lastpeek.example" },
+            data: { action: "financial-model", model: savedModel },
+          })
+        ).status(),
+        403,
+      );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+            headers: { Origin: origin },
+            data: {
+              action: "financial-model",
+              model: { ...savedModel, aiUse: 101 },
+            },
+          })
+        ).status(),
+        400,
+      );
+      for (const view of ["plans", "model", "accounts", "invitations"]) {
+        await page.goto(`${baseURL}/siteadmin/${view}`);
+        for (const width of [1280, 390, 320]) {
+          await page.setViewportSize({ width, height: 900 });
+          assert.equal(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+            true,
+          );
+          await screenshot(page, `siteadmin-${view}-${width}`);
+        }
+      }
       await page.goto(`${baseURL}/siteadmin`);
 
       for (const width of [1280, 390, 320]) {
@@ -1042,6 +1256,9 @@ test(
       await Promise.all(
         avatars.rows.map((row) => rm(avatarPath(row.id), { force: true })),
       );
+      await db.query("DELETE FROM invites WHERE created_by=ANY($1::uuid[])", [
+        ids,
+      ]);
       await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
       await db.query("DELETE FROM rate_limits WHERE key=ANY($1::text[])", [
         loginBuckets,
@@ -1442,6 +1659,16 @@ test(
         headers: { Origin: origin },
       });
       assert.equal(rejectedSignup.status(), 400);
+      assert.equal(
+        (
+          await guest.request.post(`${baseURL}/login/dev`, {
+            headers: { Origin: origin },
+            form: {},
+          })
+        ).status(),
+        404,
+        "Production-mode servers must not expose passwordless admin sign-in.",
+      );
       // Better Auth's general-purpose endpoints are intentionally not public.
       for (const path of [
         "sign-up/email",
@@ -1587,6 +1814,51 @@ test(
       );
       await tampered.close();
       await screenshot(page, "empty-drafts");
+      const originalPlan = await entitlement(userId);
+      const originalViewport = page.viewportSize()!;
+      await setPlan(userId, userId, "pro", false);
+      const originalLimits = (
+        await db.query("SELECT pro_limits FROM users WHERE id=$1", [userId])
+      ).rows[0].pro_limits;
+      await db.query(
+        "UPDATE users SET pro_limits=jsonb_set(pro_limits,'{drafts}','0') WHERE id=$1",
+        [userId],
+      );
+      await page.getByRole("button", { name: "New post", exact: true }).click();
+      const quotaError = page.getByRole("alert");
+      await quotaError.waitFor();
+      assert.match(
+        await quotaError.innerText(),
+        /Your draft allowance is full/,
+      );
+      for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        const box = await quotaError.boundingBox();
+        assert.ok(
+          box &&
+            box.x >= 0 &&
+            box.y >= 0 &&
+            box.x + box.width <= width &&
+            box.y + box.height <= 900,
+          "Draft quota feedback must remain visible beside creation controls.",
+        );
+      }
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS count FROM drafts WHERE owner_id=$1",
+            [userId],
+          )
+        ).rows[0].count,
+        0,
+      );
+      await db.query("UPDATE users SET pro_limits=$2 WHERE id=$1", [
+        userId,
+        originalLimits,
+      ]);
+      await setPlan(userId, userId, originalPlan.plan, false);
+      await page.setViewportSize(originalViewport);
+      await page.goto(baseURL);
       // Created order deliberately differs from updated order; search includes replies.
       const feedIds = [randomUUID(), randomUUID(), randomUUID()];
       for (const [index, feedId] of feedIds.entries()) {
@@ -1636,13 +1908,7 @@ test(
         0,
         "short, unscrolled list has no ending actions",
       );
-      await setFeatureAccess(
-        email,
-        "x-source-posts",
-        true,
-        "test",
-        "Exercise end-of-list creation options",
-      );
+      await setPlan(userId, userId, "pro", false);
       await page.reload();
       await page.setViewportSize({ width: 390, height: 400 });
       const firstPostY = await feedLinks
@@ -1765,13 +2031,7 @@ test(
       await page.waitForFunction(() => scrollY === 0);
       await ending.waitFor({ state: "hidden" });
       await page.setViewportSize({ width: 1440, height: 1000 });
-      await setFeatureAccess(
-        email,
-        "x-source-posts",
-        false,
-        "test",
-        "Restore feature-gated account",
-      );
+      await setPlan(userId, userId, "free", false);
       await page.reload();
       await page
         .getByRole("button", { name: "With feedback", exact: true })
@@ -2157,6 +2417,7 @@ test(
           [userId],
         );
         await page.reload();
+        await page.waitForLoadState("networkidle");
         await page
           .getByRole("link", { name: "Connections", exact: true })
           .click();
@@ -2197,6 +2458,11 @@ test(
         .getByRole("button", { name: "Save profile", exact: true })
         .click();
       await page.getByText("Profile saved.", { exact: true }).waitFor();
+      assert.equal(
+        (await db.query("SELECT name FROM users WHERE id=$1", [userId])).rows[0]
+          .name,
+        "Alex",
+      );
       const photo = await sharp({
         create: { width: 640, height: 480, channels: 3, background: "#c4f36b" },
       })
@@ -2359,13 +2625,7 @@ test(
         503,
         "direct creation cannot bypass the grant",
       );
-      await setFeatureAccess(
-        email,
-        "x-source-posts",
-        true,
-        "browser test",
-        "X source trial",
-      );
+      await setPlan(userId, userId, "pro", false);
       await page.reload();
       // Native source cards are fixture-backed: tests must never spend real X credits.
       const sourcePostId = String(
@@ -2538,13 +2798,7 @@ test(
         );
       }
       // Loss of source access must not destroy drafts or hide existing feedback.
-      await setFeatureAccess(
-        email,
-        "x-source-posts",
-        false,
-        "browser test",
-        "End X trial",
-      );
+      await setPlan(userId, userId, "free", false);
       await reviewer.reload();
       await reviewer.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
       assert.equal(await reviewer.locator("iframe").count(), 0);
@@ -2613,7 +2867,7 @@ test(
         ).status(),
         303,
       );
-      // Even administrators default to denied. Grants/revokes take effect without re-login.
+      // Even administrators default Free. Plan changes take effect without re-login.
       assert.equal(
         await page
           .getByRole("button", { name: "AI Review", exact: true })
@@ -2623,23 +2877,7 @@ test(
       const aiProbe = () =>
         owner.request.post(aiURL, { data: {}, headers: { Origin: origin } });
       assert.equal((await aiProbe()).status(), 403);
-      assert.equal(
-        (await setFeatureAccess(email, "ai-review", true, "test", "E2E enable"))
-          .changed,
-        true,
-      );
-      assert.equal(
-        (
-          await setFeatureAccess(
-            email,
-            "ai-review",
-            true,
-            "test",
-            "Idempotent retry",
-          )
-        ).changed,
-        false,
-      );
+      await setPlan(userId, userId, "pro", false);
       await page.reload();
       assert.equal(
         await page
@@ -2652,7 +2890,7 @@ test(
         (await aiProbe()).status(),
         process.env.OPENAI_API_KEY ? 400 : 503,
       );
-      await setFeatureAccess(email, "ai-review", false, "test", "E2E revoke");
+      await setPlan(userId, userId, "free", false);
       assert.equal((await aiProbe()).status(), 403);
       await page.reload();
       assert.equal(
@@ -2661,25 +2899,8 @@ test(
           .count(),
         0,
       );
-      const access = await featureAccess(email);
-      assert.equal(access.features["ai-review"], false);
-      assert.deepEqual(
-        access.history
-          .filter((entry) => entry.feature === "ai-review")
-          .map((entry) => [entry.enabled, entry.reason]),
-        [
-          [false, "E2E revoke"],
-          [true, "E2E enable"],
-        ],
-      );
-      // Existing AI UI cases below run with an explicit grant.
-      await setFeatureAccess(
-        email,
-        "ai-review",
-        true,
-        "test",
-        "E2E UI coverage",
-      );
+      assert.equal((await entitlement(userId)).plan, "free");
+      await setPlan(userId, userId, "pro", false);
       await page.reload();
       if (!process.env.OPENAI_API_KEY) {
         assert.equal(
@@ -3007,7 +3228,11 @@ test(
           headers: { Origin: origin },
         },
       );
-      assert.equal(nonAdminInvite.status(), 403);
+      assert.equal(
+        nonAdminInvite.status(),
+        404,
+        "The old Account invitation action no longer exists.",
+      );
 
       const publishResponse = page.waitForResponse(
         (r) =>
@@ -3426,12 +3651,18 @@ test(
       // Invitations actually create a new author, are single-use, and grant no admin power.
       await page.goto(`${baseURL}/settings`);
       await screenshot(page, "settings");
-      const invitation = token();
-      await db.query(
-        "INSERT INTO invites(id,hash,created_by,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
-        [randomUUID(), tokenHash(invitation), userId],
+      assert.equal(
+        await page.getByRole("button", { name: "Create invitation" }).count(),
+        0,
       );
-      const inviteURL = `${baseURL}/join/${invitation}`;
+      const invitedEmail = `test-invited-${userId}@example.test`;
+      // Admin invitation UI is covered in the administration flow. This flow checks native signup.
+      const inviteToken = token();
+      await db.query(
+        "INSERT INTO invites(id,hash,created_by,email,plan,expires_at) VALUES($1,$2,$3,$4,'free',now()+interval '7 days')",
+        [randomUUID(), tokenHash(inviteToken), userId, invitedEmail],
+      );
+      const inviteURL = `${baseURL}/join/${inviteToken}`;
       const invited = await browser.newContext({ javaScriptEnabled: false });
       const joining = await invited.newPage();
       const invitationPage = await joining.goto(inviteURL);
@@ -3441,17 +3672,22 @@ test(
       );
       await joining.waitForLoadState("networkidle");
       await screenshot(joining, "join");
-      const passwordAlternative = joining.getByText(
-        "Sign up with a password instead",
-        { exact: true },
+      assert.equal(await joining.locator("details").count(), 0);
+      assert.equal(
+        await joining.getByLabel("Your name", { exact: true }).isVisible(),
+        true,
       );
-      if (await passwordAlternative.isVisible())
-        await passwordAlternative.click();
+      assert.equal(
+        await joining.getByLabel("Email", { exact: true }).isEditable(),
+        false,
+      );
       await joining
         .getByLabel("Your name", { exact: true })
         .fill("Invited friend");
-      const invitedEmail = `test-invited-${userId}@example.test`;
-      await joining.getByLabel("Email", { exact: true }).fill(invitedEmail);
+      assert.equal(
+        await joining.getByLabel("Email", { exact: true }).inputValue(),
+        invitedEmail,
+      );
       await joining.getByLabel(/^Password/).fill(password);
       await joining.getByRole("button", { name: "Create account" }).click();
       await joining

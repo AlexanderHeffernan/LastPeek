@@ -64,8 +64,8 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
     if (
       !(
         await db.query(
-          "SELECT 1 FROM invites WHERE hash=$1 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
-          [hash(invite)],
+          "SELECT 1 FROM invites WHERE hash=$1 AND email=$2 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
+          [hash(invite), email],
         )
       ).rowCount
     )
@@ -233,15 +233,22 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
     } else {
       if (!flow.invite_hash) redirect(303, "/login?x=unlinked");
       const invite = await client.query(
-        "SELECT id FROM invites WHERE hash=$1 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE",
-        [flow.invite_hash],
+        "SELECT id,plan FROM invites WHERE hash=$1 AND email=$2 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+        [flow.invite_hash, flow.email],
       );
       if (!invite.rowCount)
         error(400, "This invitation is no longer available.");
       userId = crypto.randomUUID();
       const inserted = await client.query(
-        "INSERT INTO users(id,email,name,handle,password_hash,has_password) VALUES($1,$2,$3,$4,$5,false) ON CONFLICT(email) DO NOTHING RETURNING id",
-        [userId, flow.email, profile.name, profile.username, password],
+        "INSERT INTO users(id,email,name,handle,password_hash,has_password,plan,pro_limits) SELECT $1,$2,$3,$4,$5,false,$6,limits FROM plan_allowances WHERE plan='pro' ON CONFLICT(email) DO NOTHING RETURNING id",
+        [
+          userId,
+          flow.email,
+          profile.name,
+          profile.username,
+          password,
+          invite.rows[0].plan,
+        ],
       );
       if (!inserted.rowCount)
         error(

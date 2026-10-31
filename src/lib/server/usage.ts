@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { db } from "./db";
+import { db, transaction } from "./db";
+import { reserveAPI } from "./plans";
+import { error } from "@sveltejs/kit";
 import {
   usageQuery,
   type APIUsage,
@@ -17,17 +19,24 @@ export type AIUsageReport = {
 };
 
 export async function startOpenAIUsage(userId: string, model: string) {
+  if (model !== "gpt-6-luna")
+    error(503, "This AI model has no configured allowance pricing.");
   const id = randomUUID();
   // Standard USD / 1M tokens, verified 2026-10-31:
   // https://developers.openai.com/api/docs/models/gpt-6-luna
   // Unknown models stay unpriced instead of borrowing another model's rates.
   const rates = model === "gpt-6-luna" ? [0.1, 0.01, 0.5] : [null, null, null];
   // Snapshot before sending: future catalog changes never rewrite history.
-  await db.query(
-    `INSERT INTO api_usage(id,user_id,provider,model,input_usd,cached_input_usd,output_usd)
-    VALUES($1,$2,'openai',$3,$4,$5,$6)`,
-    [id, userId, model, ...rates],
-  );
+  await transaction(async (client) => {
+    // Bounded review input (<100 KB), schema/instructions and 4,000 output tokens
+    // fit below 3 cents at this model's snapshotted standard rates.
+    const period = await reserveAPI(client, userId, "openai", 0.03);
+    await client.query(
+      `INSERT INTO api_usage(id,user_id,provider,model,input_usd,cached_input_usd,output_usd,period_start,reserved_usd)
+      VALUES($1,$2,'openai',$3,$4,$5,$6,$7,0.03)`,
+      [id, userId, model, ...rates, period],
+    );
+  });
   return id;
 }
 

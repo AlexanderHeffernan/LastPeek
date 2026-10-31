@@ -5,10 +5,13 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
+  import { Select } from "$lib/components/ui/select/index.js";
   import Icon from "$lib/components/Icon.svelte";
   import type { Feature } from "$lib/features";
   import type { AdminData, AdminView } from "$lib/admin";
   import { avatarURL } from "$lib/contracts";
+  import PlanAdmin from "$lib/components/PlanAdmin.svelte";
+  import AdminInvitations from "$lib/components/AdminInvitations.svelte";
 
   let {
     initialData,
@@ -25,6 +28,12 @@
     refreshError = $state(""),
     saveError = $state("");
   let openAccount = $state<string | null>(null);
+  let planAccount = $state<
+    NonNullable<AdminData["directory"]>["users"][number] | null
+  >(null);
+  let planDialog = $state<HTMLDialogElement>(),
+    chosenPlan = $state("free"),
+    timing = $state("now");
   let confirmation = $state<HTMLDialogElement>(),
     content = $state<HTMLElement>();
   let selected = $state<{
@@ -37,6 +46,9 @@
   const views = [
     ["overview", "Overview", "overview"],
     ["accounts", "Accounts", "users"],
+    ["invitations", "Invitations", "link"],
+    ["plans", "Plan allowances", "flags"],
+    ["model", "Financial model", "chart"],
     ["features", "Feature flags", "flags"],
     ["usage", "API usage", "chart"],
     ["history", "Access history", "history"],
@@ -124,6 +136,27 @@
         result.message || "Couldn’t save this change. Try again.",
       );
     await refresh();
+    return result;
+  }
+  async function updatePlan(event: SubmitEvent) {
+    event.preventDefault();
+    if (!planAccount || saving) return;
+    saving = true;
+    saveError = "";
+    try {
+      await send({
+        action: "plan",
+        userId: planAccount.id,
+        plan: chosenPlan,
+        atEnd: chosenPlan === "free" && timing === "end",
+      });
+      planDialog?.close();
+    } catch (cause) {
+      saveError =
+        cause instanceof Error ? cause.message : "Couldn’t update plan.";
+    } finally {
+      saving = false;
+    }
   }
   async function updateAccess(event: SubmitEvent) {
     event.preventDefault();
@@ -361,6 +394,14 @@
                     </div></td
                   >
                   <td class="account-role">
+                    <Badge
+                      variant={account.entitlement.plan === "pro"
+                        ? "secondary"
+                        : "outline"}
+                      >{account.entitlement.plan === "pro"
+                        ? "Pro"
+                        : "Free"}</Badge
+                    >
                     <Badge variant="outline"
                       >{account.role === "owner"
                         ? "Owner"
@@ -372,11 +413,14 @@
                   <td class="account-drafts"
                     ><span class="mobile-label muted"
                       >Drafts
-                    </span>{account.drafts.toLocaleString()}</td
+                    </span>{account.drafts.toLocaleString()} / {account
+                      .entitlement.limits.drafts}</td
                   >
                   <td class="account-storage"
                     ><span class="mobile-label muted">Storage </span>{storage(
                       account.media_bytes,
+                    )} / {storage(
+                      account.entitlement.limits.storage_mb * 1024 * 1024,
                     )}</td
                   >
                   <td class="account-costs">
@@ -417,6 +461,18 @@
                         sideOffset={6}
                         aria-label={`Account actions for ${account.email}`}
                       >
+                        {#if data.isOwner}<Button
+                            variant="ghost"
+                            onclick={async () => {
+                              openAccount = null;
+                              planAccount = account;
+                              chosenPlan = account.entitlement.plan;
+                              timing = "now";
+                              saveError = "";
+                              await tick();
+                              planDialog?.showModal();
+                            }}>Manage plan</Button
+                          >{/if}
                         <Button
                           variant="ghost"
                           aria-label={`Feature flags for ${account.email}`}
@@ -462,6 +518,20 @@
                 data.directory.page >= data.directory.pages}>Next</Button
             >
           </nav>
+        {:else if data.view === "invitations"}
+          <AdminInvitations
+            invitations={data.invitations}
+            owner={data.isOwner}
+            {send}
+          />
+        {:else if data.view === "plans" || data.view === "model"}
+          {#key data.view}<PlanAdmin
+              plans={data.plans}
+              financialModel={data.financialModel}
+              owner={data.isOwner}
+              mode={data.view}
+              {send}
+            />{/key}
         {:else if data.view === "features" && data.flags}
           {@const flags = data.flags}
           <form
@@ -687,7 +757,11 @@
               {#each data.history as change}<li>
                   <strong>{change.account || "Deleted account"}</strong><span
                     >{change.kind === "admin" ? "Admin access" : change.feature} ·
-                    {change.enabled ? "Granted" : "Removed"}</span
+                    {change.kind === "plan"
+                      ? "Updated"
+                      : change.enabled
+                        ? "Granted"
+                        : "Removed"}</span
                   >{#if change.reason}<span class="small">{change.reason}</span
                     >{/if}<span class="small muted"
                     >By {change.actor || "Deleted account"} · {date(
@@ -760,7 +834,84 @@
   {/if}
 </dialog>
 
+<dialog
+  bind:this={planDialog}
+  class="confirm-dialog"
+  aria-label="Manage account plan"
+>
+  {#if planAccount}
+    <h2>Manage plan</h2>
+    <p>{planAccount.email}</p>
+    <p class="small muted">
+      Current period ends {date(planAccount.entitlement.end)}. AI: {money(
+        planAccount.entitlement.ai,
+      )} / {money(planAccount.entitlement.limits.ai_usd)} · X: {money(
+        planAccount.entitlement.x,
+      )} / {money(planAccount.entitlement.limits.x_usd)}.
+    </p>
+    {#if planAccount.entitlement.downgradeAtEnd}<p>
+        Free is scheduled for the next period. Saving Pro now cancels that
+        change.
+      </p>{/if}
+    <details>
+      <summary>Current and next-period limits</summary>
+      <p>
+        Current: {planAccount.entitlement.limits.drafts} drafts, {planAccount
+          .entitlement.limits.storage_mb} MB storage, {planAccount.entitlement
+          .limits.upload_mb} MB per upload.
+      </p>
+      <p>
+        Next: {planAccount.entitlement.nextLimits.drafts} drafts, {planAccount
+          .entitlement.nextLimits.storage_mb} MB storage, {planAccount
+          .entitlement.nextLimits.upload_mb} MB per upload, AI {money(
+          planAccount.entitlement.nextLimits.ai_usd,
+        )}, X {money(planAccount.entitlement.nextLimits.x_usd)}.
+      </p>
+    </details>
+    <form class="stack" onsubmit={updatePlan}>
+      <label
+        >Plan<Select
+          aria-label="Plan"
+          bind:value={chosenPlan}
+          options={[
+            { value: "free", label: "Free" },
+            { value: "pro", label: "Pro" },
+          ]}
+        /></label
+      >
+      {#if chosenPlan === "free" && planAccount.entitlement.plan === "pro"}<label
+          >Effective<Select
+            aria-label="Effective"
+            bind:value={timing}
+            options={[
+              { value: "now", label: "Immediately" },
+              { value: "end", label: "At period end" },
+            ]}
+          /></label
+        >{/if}
+      <p class="small muted">
+        Existing drafts and feedback are preserved. Changes do not reset API
+        usage or renewal dates.
+      </p>
+      {#if saveError}<p class="error" role="alert">{saveError}</p>{/if}
+      <div class="row">
+        <Button
+          variant="outline"
+          disabled={saving}
+          onclick={() => planDialog?.close()}>Cancel</Button
+        ><Button type="submit" disabled={saving}
+          >{saving ? "Saving…" : "Confirm plan"}</Button
+        >
+      </div>
+    </form>
+  {/if}
+</dialog>
+
 <style>
+  dialog label {
+    display: grid;
+    gap: 8px;
+  }
   .admin-shell {
     height: 100%;
     min-height: 0;

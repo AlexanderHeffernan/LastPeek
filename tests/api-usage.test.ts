@@ -31,10 +31,15 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
   );
   await db.query(await readFile("migrations/011_x_source_posts.sql", "utf8"));
   await db.query(await readFile("migrations/013_api_usage.sql", "utf8"));
+  await db.query(await readFile("migrations/004_feature_access.sql", "utf8"));
+  await db.query(
+    "CREATE TABLE invites(used_at timestamptz,revoked_at timestamptz)",
+  );
+  await db.query(await readFile("migrations/016_plans.sql", "utf8"));
   const a = randomUUID(),
     b = randomUUID();
   await db.query(
-    "INSERT INTO users VALUES($1,'a@example.test'),($2,'b@example.test')",
+    "INSERT INTO users(id,email,plan) VALUES($1,'a@example.test','pro'),($2,'b@example.test','pro')",
     [a, b],
   );
   const first = await startOpenAIUsage(a, "gpt-6-luna");
@@ -63,7 +68,13 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
     inputTokens: 200,
     outputTokens: 10,
   });
-  await finishOpenAIUsage(await startOpenAIUsage(a, "unpriced"), {
+  await assert.rejects(startOpenAIUsage(a, "unpriced"));
+  const unpriced = randomUUID();
+  await db.query(
+    "INSERT INTO api_usage(id,user_id,provider,model) VALUES($1,$2,'openai','historically-unpriced')",
+    [unpriced, a],
+  );
+  await finishOpenAIUsage(unpriced, {
     outcome: "success",
     inputTokens: 20,
     outputTokens: 3,
@@ -140,57 +151,46 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
   assert.equal(xEstimatedCost(raw, new Date("2026-11-22T00:00:00Z")), 0.04);
   assert.equal(xEstimatedCost({ errors: [] }), null);
 
-  await db.query(await readFile("migrations/004_feature_access.sql", "utf8"));
-  const { setFeatureAccess, hasFeature } =
-    await import("../src/lib/server/features");
-  await setFeatureAccess("a@example.test", "ai-review", true, "test");
-  const bulk = await setFeatureAccess(null, "ai-review", true, "test");
-  assert.equal(
-    (await db.query("SELECT reason FROM feature_audit ORDER BY id LIMIT 1"))
-      .rows[0].reason,
-    "",
+  const { setFeatureAccess } = await import("../src/lib/server/features");
+  await assert.rejects(
+    setFeatureAccess("a@example.test", "ai-review", true, "test"),
   );
-  await assert.rejects(setFeatureAccess(null, "ai-review", false, "test"));
-  assert.equal(
-    bulk.changedCount,
-    1,
-    "Only the previously disabled account changes.",
-  );
-  assert.equal(
-    (await setFeatureAccess(null, "ai-review", true, "test", "No-op"))
-      .changedCount,
-    0,
-  );
-  assert.equal(
-    (await db.query("SELECT count(*)::int AS n FROM feature_audit")).rows[0].n,
-    2,
+  await assert.rejects(
+    setFeatureAccess("a@example.test", "x-source-posts", true, "test"),
   );
   const c = randomUUID();
-  await db.query("INSERT INTO users VALUES($1,'c@example.test')", [c]);
-  assert.equal(
-    await hasFeature(c, "ai-review"),
-    false,
-    "Bulk grants do not change future signup defaults.",
+  await db.query(
+    "INSERT INTO users(id,email,plan,pro_limits) VALUES($1,'c@example.test','pro',$2)",
+    [
+      c,
+      {
+        drafts: 100,
+        storage_mb: 2048,
+        upload_mb: 50,
+        ai_usd: 0.03,
+        x_usd: 1.5,
+      },
+    ],
   );
-  await Promise.all([
-    setFeatureAccess(null, "ai-review", false, "test", "End trial"),
-    setFeatureAccess(
-      "a@example.test",
-      "x-source-posts",
-      true,
-      "test",
-      "Other flag",
-    ),
+  const claims = await Promise.allSettled([
+    startOpenAIUsage(c, "gpt-6-luna"),
+    startOpenAIUsage(c, "gpt-6-luna"),
   ]);
-  assert.equal(await hasFeature(a, "ai-review"), false);
-  assert.equal(await hasFeature(b, "ai-review"), false);
-  assert.equal(await hasFeature(a, "x-source-posts"), true);
   assert.equal(
-    (
-      await db.query(
-        "SELECT count(*)::int AS n FROM feature_audit WHERE reason='End trial'",
-      )
-    ).rows[0].n,
-    2,
+    claims.filter((result) => result.status === "fulfilled").length,
+    1,
+    "Concurrent requests cannot overspend a one-request allowance.",
+  );
+  const successful = claims.find(
+    (result) => result.status === "fulfilled",
+  ) as PromiseFulfilledResult<string>;
+  await finishOpenAIUsage(successful.value, {
+    outcome: "success",
+    inputTokens: 1000,
+    outputTokens: 100,
+  });
+  assert.ok(
+    (await startOpenAIUsage(c, "gpt-6-luna").catch(() => null)) === null,
+    "A known charge plus a full reservation must still fit the allowance.",
   );
 });

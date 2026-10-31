@@ -222,9 +222,11 @@
   </div>
   <div class="drafts-actions">
     {@render newPost("New post", false, true)}
+    {#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
   </div>
   <div class="floating-create">
     {@render newPost("New post", false, true, "floating")}
+    {#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
   </div>
   <section
     class="drafts-column"
@@ -497,7 +499,6 @@
     </div>
   </form>
 </dialog>
-{#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
 
 <style>
   .feed-toolbar {
@@ -902,6 +903,17 @@
       z-index: 35;
       transform: translate3d(0, calc(var(--mobile-chrome-progress) * 48px), 0);
       will-change: transform;
+    }
+    .floating-create .action-error {
+      position: absolute;
+      right: 0;
+      bottom: 100%;
+      width: min(280px, calc(100vw - 40px));
+      margin: 0 0 8px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
     }
     .floating-create :global(.floating-trigger),
     .floating-create > .share-actions > form :global(button) {

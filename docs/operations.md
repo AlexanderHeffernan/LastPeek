@@ -1,25 +1,14 @@
-# Feature access and agent operations
+# Plans, feature access and agent operations
 
-`ai-review` is the first registered feature (`src/lib/features.ts`). Every account,
-including admins, defaults to **off**. Both the author page and review endpoint
-require a current PostgreSQL grant plus an OpenAI key. Grants use stable account
-UUIDs; email is only an operator lookup. Changes apply on the next request without
-signing out. An already-running review is not cancelled by revocation. The existing
-page may retain its control until reload, but a new request is denied.
+AI review and X source previews are released Pro capabilities, not experimental flags. Migration 014 migrates all existing accounts to Pro, removes the two active grants (retaining audit history), and revokes pending bearer-only invitations. Future accounts default Free, or inherit Pro from an email-bound invitation. There is no billing integration.
 
-Migration `004_feature_access.sql` is additive and compatible with the preceding
-image. State changes lock the account and atomically append actor, reason, thread
-and time to audit history. Repeating the same change is a no-op. There are no admin
-overrides, percentages, public management routes or hosted flag dependencies.
+The owner manages account plans from `/siteadmin/accounts` and creates email/plan invitations from `/siteadmin/invitations`. Invitations have a searchable, status-filtered table covering Pending, Accepted, Expired and Revoked. Links are single-use for seven days and must be sent manually. Issuing another invitation for an email revokes pending links for that email. Password and X signup enforce the invited email transactionally; the link is a registration capability, not mailbox verification. Invitations no longer appear in Account settings.
 
-`x-source-posts` separately enables New Quote and New Reply. It also defaults to
-off for every account. The server checks the draft owner's current grant before
-reading the source cache or calling X, including on anonymous review pages.
-Reviewers need no grant or account. Revocation removes source previews and blocks
-new source drafts without preventing edits or human feedback. An in-flight lookup
-is not cancelled; its result may finish after revocation. The X token and instance
-budget remain independent requirements. Grant this feature using the same audited
-operator command below with `"feature": "x-source-posts"`.
+`/siteadmin/plans` controls allowances. Free changes immediately. Pro increases immediately; reductions apply at each account's next calendar-month renewal. Monthly periods are anchored in UTC to account creation/migration and do not reset on plan toggles. Plan changes can downgrade immediately or at period end. Over-quota content is preserved. Account details show current/next limits, renewal date and period usage. Plan, allowance and invitation writes require owner authentication, same origin and are audited. Admin team members can read these controls but cannot change them.
+
+`/siteadmin/model` models hypothetical revenue, fees, tax, API utilisation, storage, database/backup/transfer assumptions and fixed hosting. **Save model** persists the owner's assumptions in PostgreSQL (migration 015), shared across browsers and admin sessions; unsaved edits remain local. API budgets are USD and the NZD scenario uses an editable exchange-rate assumption. Complimentary Pro accounts incur costs without revenue. Full-allowance profit and average-use profit are estimates, not invoices or a live price. No simulation changes live entitlements. Saving requires same-origin owner access and is audited.
+
+The Feature flags page and audited grant framework remain for future experiments, with no flags registered today. Retired flag commands are rejected. Feature revocation/plan downgrade affects subsequent requests; already-running provider calls are not cancelled. X cache reads require the draft owner's Pro plan; reviewers need no account. Provider credentials and instance budgets remain independent safety requirements.
 
 ## Site administration
 
@@ -27,9 +16,9 @@ Set `LASTPEEK_OWNER_ID` to the existing owner's stable account UUID in the web
 container environment. Missing or invalid configuration disables `/siteadmin`
 and its operator reads; never infer ownership from an email address or the first
 account. The owner can always access administration. Existing `is_admin`
-accounts form the admin team: they can read administration and manage their
-invitations, but only the owner can grant or revoke admin membership. This is
-authorization, not a feature flag. AI review grants never confer admin access.
+accounts form the admin team: they can read administration, but only the owner
+can issue invitations, change plans or allowances, or grant or revoke admin
+membership. This is authorization, not a feature flag. Pro never confers admin access.
 
 There is no visible Admin navigation button. `~` toggles a modal overlay on desktop;
 on mobile, hold the centered mascot for 600ms to open it. An ordinary mascot tap
@@ -141,9 +130,9 @@ already has database credentials or Docker access.
 {
   "action": "set_feature_access",
   "email": "author@example.com",
-  "feature": "ai-review",
+  "feature": "future-experiment-name",
   "enabled": true,
-  "reason": "Owner-only trial"
+  "reason": "Example only: register an experiment before granting it"
 }
 ```
 

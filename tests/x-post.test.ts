@@ -36,6 +36,10 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   await db.query("CREATE TABLE users(id uuid PRIMARY KEY)");
   await db.query(await readFile("migrations/013_api_usage.sql", "utf8"));
   await db.query(await readFile("migrations/004_feature_access.sql", "utf8"));
+  await db.query(
+    "CREATE TABLE invites(used_at timestamptz,revoked_at timestamptz)",
+  );
+  await db.query(await readFile("migrations/016_plans.sql", "utf8"));
   await db.query("INSERT INTO users(id) VALUES($1)", [ownerId]);
   let calls = 0;
   let status = 200;
@@ -158,7 +162,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   );
   assert.equal(calls, 0, "denied lookups never reach X");
   await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-source-posts')",
+    "UPDATE users SET plan='pro',pro_limits=jsonb_set(pro_limits,'{x_usd}','10') WHERE id=$1",
     [ownerId],
   );
 
@@ -200,17 +204,14 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     ).rows,
     [{ user_id: ownerId, outcome: "success", cost: 0.005, reserved_cents: 5 }],
   );
-  await db.query("DELETE FROM feature_grants WHERE user_id=$1", [ownerId]);
+  await db.query("UPDATE users SET plan='free' WHERE id=$1", [ownerId]);
   assert.equal(
     await sourcePost(url(1)),
     null,
     "revocation also blocks fresh cached cards",
   );
   assert.equal(calls, 1);
-  await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-source-posts')",
-    [ownerId],
-  );
+  await db.query("UPDATE users SET plan='pro' WHERE id=$1", [ownerId]);
   text = "An updated source";
   await expire(1);
   assert.equal((await sourcePost(url(1)))?.text, text);

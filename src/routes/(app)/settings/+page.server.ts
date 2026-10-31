@@ -2,15 +2,13 @@ import { error, fail, isHttpError, redirect } from "@sveltejs/kit";
 import { db, transaction } from "$lib/server/db";
 import {
   requireUser,
-  token,
-  hash,
   passwordHash,
   passwordMatches,
   signIn,
   signOut,
   rateLimit,
 } from "$lib/server/auth";
-import { storageLimit } from "$lib/server/media";
+import { planUsage } from "$lib/server/plans";
 import { authorSchema } from "$lib/contracts";
 import { avatarLimit, storeAvatar } from "$lib/server/avatars";
 import {
@@ -37,14 +35,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
       [user.id],
     )
   ).rows[0].bytes;
-  const invites = user.is_admin
-    ? (
-        await db.query(
-          "SELECT id,expires_at,used_at,revoked_at FROM invites WHERE created_by=$1 ORDER BY created_at DESC LIMIT 20",
-          [user.id],
-        )
-      ).rows
-    : [];
+  const usage = await planUsage(user.id);
   return {
     xEnabled: xAuthEnabled(),
     hasPassword: account.has_password as boolean,
@@ -54,13 +45,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     xNeedsReconnect: Boolean(linked?.needs_reconnect),
     xPhotoImportFailed: url.searchParams.get("x") === "photo-failed",
     used,
-    limit: storageLimit,
-    invites: invites.map((i) => ({
-      ...i,
-      expires_at: i.expires_at.toISOString(),
-      used_at: i.used_at?.toISOString(),
-      revoked_at: i.revoked_at?.toISOString(),
-    })),
+    limit: usage.limits.storage_mb * 1024 * 1024,
+    usage,
   };
 };
 export const actions: Actions = {
@@ -175,29 +161,6 @@ export const actions: Actions = {
       user.id,
     ]);
     return { message: "Profile saved." };
-  },
-  invite: async ({ locals, url }) => {
-    const user = requireUser(locals);
-    if (!user.is_admin) error(403, "Only administrators can invite authors.");
-    await rateLimit(`invite:${user.id}`, 20, 86400);
-    const value = token();
-    await db.query(
-      "INSERT INTO invites(id,hash,created_by,expires_at) VALUES($1,$2,$3,now()+interval '7 days')",
-      [crypto.randomUUID(), hash(value), user.id],
-    );
-    return { inviteURL: `${url.origin}/join/${value}` };
-  },
-  revoke: async ({ locals, request }) => {
-    const user = requireUser(locals);
-    if (!user.is_admin)
-      error(403, "Only administrators can revoke invitations.");
-    const id = String((await request.formData()).get("id"));
-    if (!/^[0-9a-f-]{36}$/i.test(id)) error(400, "Invalid invitation.");
-    await db.query(
-      "UPDATE invites SET revoked_at=now() WHERE id=$1 AND created_by=$2 AND used_at IS NULL",
-      [id, user.id],
-    );
-    return { message: "Invitation revoked." };
   },
   password: async (event) => {
     const { locals, request } = event;

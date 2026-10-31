@@ -135,8 +135,8 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
     const other = (await db.query("SELECT * FROM users WHERE id=$1", [otherId]))
       .rows[0] as User;
     await db.query(
-      "INSERT INTO invites(id,hash,created_by,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
-      [randomUUID(), hash(invite), ownerId],
+      "INSERT INTO invites(id,hash,created_by,email,plan,expires_at) VALUES($1,$2,$3,$4,'pro',now()+interval '1 day')",
+      [randomUUID(), hash(invite), ownerId, email],
     );
 
     const wrongBrowser = await start({}, owner);
@@ -225,8 +225,8 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
     profile = { ...profile, id: `${Date.now()}456` };
     const unused = token();
     await db.query(
-      "INSERT INTO invites(id,hash,created_by,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
-      [randomUUID(), hash(unused), ownerId],
+      "INSERT INTO invites(id,hash,created_by,email,expires_at) VALUES($1,$2,$3,$4,now()+interval '1 day')",
+      [randomUUID(), hash(unused), ownerId, owner.email],
     );
     await assert.rejects(
       callback(await start({ invite: unused, email: owner.email })),

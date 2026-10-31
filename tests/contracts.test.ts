@@ -101,7 +101,7 @@ test("rejects ambiguous identities, invalid handles and attachment/thread limits
   assert.ok(contentSchema.safeParse(boundary).success);
 });
 
-test("operator commands accept explicit grants and reject expanded authority", () => {
+test("operator commands reject retired flags and expanded authority", () => {
   const grant = {
     action: "set_feature_access",
     email: "Owner@example.test",
@@ -109,18 +109,16 @@ test("operator commands accept explicit grants and reject expanded authority", (
     enabled: false,
     reason: "End trial",
   };
-  assert.equal(operatorCommand.parse(grant).action, "set_feature_access");
+  assert.equal(operatorCommand.safeParse(grant).success, false);
   const { reason, ...withoutReason } = grant;
-  assert.deepEqual(operatorCommand.parse({ ...withoutReason, enabled: true }), {
-    ...withoutReason,
-    email: "owner@example.test",
-    enabled: true,
-    reason: "",
-  });
+  assert.equal(
+    operatorCommand.safeParse({ ...withoutReason, enabled: true }).success,
+    false,
+  );
   assert.equal(operatorCommand.safeParse(withoutReason).success, false);
   assert.equal(
-    operatorCommand.parse({ ...grant, feature: "x-source-posts" }).action,
-    "set_feature_access",
+    operatorCommand.safeParse({ ...grant, feature: "x-source-posts" }).success,
+    false,
   );
   for (const input of [
     { ...grant, feature: "unknown" },

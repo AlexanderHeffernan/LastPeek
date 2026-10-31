@@ -4,7 +4,8 @@ import { error } from "@sveltejs/kit";
 import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { transaction } from "./db";
-import { mediaDir, storageLimit } from "./media";
+import { mediaDir } from "./media";
+import { entitlementIn } from "./plans";
 
 export const avatarLimit = 5 * 1024 * 1024;
 export const avatarDir = resolve(mediaDir, "avatars");
@@ -39,11 +40,15 @@ export async function storeAvatar(bytes: Buffer, ownerId: string) {
       await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
         ownerId,
       ]);
+      const access = await entitlementIn(client, ownerId);
       const used = await client.query(
         "SELECT (SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=$1)+(SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=$1) AS bytes",
         [ownerId],
       );
-      if (Number(used.rows[0].bytes) + image.length > storageLimit)
+      if (
+        Number(used.rows[0].bytes) + image.length >
+        access.limits.storage_mb * 1024 * 1024
+      )
         error(
           413,
           "Your media storage is full. Delete an old draft to free space.",

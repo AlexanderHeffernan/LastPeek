@@ -2,7 +2,7 @@ import { z } from "zod";
 import { xPostURLSchema } from "../contracts";
 import type { XSourcePost } from "../x-post";
 import { db, transaction } from "./db";
-import { hasFeature } from "./features";
+import { isPro, reserveAPI } from "./plans";
 import { randomUUID } from "node:crypto";
 import { xEstimatedCost } from "./usage";
 
@@ -141,7 +141,7 @@ export async function sourcePost(
   const parsed = xPostURLSchema.safeParse(url);
   if (!key || !parsed.success) return null;
   // Gate cached reads and paid requests alike, using the author, never the reviewer.
-  if (!(await hasFeature(ownerId, "x-source-posts"))) return null;
+  if (!(await isPro(ownerId))) return null;
   const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
   if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(budget)) return null;
   const cents = Math.round(Number(budget) * 100);
@@ -160,6 +160,19 @@ export async function sourcePost(
       )
     ).rows[0];
     if (cached) return { content: cached.content as XSourcePost | null };
+    let period: string;
+    try {
+      period = await reserveAPI(client, ownerId, "x", 0.05);
+    } catch (cause) {
+      if (
+        cause &&
+        typeof cause === "object" &&
+        "status" in cause &&
+        (cause.status === 403 || cause.status === 429)
+      )
+        return { content: null };
+      throw cause;
+    }
     // Reserve 5 cents before EVERY attempt: above the announced 3.5-cent maximum
     // for one post + author + four media. Never refund failures or assume deduplication.
     const reserved = await client.query(
@@ -173,9 +186,9 @@ export async function sourcePost(
     if (!reserved.rowCount) return { content: null };
     const usageId = randomUUID();
     await client.query(
-      `INSERT INTO api_usage(id,user_id,provider,model,reserved_cents)
-      VALUES($1,$2,'x','post-lookup',5)`,
-      [usageId, ownerId],
+      `INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd)
+      VALUES($1,$2,'x','post-lookup',5,$3,0.05)`,
+      [usageId, ownerId, period],
     );
     await client.query(
       `INSERT INTO x_source_posts(post_id,content,expires_at)

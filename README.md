@@ -14,7 +14,7 @@ Copyright © 2026 Alexander Heffernan. LastPeek's original code is licensed unde
 
 An optional Amp orb setup is included for development. `.agents/setup` installs dependencies, prepares a private PostgreSQL development cluster, migrates and seeds once, and builds the app. It is safe to repeat and never resets an existing account. `.amp/services.yaml` supervises PostgreSQL, the website and hourly cleanup. Amp is not required to develop or host LastPeek.
 
-Run `amp orb services ensure --json` inside an orb and use its exact portal URL. Trial email is `alex@lastpeek.test`; its randomly generated password is in that orb's ignored `.env` (`SEED_PASSWORD`). Orbs and `npm run dev` also show **Dev sign in**, which signs in as `SEED_EMAIL` without a password. It is enabled only by Vite's dev server or `DEV_SIGN_IN=1`; never set that variable on a deployed instance. The portal is private to the thread by default. This is a personal trial, not an externally accessible reviewer beta. Never put real/irreplaceable drafts in an ephemeral orb.
+Run `amp orb services ensure --json` inside an orb and use its exact portal URL. Trial email is `alex@lastpeek.test`; its randomly generated password is in that orb's ignored `.env` (`SEED_PASSWORD`). Orbs and `npm run dev` also show **Dev sign in**, which signs in as `SEED_EMAIL` without a password, grants Pro and admin access, and makes that account the site owner for the running development process. It is enabled only by Vite's dev server or `DEV_SIGN_IN=1`; never set that variable on a deployed instance. The portal is private to the thread by default. This is a personal trial, not an externally accessible reviewer beta. Never put real/irreplaceable drafts in an ephemeral orb.
 
 ## Local development
 
@@ -29,7 +29,7 @@ npm run db:seed
 npm run dev
 ```
 
-Open the address printed by Vite. Bootstrap creates an administrator and sample thread only when that email does not already exist. Passwords must be 12–256 characters. Existing accounts and passwords are never reset by seeding. Administrators create single-use seven-day invitations from Account settings; send the invitation yourself. No SMTP is needed.
+Open the address printed by Vite. Bootstrap creates an administrator and sample thread only when that email does not already exist. Passwords must be 12–256 characters. Existing accounts and passwords are never reset by seeding. Configure `LASTPEEK_OWNER_ID` for site admin. The owner invites an email address as Free or Pro from site admin Invitations and sends the single-use seven-day link manually. Signup is bound to that email, without mailbox verification or SMTP. Account settings no longer manage invitations.
 
 Authentication uses self-hosted Better Auth in the same server and database. Existing passwords, account IDs and active legacy sessions survive the migration. Public registration and generic auth API endpoints are disabled; invitation-only registration and local administrator recovery remain available. On the first authentication request, LastPeek creates an owner-readable `.auth-secret` in `MEDIA_DIR` for signing cookies. Keep the private media volume persistent and include hidden files in backups. Alternatively provide a random `BETTER_AUTH_SECRET` of at least 32 characters through your secret manager, and back it up separately. Losing or changing this key signs out Better Auth sessions; it does not delete accounts or drafts. No email service, social account or hosted auth subscription is required.
 
@@ -86,8 +86,7 @@ The app still needs a connection. A small service worker caches **only** a publi
 
 ## Optional X source previews
 
-Quotes and replies require an explicit `x-source-posts` account grant, off by
-default even for admins; see [feature access](docs/operations.md). The menu is
+Quotes and replies require Pro; see [plan administration](docs/operations.md). The menu is
 hidden without access. Server checks use the draft owner, including for anonymous
 reviewers, before any cached read or paid lookup. Revoking access leaves existing
 drafts editable and replaces source previews with the unavailable status.
@@ -100,17 +99,17 @@ Successful source cards cache for 15 minutes across drafts/reviewers; failures b
 
 ## Optional AI second look
 
-Set `OPENAI_API_KEY` in the server's secret environment and restart web, then explicitly grant the account `ai-review` to enable **AI second look** beside author feedback. All accounts, including admins, default to off. With no key or grant, the control is hidden and the complete human-review workflow remains available. See [feature access and agent operations](docs/operations.md) for the audited CLI and restricted Pi tools. Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; overrides must support Responses structured outputs and low reasoning effort.
+Set `OPENAI_API_KEY` in the server's secret environment and restart web. Pro accounts can use **AI second look** beside author feedback within their monetary allowance. With no key or on Free, the control is hidden and the complete human-review workflow remains available. See [plan administration and agent operations](docs/operations.md). Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; unknown models fail closed until verified pricing and reservation bounds are added.
 
 Review is explicit, never triggered by autosave. Only the current ordered post IDs and text are sent to OpenAI, not the author's identity, title, attachments, comments or review token. Requests use `store: false` (not a guarantee of zero provider retention; OpenAI's applicable API data policies still apply). Findings live only in the current editor session, are never published as guest feedback, and never change drafts or shared revisions. Editing/reordering posts marks existing feedback as earlier-text feedback, with the original text available for comparison.
 
-Requests are bounded to 20,000 characters and 4,000 output tokens (including reasoning), with a 45-second timeout and no automatic retries. Database-backed limits allow 20 attempts per author and 100 per instance per 24-hour window, including failed provider requests. These limit abuse, not dollars: set project-level usage alerts/controls in OpenAI and verify how your monthly credit applies. Other apps sharing the key/project, model changes and pricing changes affect spend. No web-search or other paid tools are enabled.
+Requests are bounded to 20,000 characters and 4,000 output tokens (including reasoning), with a 45-second timeout and no automatic retries. Database-backed safety limits allow 20 attempts per author and 100 per instance per 24-hour window, including failed provider requests. In addition, each request reserves US$0.03 against the account's current AI allowance before HTTP. Known token costs reconcile afterward; unknown costs retain the reservation. Keep provider project-level spending controls: other apps sharing the key/project and pricing changes still affect spend. No web-search or other paid tools are enabled.
 
 The server-only `src/lib/server/openai.ts` owns credentials, model selection, transport, timeout, non-storage and validated structured responses. New features can reuse `generateStructured` with their own schema and instructions; routes still enforce owner/origin checks, input bounds and usage limits. Keep features opt-in rather than introducing a general chatbot or mandatory provider dependency.
 
 ## Limits, maintenance and recovery
 
-Defaults are 50 MB per upload and 500 MB per author (`MAX_UPLOAD_MB`, `MAX_STORAGE_MB`). The Node adapter's `BODY_SIZE_LIMIT=55M` must remain above the upload limit plus multipart overhead; adjust both if increasing uploads. Uploaded files are MIME-inspected, images have a 40-megapixel decode bound, and files never live in `static/`. Video containers are detected, not transcoded or exhaustively decoded server-side. Deploy only for trusted invitees until beta hardening and capacity checks are complete.
+Free defaults to 10 drafts and 250 MB; Pro to 100 drafts and 2,048 MB, plus US$0.50 AI and US$1.50 X per monthly period. Both allow 50 MB uploads. The owner controls allowances in site admin: Free changes immediately, Pro increases immediately and reductions at the next individual renewal. Above-limit accounts keep existing content. `MAX_STORAGE_MB` is superseded by plan settings. `MAX_UPLOAD_MB` remains a transport ceiling; `BODY_SIZE_LIMIT=55M` must exceed it plus multipart overhead. Uploaded files are MIME-inspected, images have a 40-megapixel decode bound, and files never live in `static/`. Video containers are detected, not transcoded or exhaustively decoded server-side. See [product policy](docs/product.md). Deploy only for trusted invitees until beta hardening and capacity checks are complete.
 
 Dependency audit currently reports a low-severity prototype-poisoning advisory in `deepmerge` 4.3.1, inherited through Svelte's build tooling. That is the latest upstream version at the time of this MVP; draft input is not passed to that build-time merge. Track an upstream fix before broader release rather than applying npm's incompatible forced downgrade.
 

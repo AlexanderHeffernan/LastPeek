@@ -1,18 +1,50 @@
 import { z } from "zod";
 import type { Feature } from "./features";
 import type { APIUsage, UsageData } from "./usage";
+import type { Allowances, Plan, PlanUsage } from "./plans";
 
 export const adminView = z.enum([
   "overview",
   "accounts",
+  "invitations",
   "features",
   "usage",
   "history",
+  "plans",
+  "model",
 ]);
 export type AdminView = z.infer<typeof adminView>;
+
+export const financialModelSchema = z
+  .object({
+    free: z.number().int().min(0).max(100000000).default(100),
+    pro: z.number().int().min(0).max(100000000).default(20),
+    complimentary: z.number().int().min(0).max(100000000).default(2),
+    price: z.number().min(0).max(1000000).default(5),
+    currency: z.enum(["USD", "NZD"]).default("USD"),
+    fx: z.number().positive().max(1000000).default(1.7),
+    tax: z.number().min(0).max(100).default(0),
+    fee: z.number().min(0).max(100).default(3),
+    fixedFee: z.number().min(0).max(1000000).default(0.3),
+    hosting: z.number().min(0).max(1000000000).default(10),
+    gbRate: z.number().min(0).max(1000000).default(0.03),
+    backups: z.number().int().min(0).max(1000).default(2),
+    bandwidth: z.number().min(0).max(1000000).default(0),
+    transfer: z.number().min(0).max(1000000).default(2),
+    aiUse: z.number().min(0).max(100).default(40),
+    xUse: z.number().min(0).max(100).default(40),
+    freeStorage: z.number().min(0).max(100).default(25),
+    proStorage: z.number().min(0).max(100).default(25),
+    freeDrafts: z.number().min(0).max(100).default(30),
+    proDrafts: z.number().min(0).max(100).default(30),
+    draftKB: z.number().min(0).max(1000000).default(16),
+    revisionFactor: z.number().min(1).max(1000000).default(10),
+  })
+  .strict();
+export type FinancialModel = z.infer<typeof financialModelSchema>;
 export type AccessChange = {
   id: string;
-  kind: "admin" | "feature";
+  kind: "admin" | "feature" | "plan";
   feature: string | null;
   actor: string | null;
   account: string | null;
@@ -72,6 +104,7 @@ export type AdminDirectory = {
     role: "owner" | "admin" | "author";
     features: string[];
     usage: APIUsage[];
+    entitlement: PlanUsage;
   }[];
 };
 
@@ -84,6 +117,17 @@ export type AdminData = {
   usage: UsageData | null;
   flags: AdminFlags | null;
   history: AccessChange[];
+  plans: Record<Plan, Allowances>;
+  financialModel: FinancialModel;
+  invitations: {
+    id: string;
+    email: string;
+    plan: Plan;
+    created_at: string;
+    expires_at: string;
+    used_at: string | null;
+    revoked_at: string | null;
+  }[];
 };
 
 export const adminFlagsQuery = z

@@ -8,6 +8,8 @@ import {
   type AdminData,
   adminView,
   adminFlagsQuery,
+  financialModelSchema,
+  type FinancialModel,
   type AdminFlags,
   type AccessChange,
 } from "../admin";
@@ -15,6 +17,9 @@ import { featureSchema, type Feature } from "../features";
 import { apiUsage, usageByUsers } from "./usage";
 import { usageQuery } from "../usage";
 import { setFeatureAccess } from "./features";
+import { planAllowances, planUsage } from "./plans";
+import { hash, token } from "./auth";
+import type { Plan } from "../plans";
 
 function ownerId() {
   const parsed = z.uuid().safeParse(process.env.LASTPEEK_OWNER_ID);
@@ -67,6 +72,9 @@ export async function adminData(
       usage: null,
       flags: null,
       history: [],
+      plans: await planAllowances(),
+      financialModel: await financialModel(),
+      invitations: [],
     };
   const [overview, directory, costs, history, flags] = await Promise.all([
     adminOverview(),
@@ -86,7 +94,45 @@ export async function adminData(
     usage: costs,
     flags,
     history,
+    plans: await planAllowances(),
+    financialModel: await financialModel(),
+    invitations: (
+      await db.query(
+        "SELECT id,email,plan,created_at,expires_at,used_at,revoked_at FROM invites WHERE email IS NOT NULL ORDER BY created_at DESC,id DESC",
+      )
+    ).rows.map((row) => ({
+      ...row,
+      created_at: row.created_at.toISOString(),
+      expires_at: row.expires_at.toISOString(),
+      used_at: row.used_at?.toISOString() ?? null,
+      revoked_at: row.revoked_at?.toISOString() ?? null,
+    })),
   };
+}
+
+async function financialModel() {
+  const result = await db.query(
+    "SELECT assumptions FROM financial_model WHERE id=true",
+  );
+  return financialModelSchema.parse(result.rows[0].assumptions);
+}
+
+export async function saveFinancialModel(
+  actor: User,
+  assumptions: FinancialModel,
+) {
+  requireOwner(actor);
+  const model = financialModelSchema.parse(assumptions);
+  await transaction(async (client) => {
+    await client.query(
+      "UPDATE financial_model SET assumptions=$1 WHERE id=true",
+      [model],
+    );
+    await client.query(
+      "INSERT INTO plan_audit(actor_id,action,details) VALUES($1,'financial-model',$2)",
+      [actor.id, model],
+    );
+  });
 }
 
 async function configuredOwner() {
@@ -190,6 +236,13 @@ export async function adminUsers(input: AdminUsersQuery) {
     [search, pageSize, (page - 1) * pageSize],
   );
   const usage = await usageByUsers(result.rows.map((row) => row.id));
+  const entitlements = new Map(
+    await Promise.all(
+      result.rows.map(
+        async (row) => [row.id, await planUsage(row.id)] as const,
+      ),
+    ),
+  );
   return {
     search: query.search,
     page,
@@ -199,6 +252,7 @@ export async function adminUsers(input: AdminUsersQuery) {
     users: result.rows.map((row) => ({
       ...row,
       usage: usage.get(row.id)!,
+      entitlement: entitlements.get(row.id)!,
       created_at: row.created_at.toISOString(),
       last_seen_at: row.last_seen_at?.toISOString() ?? null,
       role:
@@ -271,6 +325,9 @@ export async function adminHistory(): Promise<AccessChange[]> {
     UNION ALL
     SELECT 'feature:'||a.id,'feature',a.feature,COALESCE(actor.email,a.actor),target.email,a.enabled,a.reason,a.created_at
     FROM feature_audit a LEFT JOIN users actor ON a.actor='user:'||actor.id LEFT JOIN users target ON target.id=a.user_id
+    UNION ALL
+    SELECT 'plan:'||a.id,'plan',a.action,actor.email,target.email,true,a.details::text,a.created_at
+    FROM plan_audit a LEFT JOIN users actor ON actor.id=a.actor_id LEFT JOIN users target ON target.id=a.user_id
   ) changes ORDER BY created_at DESC,id DESC LIMIT 50`);
   return rows.rows.map((row) => ({
     ...row,
@@ -307,7 +364,53 @@ export async function adminFlags(
   );
   return {
     account: account?.rows[0] ?? null,
-    total: result.rows[0]?.total ?? 0,
+    total:
+      result.rows[0]?.total ??
+      Number((await db.query("SELECT count(*) FROM users")).rows[0].count),
     flags: result.rows.map(({ total, ...flag }) => flag),
   };
+}
+
+export async function inviteAccount(actor: User, email: string, plan: Plan) {
+  requireOwner(actor);
+  const value = token();
+  await transaction(async (client) => {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 14))",
+      [email],
+    );
+    if (
+      (await client.query("SELECT 1 FROM users WHERE lower(email)=$1", [email]))
+        .rowCount
+    )
+      error(409, "This email already has an account.");
+    await client.query(
+      "UPDATE invites SET revoked_at=now() WHERE email=$1 AND used_at IS NULL AND revoked_at IS NULL",
+      [email],
+    );
+    await client.query(
+      "INSERT INTO invites(id,hash,created_by,email,plan,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '7 days')",
+      [crypto.randomUUID(), hash(value), actor.id, email, plan],
+    );
+    await client.query(
+      "INSERT INTO plan_audit(actor_id,action,details) VALUES($1,'invitation',$2)",
+      [actor.id, { email, plan }],
+    );
+  });
+  return value;
+}
+
+export async function revokeInvitation(actor: User, id: string) {
+  requireOwner(actor);
+  await transaction(async (client) => {
+    const row = await client.query(
+      "UPDATE invites SET revoked_at=now() WHERE id=$1 AND used_at IS NULL AND revoked_at IS NULL RETURNING email",
+      [id],
+    );
+    if (row.rowCount)
+      await client.query(
+        "INSERT INTO plan_audit(actor_id,action,details) VALUES($1,'revoke-invitation',$2)",
+        [actor.id, { email: row.rows[0].email }],
+      );
+  });
 }

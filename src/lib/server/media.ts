@@ -4,12 +4,11 @@ import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { error } from "@sveltejs/kit";
 import { transaction } from "./db";
+import { entitlementIn } from "./plans";
 
 export const mediaDir = resolve(process.env.MEDIA_DIR || "./data/media");
 export const uploadLimit =
   Number(process.env.MAX_UPLOAD_MB || 50) * 1024 * 1024;
-export const storageLimit =
-  Number(process.env.MAX_STORAGE_MB || 500) * 1024 * 1024;
 export function mediaPath(id: string) {
   return resolve(mediaDir, id);
 }
@@ -59,11 +58,20 @@ export async function storeMedia(
       await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
         ownerId,
       ]);
+      const access = await entitlementIn(client, ownerId);
+      if (bytes.length > access.limits.upload_mb * 1024 * 1024)
+        error(
+          413,
+          `Choose a file no larger than ${access.limits.upload_mb} MB.`,
+        );
       const used = await client.query(
         "SELECT ((SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=$1)+(SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=$1))::float8 AS bytes",
         [ownerId],
       );
-      if (used.rows[0].bytes + bytes.length > storageLimit)
+      if (
+        used.rows[0].bytes + bytes.length >
+        access.limits.storage_mb * 1024 * 1024
+      )
         error(
           413,
           "Your media storage is full. Delete an old draft to free space.",

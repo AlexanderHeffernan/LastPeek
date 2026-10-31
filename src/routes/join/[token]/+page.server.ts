@@ -6,19 +6,22 @@ import { xAuthEnabled } from "$lib/server/x-auth";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   if (locals.user) redirect(303, "/");
-  if (
-    !(
-      await db.query(
-        "SELECT 1 FROM invites WHERE hash=$1 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
-        [hash(params.token)],
-      )
-    ).rowCount
-  )
+  const invitation = (
+    await db.query(
+      "SELECT email FROM invites WHERE hash=$1 AND email IS NOT NULL AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
+      [hash(params.token)],
+    )
+  ).rows[0];
+  if (!invitation)
     error(
       404,
       "This invitation has expired, was revoked, or has already been used. Ask your friend for a new one.",
     );
-  return { xEnabled: xAuthEnabled(), invite: params.token };
+  return {
+    xEnabled: xAuthEnabled(),
+    invite: params.token,
+    email: invitation.email as string,
+  };
 };
 export const actions: Actions = {
   default: async (event) => {
@@ -40,15 +43,23 @@ export const actions: Actions = {
     const credentials = await passwordHash(parsed.data.password);
     const userId = await transaction(async (client) => {
       const invite = await client.query(
-        "SELECT id FROM invites WHERE hash=$1 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+        "SELECT id,email,plan FROM invites WHERE hash=$1 AND email IS NOT NULL AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE",
         [hash(params.token)],
       );
       if (!invite.rowCount)
         error(400, "This invitation is no longer available.");
+      if (invite.rows[0].email !== parsed.data.email)
+        error(400, "Use the email address this invitation was issued to.");
       const id = crypto.randomUUID();
       const result = await client.query(
-        "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING RETURNING id",
-        [id, parsed.data.email, parsed.data.name, credentials],
+        "INSERT INTO users(id,email,name,password_hash,plan,pro_limits) SELECT $1,$2,$3,$4,$5,limits FROM plan_allowances WHERE plan='pro' ON CONFLICT(email) DO NOTHING RETURNING id",
+        [
+          id,
+          parsed.data.email,
+          parsed.data.name,
+          credentials,
+          invite.rows[0].plan,
+        ],
       );
       if (!result.rowCount) return null;
       await client.query("UPDATE invites SET used_at=now() WHERE id=$1", [
