@@ -1376,7 +1376,7 @@ test(
         assert.equal(mobileNav.x, 0);
         assert.equal(mobileNav.width, width);
         assert.equal(mobileNav.y + mobileNav.height, 844);
-        assert.ok(mobileNav.height >= 60 && mobileNav.height < 100);
+        assert.ok(mobileNav.height >= 48 && mobileNav.height <= 60);
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth),
           width,
@@ -1467,6 +1467,8 @@ test(
         .first()
         .evaluate((el) => el.getBoundingClientRect().top + scrollY);
       const mobileHeader = page.getByRole("banner");
+      const searchTop = (await page.getByLabel("Search posts").boundingBox())!
+        .y;
       const floatingPost = page
         .getByRole("button", {
           name: "New post",
@@ -1474,6 +1476,37 @@ test(
         })
         .first();
       const raisedY = (await floatingPost.boundingBox())!.y;
+      assert.ok((await navigation.boundingBox())!.height <= 60);
+      const partialScroll = await mobileHeader.evaluate(async (header) => {
+        const top = header.getBoundingClientRect().top;
+        scrollTo(0, 24);
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        const down = header.getBoundingClientRect().top;
+        scrollTo(0, 16);
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        return { top, down, reversed: header.getBoundingClientRect().top };
+      });
+      assert.equal(
+        Math.round(partialScroll.top - partialScroll.down),
+        24,
+        "chrome follows a small scroll rather than waiting and toggling",
+      );
+      assert.equal(
+        Math.round(partialScroll.reversed - partialScroll.down),
+        8,
+        "direction reversal reveals only the distance scrolled",
+      );
+      assert.equal(
+        Math.round(
+          searchTop - (await page.getByLabel("Search posts").boundingBox())!.y,
+        ),
+        16,
+        "search belongs to the scrolling feed, not the fixed header",
+      );
       await page.evaluate(() => scrollTo(0, 200));
       await page.waitForFunction(
         (el) => el!.getBoundingClientRect().top >= innerHeight,
@@ -1481,7 +1514,7 @@ test(
       );
       assert.ok((await mobileHeader.boundingBox())!.y < -60);
       const loweredY = (await floatingPost.boundingBox())!.y;
-      assert.equal(Math.round(loweredY - raisedY), 64);
+      assert.equal(Math.round(loweredY - raisedY), 48);
       assert.ok(loweredY + 56 < 400, "floating creation remains onscreen");
       assert.equal(
         await feedLinks

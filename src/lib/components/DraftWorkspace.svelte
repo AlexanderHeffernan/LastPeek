@@ -14,7 +14,7 @@
     form,
     feedbackPage = false,
   }: { data: PageData; form?: ActionData; feedbackPage?: boolean } = $props();
-  const navigation = getContext<{ hidden: boolean }>("mobile-navigation");
+  const navigation = getContext<{ reveal: () => void }>("mobile-navigation");
   let busy = $state(false);
   let createOpen = $state<string | null>(null);
   let draftList = $state<HTMLDivElement>();
@@ -195,11 +195,7 @@
   class:feedback-page={feedbackPage}
   aria-label={feedbackPage ? "Feedback" : "Drafts"}
 >
-  <div
-    class="feed-toolbar"
-    class:chrome-hidden={navigation.hidden}
-    onfocusin={() => (navigation.hidden = false)}
-  >
+  <div class="feed-toolbar" onfocusin={() => navigation.reveal()}>
     <div
       class="drafts-filters"
       role="group"
@@ -214,20 +210,20 @@
         >
       {/each}
     </div>
-    <div class="draft-search">
-      <Icon name="search" size={18} />
-      <Input
-        type="search"
-        aria-label={feedbackPage ? "Search feedback" : "Search posts"}
-        placeholder={feedbackPage ? "Search feedback" : "Search posts"}
-        bind:value={query}
-      />
-    </div>
+  </div>
+  <div class="draft-search">
+    <Icon name="search" size={18} />
+    <Input
+      type="search"
+      aria-label={feedbackPage ? "Search feedback" : "Search posts"}
+      placeholder={feedbackPage ? "Search feedback" : "Search posts"}
+      bind:value={query}
+    />
   </div>
   <div class="drafts-actions">
     {@render newPost("New post", false, true)}
   </div>
-  <div class="floating-create" class:chrome-hidden={navigation.hidden}>
+  <div class="floating-create">
     {@render newPost("New post", false, true, "floating")}
   </div>
   <section
@@ -863,27 +859,24 @@
   }
   @media (max-width: 600px) {
     .drafts-page {
-      min-height: calc(100dvh - 144px);
-      padding-top: 104px;
-      grid-template-areas: "feed";
-      grid-template-rows: 1fr;
+      min-height: calc(
+        100dvh - 100px - var(--mobile-nav-inset) -
+          env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+      );
+      padding-top: 44px;
+      grid-template-areas: "search" "feed";
+      grid-template-rows: auto 1fr;
     }
     .feed-toolbar {
       display: block;
       position: fixed;
       left: 0;
       right: 0;
-      top: calc(64px + env(safe-area-inset-top, 0px));
+      top: calc(52px + env(safe-area-inset-top, 0px));
       z-index: 25;
       background: var(--background);
-      transition:
-        transform 220ms ease,
-        opacity 220ms ease;
-    }
-    .feed-toolbar.chrome-hidden {
-      transform: translateY(calc(-100% - 64px - env(safe-area-inset-top, 0px)));
-      opacity: 0;
-      pointer-events: none;
+      transform: translate3d(0, calc(-1 * var(--mobile-chrome-offset)), 0);
+      will-change: transform;
     }
     .drafts-filters {
       height: 44px;
@@ -904,12 +897,10 @@
       display: block;
       position: fixed;
       right: 20px;
-      bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(60px + var(--mobile-nav-inset));
       z-index: 35;
-      transition: transform 220ms ease;
-    }
-    .floating-create.chrome-hidden {
-      transform: translateY(64px);
+      transform: translate3d(0, calc(var(--mobile-chrome-progress) * 48px), 0);
+      will-change: transform;
     }
     .floating-create :global(.floating-trigger),
     .floating-create > .share-actions > form :global(button) {
@@ -944,12 +935,6 @@
       padding-inline: 4px;
       gap: 4px;
       font-size: 12px;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .feed-toolbar,
-    .floating-create {
-      transition: none;
     }
   }
 </style>

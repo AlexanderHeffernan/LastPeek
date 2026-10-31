@@ -169,6 +169,11 @@
   margin-inline: auto;
   padding-left: 68px;
 }
+.app-shell {
+  display: contents;
+  --mobile-chrome-offset: 0px;
+  --mobile-chrome-progress: 0;
+}
 .app-navigation {
   position: fixed;
   inset: 0 auto 0 max(0px, calc((100vw - 1000px) / 2));
@@ -1317,63 +1322,70 @@ progress {
 }
 @media (max-width: 600px) {
   .app-content.signed-in {
+    --mobile-nav-inset: max(8px, calc(env(safe-area-inset-bottom, 0px) - 12px));
     padding-left: 0;
-    padding-top: 64px;
-    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    padding-top: 52px;
+    padding-bottom: calc(48px + var(--mobile-nav-inset));
+  }
+  .app-shell::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px);
+    background: var(--background);
+    z-index: 40;
+    pointer-events: none;
   }
   .app-navigation {
     inset: auto 0 0;
     width: 100%;
     flex-direction: row;
     justify-content: space-around;
-    gap: 12px;
-    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+    height: calc(48px + var(--mobile-nav-inset));
+    gap: 0;
+    padding: 2px 16px calc(2px + var(--mobile-nav-inset));
     border-right: 0;
     border-top: 1px solid var(--line);
-    transition:
-      transform 220ms ease,
-      opacity 220ms ease;
+    transform: translate3d(0, calc(var(--mobile-chrome-progress) * 100%), 0);
+    will-change: transform;
+  }
+  .app-navigation [data-slot="button"] {
+    width: 44px;
+    height: 44px;
+  }
+  .app-navigation .drafts-link svg {
+    width: 26px;
+    height: 26px;
   }
   .app-navigation > .brand,
   .app-navigation .desktop-account {
     display: none;
   }
-  .app-navigation.chrome-hidden {
-    transform: translateY(100%);
-    opacity: 0;
-    pointer-events: none;
-  }
   .mobile-header {
     position: fixed;
-    inset: 0 0 auto;
+    inset: env(safe-area-inset-top, 0px) 0 auto;
     z-index: 30;
-    height: calc(64px + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) 12px 0;
+    height: 52px;
+    padding: 0 12px;
     display: flex;
     align-items: center;
     background: var(--background);
-    transition:
-      transform 220ms ease,
-      opacity 220ms ease;
-  }
-  .mobile-header.chrome-hidden {
-    transform: translateY(-100%);
-    opacity: 0;
-    pointer-events: none;
+    transform: translate3d(0, calc(-1 * var(--mobile-chrome-offset)), 0);
+    will-change: transform;
   }
   .mobile-header .brand {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
-    width: 52px;
-    height: 52px;
+    width: 44px;
+    height: 44px;
     justify-content: center;
     cursor: pointer;
     -webkit-touch-callout: none;
     user-select: none;
   }
   .mobile-header .brand svg {
-    height: 34px;
+    height: 30px;
   }
   .mobile-header .brand:focus-visible {
     outline: 2px solid var(--primary);
