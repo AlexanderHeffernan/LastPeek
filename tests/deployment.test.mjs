@@ -274,6 +274,24 @@ print(json.dumps(module.dispatch(json.loads(sys.argv[1]), 'read')))
       );
     await docker("tag", `${image}:${revisions[0]}`, `${image}:latest`);
     await docker("push", `${image}:latest`);
+    // A pre-installation browser may still need chunks unique to legacy web.
+    await docker(
+      ...composeArgs.slice(0, -2),
+      "up",
+      "-d",
+      "--no-deps",
+      "--wait",
+      "web",
+    );
+    await docker(
+      ...composeArgs.slice(0, -2),
+      "exec",
+      "-T",
+      "web",
+      "sh",
+      "-c",
+      "echo legacy-public-asset > /app/build/client/_app/immutable/legacy-only.js",
+    );
     await update();
     const proxyId = await compose("ps", "-q", "proxy");
     const proxyInfo = JSON.parse(await docker("inspect", proxyId))[0];
@@ -288,6 +306,16 @@ print(json.dumps(module.dispatch(json.loads(sys.argv[1]), 'read')))
       return response.headers.get("x-lastpeek-revision");
     };
     assert.equal(await health(), revisions[0]);
+    assert.equal(
+      await (await fetch(`${origin}/_app/immutable/legacy-only.js`)).text(),
+      "legacy-public-asset\n",
+    );
+    const missingAsset = await fetch(
+      `${origin}/_app/immutable/not-published.js`,
+    );
+    assert.equal(missingAsset.status, 404);
+    assert.equal(missingAsset.headers.get("cache-control"), "no-store");
+    await compose("--profile", "legacy", "stop", "web");
     assert.equal(
       await (await fetch(`${origin}/configuration`)).text(),
       "fixture-value:override",
@@ -381,6 +409,10 @@ print(json.dumps(module.dispatch(json.loads(sys.argv[1]), 'read')))
       for (const revision of revisions.slice(0, 2)) {
         const asset = await fetch(`${origin}/_app/immutable/${revision}.js`);
         assert.equal(asset.status, 200);
+        assert.equal(
+          asset.headers.get("cache-control"),
+          "public, max-age=31536000, immutable",
+        );
         assert.equal((await asset.text()).trim(), revision);
       }
       // Stale shell variables must not override the persisted digest pins.

@@ -149,6 +149,10 @@ def deploy():
         probe(candidate, revision)
         # Copy only public content-addressed client assets. Never copy media or
         # entire build directories. Keep old chunks for already-open browsers.
+        if not active:
+            legacy = compose("--profile", "legacy", "ps", "--all", "-q", "web", capture=True).strip()
+            if legacy:
+                run("docker", "cp", f"{legacy}:/app/build/client/_app/immutable/.", str(ROOT / "assets"))
         container = compose("ps", "-q", candidate, capture=True).strip()
         run("docker", "cp", f"{container}:/app/build/client/_app/immutable/.", str(ROOT / "assets"))
 

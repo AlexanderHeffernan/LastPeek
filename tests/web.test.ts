@@ -50,6 +50,39 @@ async function action(
   assert.equal(response.status(), status, await response.text());
   return response.json();
 }
+
+async function xConsent(page: Page) {
+  let authorization: URL | undefined;
+  // Routing only the redirect destination can miss a browser redirect chain.
+  // Keep the native request and real server response; replace only leaving for X.
+  await page.route("https://x.com/i/oauth2/authorize**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "Test X consent" }),
+  );
+  await page.route(`${baseURL}/auth/x/start`, async (route) => {
+    const response = await route.fetch({ maxRedirects: 0 });
+    assert.equal(response.status(), 303);
+    const headers = response.headers();
+    authorization = new URL(headers.location);
+    assert.equal(authorization.origin, "https://x.com");
+    assert.equal(authorization.pathname, "/i/oauth2/authorize");
+    delete headers.location;
+    delete headers["content-length"];
+    await route.fulfill({
+      headers,
+      contentType: "text/html",
+      body: "Test X consent",
+    });
+  });
+  return async () => {
+    await page.getByText("Test X consent", { exact: true }).waitFor();
+    assert.ok(authorization);
+    // A fresh request is reliably intercepted and retains the cross-site cookie boundary.
+    await page.goto(authorization.href);
+    assert.equal(page.url(), authorization.href);
+    return authorization;
+  };
+}
+
 async function edited(page: Page, work: () => Promise<unknown>) {
   const response = page.waitForResponse(
     (r) =>
@@ -1295,9 +1328,7 @@ test(
             { name: "lastpeek_session", value: session, url: baseURL },
           ]);
           const page = await context.newPage();
-          await page.route("https://x.com/i/oauth2/authorize**", (route) =>
-            route.fulfill({ contentType: "text/html", body: "Test X consent" }),
-          );
+          const consent = await xConsent(page);
           await page.goto(baseURL);
           await page.waitForLoadState("networkidle");
           // Keep the original document: a full reload would hide this regression.
@@ -1352,9 +1383,9 @@ test(
               .click(),
           ]);
           assert.equal(request.headers().origin, origin);
-          await page.waitForURL("https://x.com/i/oauth2/authorize**");
+          const authorization = await consent();
           assert.equal(
-            new URL(page.url()).searchParams.get("code_challenge_method"),
+            authorization.searchParams.get("code_challenge_method"),
             "S256",
           );
           await context.close();
@@ -1422,12 +1453,9 @@ test(
       });
       if (await reconnect.isVisible()) {
         // Exercise the native form and callback, without contacting the real X service.
-        await page.route("https://x.com/i/oauth2/authorize**", (route) =>
-          route.fulfill({ contentType: "text/html", body: "Test X consent" }),
-        );
+        const consent = await xConsent(page);
         await reconnect.click();
-        await page.waitForURL("https://x.com/i/oauth2/authorize**");
-        const authorization = new URL(page.url());
+        const authorization = await consent();
         assert.equal(
           authorization.searchParams.get("code_challenge_method"),
           "S256",
@@ -1513,14 +1541,11 @@ test(
         .focus();
       await page.keyboard.press("Enter");
       assert.equal(await page.getByRole("status").count(), 0);
-      await page.route("https://x.com/i/oauth2/authorize**", (route) =>
-        route.fulfill({ contentType: "text/html", body: "Test X consent" }),
-      );
+      const consent = await xConsent(page);
       await page
         .getByRole("button", { name: "Sign in with X", exact: true })
         .click();
-      await page.waitForURL("https://x.com/i/oauth2/authorize**");
-      const retried = new URL(page.url());
+      const retried = await consent();
       assert.equal(
         retried.searchParams.get("redirect_uri"),
         `${origin}/auth/x/callback`,

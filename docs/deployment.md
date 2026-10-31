@@ -57,9 +57,11 @@ must continue ignoring every LastPeek container.
 digest. It runs migrations separately while the current app keeps serving, starts
 the inactive slot, and checks database-backed health, the exact source revision and
 the landing page. Before switching, it copies only `build/client/_app/immutable/`
-into a separate public-asset directory. Old hashed assets are retained for open
+into a separate public-asset directory, including the legacy web container's
+assets during first installation. Old hashed assets are retained for open
 tabs; private media is never mounted into nginx. Monitor asset disk use; do not
-automatically delete chunks still needed by open browsers.
+automatically delete chunks still needed by open browsers. Missing-asset responses
+are `no-store`, preventing a cached 404 from outliving a failed request.
 
 After validating nginx configuration, the updater atomically writes the desired
 route, gracefully reloads nginx and checks the routed revision. A failed handover
@@ -76,8 +78,9 @@ The private tunnel-to-proxy hop closes each HTTP connection cleanly after its
 response, avoiding idle keep-alive socket races during nginx reload. This adds a
 local TCP connection per request, not a new browser TLS handshake with Cloudflare.
 
-Run `npm run test:deployment` on Linux with Python 3, Docker Engine and Compose
-available. It exercises the real updater/nginx with a disposable local registry,
+Run `sudo env "PATH=$PATH" npm run test:deployment` on Linux with Python 3, Docker
+Engine and Compose available. The fixture uses the production gateway's root
+identity and its restricted environment. It exercises the real updater/nginx with a disposable local registry,
 small app-protocol fixtures and private test volumes, including in-flight writes,
 retained assets, rejected migration/health/configuration failures and interrupted
 cutover recovery. A disposable PostgreSQL instance also verifies coherent backup

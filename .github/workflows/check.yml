@@ -92,7 +92,8 @@ jobs:
         with:
           node-version: 22
       # Real local Docker/nginx and disposable app/registry fixtures. No Pi access.
-      - run: npm run test:deployment
+      # Match the root-owned gateway's identity and retain the selected Node version.
+      - run: sudo env "PATH=$PATH" npm run test:deployment
 
   build:
     needs: [check, deployment]
