@@ -16,12 +16,22 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     xPublishing: await xPublishing(draft.owner_id, draft.id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
-    draft: { ...draft, updated_at: draft.updated_at.toISOString() },
+    draft: {
+      ...draft,
+      posted_at: draft.posted_at?.toISOString() ?? null,
+      updated_at: draft.updated_at.toISOString(),
+    },
     media,
     comments,
     recipients: (
       await db.query<{ recipient_id: string }>(
         "SELECT recipient_id FROM friend_reviews WHERE draft_id=$1",
+        [draft.id],
+      )
+    ).rows.map((r) => r.recipient_id),
+    completedReviews: (
+      await db.query<{ recipient_id: string }>(
+        "SELECT recipient_id FROM friend_reviews WHERE draft_id=$1 AND completed_at IS NOT NULL",
         [draft.id],
       )
     ).rows.map((r) => r.recipient_id),

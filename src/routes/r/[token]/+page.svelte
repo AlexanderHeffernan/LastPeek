@@ -104,7 +104,13 @@
     <Button
       variant="ghost"
       class="icon-button"
-      href={data.reviewer ? "/" : "/login"}
+      href={data.review
+        ? data.review.completed
+          ? "/?tab=done"
+          : "/?tab=review"
+        : data.reviewer
+          ? "/"
+          : "/login"}
       aria-label={data.reviewer ? "Back to drafts" : "Back"}
       onclick={(event) => {
         if (!data.reviewer && history.length > 1) {
@@ -134,6 +140,32 @@
     />
   </section>
   <aside class="draft-sidebar" aria-label="Feedback">
+    {#if data.review}
+      <form
+        class="review-completion"
+        method="POST"
+        action="?/complete"
+        use:enhance={() => {
+          busy = true;
+          return async ({ update }) => {
+            await update();
+            busy = false;
+          };
+        }}
+      >
+        <input
+          type="hidden"
+          name="completed"
+          value={String(!data.review.completed)}
+        />
+        <Button type="submit" variant="outline" disabled={busy || !!body.trim()}
+          ><Icon
+            name={data.review.completed ? "review" : "done"}
+            size={18}
+          />{data.review.completed ? "Reopen review" : "Finish review"}</Button
+        >
+      </form>
+    {/if}
     <form
       bind:this={feedbackForm}
       class="feedback-form"
@@ -274,6 +306,9 @@
 </dialog>
 
 <style>
+  .review-completion {
+    padding-bottom: 12px;
+  }
   .review-page {
     width: 100%;
     max-width: 932px;
@@ -290,8 +325,12 @@
   @media (max-width: 1000px) {
     .review-page {
       max-width: 600px;
-      grid-template-areas: "heading" "posts" "form" "feedback";
-      grid-template-rows: 52px auto auto 1fr;
+      grid-template-areas: "heading" "posts" "completion" "form" "feedback";
+      grid-template-rows: 52px auto auto auto 1fr;
+    }
+    .review-completion {
+      grid-area: completion;
+      padding: 20px 12px 0;
     }
     .feedback-form {
       grid-area: form;

@@ -440,7 +440,7 @@ export async function postToX(
   }
   const done = claim.progress.posts.every((p) => p.tweetId);
   await transaction(async (client) => {
-    await client.query(
+    const updated = await client.query(
       "UPDATE x_publications SET status=$2,post_id=$3,progress=$4,lease=NULL,lease_until=NULL,posted_at=CASE WHEN $2='posted' THEN now() ELSE posted_at END WHERE draft_id=$1 AND lease=$5",
       [
         draftId,
@@ -456,6 +456,10 @@ export async function postToX(
         claim.lease,
       ],
     );
+    if (updated.rowCount && done && !failure && !uncertain)
+      await client.query("UPDATE drafts SET posted_at=now() WHERE id=$1", [
+        draftId,
+      ]);
     if (claim.usageId)
       await client.query(
         "UPDATE api_usage SET outcome=$2,http_status=$3,estimated_usd=$4,completed_at=now() WHERE id=$1",

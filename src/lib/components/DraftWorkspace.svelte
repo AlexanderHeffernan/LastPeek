@@ -2,7 +2,10 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Popover } from "bits-ui";
-  import { tick, getContext } from "svelte";
+  import { tick, getContext, untrack } from "svelte";
+  import { page } from "$app/state";
+  import { replaceState } from "$app/navigation";
+  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import { enhance } from "$app/forms";
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
@@ -56,7 +59,13 @@
     sourceDialog?.showModal();
   }
   let query = $state("");
-  let filter = $state("all");
+  let filter = $state(
+    untrack(() => feedbackPage)
+      ? "all"
+      : ["review", "done"].includes(page.url.searchParams.get("tab") ?? "")
+        ? page.url.searchParams.get("tab")!
+        : "drafts",
+  );
   const search = $derived(query.trim().toLocaleLowerCase());
   const matchingFeedback = $derived(
     data.comments.filter((comment) =>
@@ -76,23 +85,27 @@
     ),
   );
   const filters = [
-    { value: "all", label: "All", icon: "thread" },
-    { value: "feedback", label: "With feedback", icon: "comment" },
-    { value: "shared", label: "Shared", icon: "link" },
-    { value: "private", label: "Private", icon: "lock" },
+    { value: "drafts", label: "Drafts", icon: "drafts" },
+    { value: "review", label: "To review", icon: "review" },
+    { value: "done", label: "Done", icon: "done" },
   ];
+  const counts = $derived({
+    drafts: data.drafts.filter((d) => !d.posted_at).length,
+    review: data.reviews.filter((r) => !r.completed_at).length,
+  });
   const visible = $derived(
-    data.drafts.filter(
-      (draft) =>
-        (filter === "all" ||
-          (filter === "feedback"
-            ? draft.feedback > 0
-            : filter === "shared"
-              ? draft.shared
-              : !draft.shared)) &&
-        draft.content.posts.some((post) =>
-          post.text.toLocaleLowerCase().includes(search),
-        ),
+    (filter === "review"
+      ? data.reviews.filter((r) => !r.completed_at)
+      : filter === "done"
+        ? [
+            ...data.drafts.filter((d) => d.posted_at),
+            ...data.reviews.filter((r) => r.completed_at),
+          ].sort((a, b) => b.posted_at!.localeCompare(a.posted_at!))
+        : data.drafts.filter((d) => !d.posted_at)
+    ).filter((draft) =>
+      draft.content.posts.some((post) =>
+        post.text.toLocaleLowerCase().includes(search),
+      ),
     ),
   );
 </script>
@@ -190,220 +203,295 @@
   </div>
 {/snippet}
 
-<main
-  class="drafts-page"
-  class:feedback-page={feedbackPage}
-  aria-label={feedbackPage ? "Feedback" : "Drafts"}
+<Tabs.Root
+  bind:value={filter}
+  class="contents"
+  onValueChange={(value) => {
+    if (!feedbackPage) {
+      const url = new URL(page.url.href);
+      if (value === "drafts") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", value);
+      replaceState(url, page.state);
+    }
+  }}
 >
-  <div class="feed-toolbar" onfocusin={() => navigation.reveal()}>
-    <div
-      class="drafts-filters"
-      role="group"
-      aria-label={feedbackPage ? "Filter feedback" : "Filter drafts"}
-    >
-      {#each feedbackPage ? [{ value: "all", label: "All", icon: "comment" }, { value: "open", label: "Open", icon: "eye" }, { value: "resolved", label: "Resolved", icon: "check" }] : filters as item}
-        <Button
-          variant="ghost"
-          aria-pressed={filter === item.value}
-          onclick={() => (filter = item.value)}
-          ><Icon name={item.icon} size={16} />{item.label}</Button
-        >
-      {/each}
-    </div>
-  </div>
-  <div class="draft-search">
-    <Icon name="search" size={18} />
-    <Input
-      type="search"
-      aria-label={feedbackPage ? "Search feedback" : "Search posts"}
-      placeholder={feedbackPage ? "Search feedback" : "Search posts"}
-      bind:value={query}
-    />
-  </div>
-  <div class="drafts-actions">
-    {@render newPost("New post", false, true)}
-    {#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
-  </div>
-  <div class="floating-create">
-    {@render newPost("New post", false, true, "floating")}
-    {#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
-  </div>
-  <section
-    class="drafts-column"
-    aria-label={feedbackPage ? "Feedback feed" : "Draft feed"}
+  <main
+    class="drafts-page"
+    class:feedback-page={feedbackPage}
+    aria-label={feedbackPage ? "Feedback" : "Drafts"}
   >
-    {#if feedbackPage}
-      {#each visibleComments as comment (comment.id)}
-        {@render feedbackEntry(comment)}
-      {:else}
-        <div class="empty">
-          <div class="empty-mascot"><Brand markOnly decorative /></div>
-          <h2>{search ? "Not a peep." : "A little quiet here."}</h2>
-          <p>
-            {search
-              ? "No feedback matches that search."
-              : "Share a draft for a second pair of eyes."}
-          </p>
-          {#if search || filter !== "all"}<Button
-              variant="outline"
-              onclick={() => {
-                query = "";
-                filter = "all";
-              }}>Clear search and filters</Button
-            >{:else}<Button href="/" variant="outline">Browse drafts</Button
-            >{/if}
-        </div>
-      {/each}
-    {:else if !data.drafts.length}
-      <div class="empty">
-        <div class="empty-mascot"><Brand markOnly decorative /></div>
-        <h2>Start something worth sharing.</h2>
-        <p>Nothing to peek at. Yet. Let’s change that.</p>
-        {@render newPost("Write your first post")}
-      </div>
-    {:else}
-      <div class="draft-feed" aria-label="Drafts" bind:this={draftList}>
-        {#each visible as draft (draft.id)}
-          <article class="draft-entry" aria-label="Draft preview">
-            <a
-              class="draft-open"
-              href={`/drafts/${draft.id}`}
-              aria-label={`Open draft: ${draft.content.posts[0].text.slice(0, 80) || "Untitled draft"}`}
-            >
-              <PostPreview
-                content={{ ...draft.content, posts: [draft.content.posts[0]] }}
-                media={data.media}
-                timeline
-                updatedAt={draft.updated_at}
-              />
-              {#if !draft.content.posts[0].text && !draft.content.posts[0].media.length}<p
-                  class="draft-placeholder"
-                >
-                  No text yet
-                </p>{/if}
-            </a>
-            <div class="draft-meta">
+    <div class="feed-toolbar" onfocusin={() => navigation.reveal()}>
+      <div class="drafts-filters">
+        {#if feedbackPage}
+          <div role="group" aria-label="Filter feedback" class="contents">
+            {#each feedbackPage ? [{ value: "all", label: "All", icon: "comment" }, { value: "open", label: "Open", icon: "eye" }, { value: "resolved", label: "Resolved", icon: "check" }] : filters as item}
               <Button
                 variant="ghost"
-                class="draft-stat stat-thread"
-                href={`/drafts/${draft.id}`}
-                aria-label={`${draft.content.posts.length} ${draft.content.posts.length === 1 ? "post" : "posts"} in thread`}
+                aria-pressed={filter === item.value}
+                onclick={() => (filter = item.value)}
+                ><Icon name={item.icon} size={16} />{item.label}</Button
               >
-                <span class="stat-icon"><Icon name="thread" size={20} /></span
-                >{draft.content.posts.length}
-                <span class="stat-tooltip" role="tooltip"
-                  >{draft.content.posts.length === 1 ? "Post" : "Thread"}</span
-                >
-              </Button>
-              <Button
-                variant="ghost"
-                class="draft-stat stat-feedback"
-                href={`/drafts/${draft.id}#feedback`}
-                aria-label={`${draft.feedback} open ${draft.feedback === 1 ? "comment" : "comments"}`}
-              >
-                <span class="stat-icon"><Icon name="comment" size={20} /></span
-                >{draft.feedback}
-                <span class="stat-tooltip" role="tooltip">Feedback</span>
-              </Button>
-              <Button
-                variant="ghost"
-                class="draft-stat stat-sharing"
-                href={`/drafts/${draft.id}`}
-                aria-label={draft.shared
-                  ? "Shared for review"
-                  : "Only you — not shared"}
-              >
-                <span class="stat-icon"
-                  ><Icon
-                    name={draft.shared ? "link" : "lock"}
-                    size={20}
-                  /></span
-                >
-                <span class="stat-tooltip" role="tooltip"
-                  >{draft.shared ? "Shared" : "Only you"}</span
-                >
-              </Button>
-            </div>
-          </article>
+            {/each}
+          </div>
         {:else}
+          <Tabs.List
+            variant="line"
+            class="w-full h-11 p-0 gap-0"
+            aria-label="Draft queues"
+          >
+            {#each filters as item}
+              <Tabs.Trigger
+                value={item.value}
+                aria-label={item.value === "done"
+                  ? item.label
+                  : `${item.label} ${counts[item.value as keyof typeof counts]}`}
+                ><Icon
+                  name={item.icon}
+                  size={18}
+                />{item.label}{#if item.value !== "done"}<span
+                    class="queue-count"
+                    >{counts[item.value as keyof typeof counts]}</span
+                  >{/if}</Tabs.Trigger
+              >
+            {/each}
+          </Tabs.List>
+        {/if}
+      </div>
+    </div>
+    <div class="draft-search">
+      <Icon name="search" size={18} />
+      <Input
+        type="search"
+        aria-label={feedbackPage ? "Search feedback" : "Search posts"}
+        placeholder={feedbackPage ? "Search feedback" : "Search posts"}
+        bind:value={query}
+      />
+    </div>
+    <div class="drafts-actions">
+      {@render newPost("New post", false, true)}
+      {#if form?.error}<p role="alert" class="action-error">
+          {form.error}
+        </p>{/if}
+    </div>
+    <div class="floating-create">
+      {@render newPost("New post", false, true, "floating")}
+      {#if form?.error}<p role="alert" class="action-error">
+          {form.error}
+        </p>{/if}
+    </div>
+    <Tabs.Content value={filter} class="contents">
+      <section
+        class="drafts-column"
+        aria-label={feedbackPage ? "Feedback feed" : "Draft feed"}
+      >
+        {#if feedbackPage}
+          {#each visibleComments as comment (comment.id)}
+            {@render feedbackEntry(comment)}
+          {:else}
+            <div class="empty">
+              <div class="empty-mascot"><Brand markOnly decorative /></div>
+              <h2>{search ? "Not a peep." : "A little quiet here."}</h2>
+              <p>
+                {search
+                  ? "No feedback matches that search."
+                  : "Share a draft for a second pair of eyes."}
+              </p>
+              {#if search || filter !== "all"}<Button
+                  variant="outline"
+                  onclick={() => {
+                    query = "";
+                    filter = "all";
+                  }}>Clear search and filters</Button
+                >{:else}<Button href="/" variant="outline">Browse drafts</Button
+                >{/if}
+            </div>
+          {/each}
+        {:else if !data.drafts.length && !data.reviews.length && filter === "drafts"}
           <div class="empty">
             <div class="empty-mascot"><Brand markOnly decorative /></div>
-            <h2>Not a peep.</h2>
-            <p>
-              I peeked everywhere. Try another search or loosen those filters.
-            </p>
-            <div class="empty-actions">
-              <Button
-                variant="outline"
-                onclick={() => {
-                  query = "";
-                  filter = "all";
-                }}>Clear search and filters</Button
-              >
-              {@render newPost("New post", true)}
+            <h2>Start something worth sharing.</h2>
+            <p>Nothing to peek at. Yet. Let’s change that.</p>
+            {@render newPost("Write your first post")}
+          </div>
+        {:else}
+          <div class="draft-feed" aria-label="Drafts" bind:this={draftList}>
+            {#each visible as draft (draft.id)}
+              {@const href = draft.token
+                ? `/r/${draft.token}`
+                : `/drafts/${draft.id}`}
+              <article class="draft-entry" aria-label="Draft preview">
+                <a
+                  class="draft-open"
+                  {href}
+                  onclick={(event) => {
+                    if ((event.target as Element).closest("video"))
+                      event.preventDefault();
+                  }}
+                  aria-label={`${draft.token ? "Review post" : "Open draft"}: ${draft.content.posts[0].text.slice(0, 80) || "Untitled draft"}`}
+                >
+                  <PostPreview
+                    content={{
+                      ...draft.content,
+                      posts: [draft.content.posts[0]],
+                    }}
+                    media={data.media}
+                    token={draft.token ?? undefined}
+                    timeline
+                    updatedAt={draft.updated_at}
+                  />
+                  {#if !draft.content.posts[0].text && !draft.content.posts[0].media.length}<p
+                      class="draft-placeholder"
+                    >
+                      No text yet
+                    </p>{/if}
+                </a>
+                <div class="draft-meta">
+                  <Button
+                    variant="ghost"
+                    class="draft-stat stat-thread"
+                    {href}
+                    aria-label={`${draft.content.posts.length} ${draft.content.posts.length === 1 ? "post" : "posts"} in thread`}
+                  >
+                    <span class="stat-icon"
+                      ><Icon name="thread" size={20} /></span
+                    >{draft.content.posts.length}
+                    <span class="stat-tooltip" role="tooltip"
+                      >{draft.content.posts.length === 1
+                        ? "Post"
+                        : "Thread"}</span
+                    >
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    class="draft-stat stat-feedback"
+                    href={`${href}#feedback`}
+                    aria-label={`${draft.feedback} open ${draft.feedback === 1 ? "comment" : "comments"}`}
+                  >
+                    <span class="stat-icon"
+                      ><Icon name="comment" size={20} /></span
+                    >{draft.feedback}
+                    <span class="stat-tooltip" role="tooltip">Feedback</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    class="draft-stat stat-sharing"
+                    {href}
+                    aria-label={draft.shared
+                      ? "Shared for review"
+                      : "Only you — not shared"}
+                  >
+                    <span class="stat-icon"
+                      ><Icon
+                        name={draft.shared ? "link" : "lock"}
+                        size={20}
+                      /></span
+                    >
+                    <span class="stat-tooltip" role="tooltip"
+                      >{draft.shared ? "Shared" : "Only you"}</span
+                    >
+                  </Button>
+                  {#if draft.posted_at}<span class="queue-status"
+                      ><Icon name="done" size={16} />{draft.token
+                        ? "Reviewed"
+                        : "Posted"}</span
+                    >{/if}
+                </div>
+              </article>
+            {:else}
+              <div class="empty">
+                <div class="empty-mascot"><Brand markOnly decorative /></div>
+                <h2>
+                  {search
+                    ? "Not a peep."
+                    : filter === "done"
+                      ? "Good things take a little work."
+                      : "All clear."}
+                </h2>
+                <p>
+                  {search
+                    ? "No posts match that search."
+                    : filter === "review"
+                      ? "No posts waiting for your feedback."
+                      : filter === "done"
+                        ? "Posted drafts and finished reviews will land here."
+                        : "Nothing left to post. Make room for your next idea."}
+                </p>
+                <div class="empty-actions">
+                  {#if search}
+                    <Button
+                      variant="outline"
+                      onclick={() => {
+                        query = "";
+                        filter = "drafts";
+                      }}>Clear search and filters</Button
+                    >
+                  {/if}
+                  {@render newPost("New post", true)}
+                </div>
+              </div>
+            {/each}
+          </div>
+          {#if visible.length && endRequiresScroll && scrollY > 0}
+            <div class="feed-end" role="group" aria-label="End of drafts">
+              <div class="empty-actions">
+                <Button
+                  variant="ghost"
+                  onclick={() =>
+                    window.scrollTo({
+                      top: 0,
+                      behavior: matchMedia("(prefers-reduced-motion: reduce)")
+                        .matches
+                        ? "instant"
+                        : "smooth",
+                    })}
+                >
+                  <Icon name="up" size={16} />Back to top
+                </Button>
+                {@render newPost("New post", true, true, "end")}
+              </div>
             </div>
-          </div>
-        {/each}
-      </div>
-      {#if visible.length && endRequiresScroll && scrollY > 0}
-        <div class="feed-end" role="group" aria-label="End of drafts">
-          <div class="empty-actions">
-            <Button
-              variant="ghost"
-              onclick={() =>
-                window.scrollTo({
-                  top: 0,
-                  behavior: matchMedia("(prefers-reduced-motion: reduce)")
-                    .matches
-                    ? "instant"
-                    : "smooth",
-                })}
-            >
-              <Icon name="up" size={16} />Back to top
-            </Button>
-            {@render newPost("New post", true, true, "end")}
-          </div>
-        </div>
-      {/if}
-    {/if}
-  </section>
-  <aside
-    class="recent-feedback"
-    class:recent-drafts={feedbackPage}
-    aria-label={feedbackPage ? "Recent drafts" : "Recent feedback"}
-  >
-    {#if feedbackPage}
-      <h2>Recent drafts</h2>
-      {#each data.drafts.slice(0, 5) as draft}
-        <a class="feedback-entry" href={`/drafts/${draft.id}`}
-          ><span class="stat-icon"><Icon name="drafts" size={22} /></span>
-          <div class="feedback-content">
-            <p class="feedback-body">
-              {draft.content.posts[0].text || "Untitled draft"}
-            </p>
-            <time class="feedback-status" datetime={draft.updated_at}
-              >{relativeTime(draft.updated_at)}</time
-            >
-          </div></a
-        >
-      {:else}<p class="feedback-empty">
-          Your next idea starts with a draft.
-        </p>{/each}
-    {:else}
-      <h2>Recent feedback</h2>
-      {#each recentFeedback as comment (comment.id)}
-        {@render feedbackEntry(comment)}
+          {/if}
+        {/if}
+      </section>
+    </Tabs.Content>
+    <aside
+      class="recent-feedback"
+      class:recent-drafts={feedbackPage}
+      aria-label={feedbackPage ? "Recent drafts" : "Recent feedback"}
+    >
+      {#if feedbackPage}
+        <h2>Recent drafts</h2>
+        {#each data.drafts.slice(0, 5) as draft}
+          <a class="feedback-entry" href={`/drafts/${draft.id}`}
+            ><span class="stat-icon"><Icon name="drafts" size={22} /></span>
+            <div class="feedback-content">
+              <p class="feedback-body">
+                {draft.content.posts[0].text || "Untitled draft"}
+              </p>
+              <time class="feedback-status" datetime={draft.updated_at}
+                >{relativeTime(draft.updated_at)}</time
+              >
+            </div></a
+          >
+        {:else}<p class="feedback-empty">
+            Your next idea starts with a draft.
+          </p>{/each}
       {:else}
-        <p class="feedback-empty">
-          No open feedback. A second pair of eyes will show up here.
-        </p>
-      {/each}
-      <Button variant="ghost" href="/feedback" class="all-feedback"
-        >View all feedback<Icon name="arrow" size={16} /></Button
-      >
-    {/if}
-  </aside>
-</main>
+        <h2>Recent feedback</h2>
+        {#each recentFeedback as comment (comment.id)}
+          {@render feedbackEntry(comment)}
+        {:else}
+          <p class="feedback-empty">
+            No open feedback. A second pair of eyes will show up here.
+          </p>
+        {/each}
+        <Button variant="ghost" href="/feedback" class="all-feedback"
+          >View all feedback<Icon name="arrow" size={16} /></Button
+        >
+      {/if}
+    </aside>
+  </main>
+</Tabs.Root>
 
 {#snippet feedbackEntry(comment: (typeof data.comments)[number])}
   {@const draft = data.drafts.find((draft) => draft.id === comment.draft_id)!}
@@ -501,6 +589,19 @@
 </dialog>
 
 <style>
+  .queue-count {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .queue-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
   .feed-toolbar {
     display: contents;
   }
@@ -729,9 +830,11 @@
       background-color 120ms,
       border-color 120ms;
   }
-  .drafts-filters :global(button[aria-pressed="true"]) {
+  .drafts-filters :global(button[aria-pressed="true"]),
+  .drafts-filters :global(button[data-state="active"]) {
     color: var(--foreground);
     border-bottom-color: var(--primary);
+    box-shadow: none;
   }
   .draft-feed {
     background: transparent;

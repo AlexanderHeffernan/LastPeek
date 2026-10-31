@@ -308,11 +308,22 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
           const partial = await xPublishing(userId, id);
           assert.equal(partial.publication?.completed, 1);
           assert.equal(partial.publication?.resumable, true);
+          assert.equal(
+            (await db.query("SELECT posted_at FROM drafts WHERE id=$1", [id]))
+              .rows[0].posted_at,
+            null,
+            "A partially published thread stays in Drafts",
+          );
           await db.query("UPDATE drafts SET edit_version=2 WHERE id=$1", [id]);
           await assert.rejects(postToX(userId, id, 2, xId), rejects(409));
           await db.query("UPDATE drafts SET edit_version=1 WHERE id=$1", [id]);
           failSecond = false;
           assert.equal((await finish()).publication?.completed, 2);
+          assert.ok(
+            (await db.query("SELECT posted_at FROM drafts WHERE id=$1", [id]))
+              .rows[0].posted_at,
+            "The fully published thread moves to Done",
+          );
           assert.equal(
             sent.filter((p) => !p.text).length,
             1,

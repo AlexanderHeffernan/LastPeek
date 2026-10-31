@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import {
   chromium,
   webkit,
@@ -103,6 +104,148 @@ async function screenshot(page: Page, name: string) {
     fullPage: true,
   });
 }
+
+test(
+  "videos autoplay inline and retain their position between feed and editor",
+  { timeout: 60000 },
+  async () => {
+    const browser = await engine.launch();
+    const context = await browser.newContext();
+    const author = randomUUID(),
+      draft = randomUUID();
+    let mediaId: string | undefined;
+    const clipPath = `${mediaPath(draft)}.mp4`;
+    try {
+      const account = `video-${author}@example.test`;
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Video author',$3)",
+        [author, account, await passwordHash(password)],
+      );
+      const content: Content = {
+        title: "",
+        author: { name: "Video author", handle: "video" },
+        posts: [{ id: randomUUID(), text: "A moving idea", media: [] }],
+      };
+      await db.query(
+        "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+        [draft, author, JSON.stringify(content)],
+      );
+      const page = await context.newPage();
+      await login(page, account);
+      await mkdir(dirname(clipPath), { recursive: true });
+      const clip = spawnSync("ffmpeg", [
+        "-v",
+        "error",
+        "-stream_loop",
+        "-1",
+        "-i",
+        "tests/fixtures/video.mp4",
+        "-t",
+        "12",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        clipPath,
+      ]);
+      assert.equal(clip.status, 0, clip.stderr.toString());
+      const upload = await context.request.post(
+        `${baseURL}/api/drafts/${draft}/media`,
+        {
+          headers: { Origin: origin },
+          multipart: {
+            file: {
+              name: "motion.mp4",
+              mimeType: "video/mp4",
+              buffer: await readFile(clipPath),
+            },
+          },
+        },
+      );
+      assert.equal(upload.status(), 201);
+      mediaId = (await upload.json()).id;
+      content.posts[0].media = [mediaId!];
+      await action(context.request, draft, {
+        action: "save",
+        version: 1,
+        content,
+      });
+      await page.reload();
+      const video = page.getByLabel("Video on post 1", { exact: true });
+      await page.waitForFunction(() => {
+        const v = document.querySelector("video");
+        return v && !v.paused && v.currentTime > 0.1;
+      });
+      assert.equal(
+        await video.evaluate(
+          (v: HTMLVideoElement) => v.muted && v.playsInline && v.controls,
+        ),
+        true,
+      );
+      await page.setViewportSize({ width: 1000, height: 160 });
+      await page.waitForFunction(() => document.querySelector("video")?.paused);
+      await page.setViewportSize({ width: 1000, height: 900 });
+      await page.waitForFunction(
+        () => !document.querySelector("video")?.paused,
+      );
+      await video.evaluate((v: HTMLVideoElement) => {
+        v.pause();
+        v.currentTime = 4;
+      });
+      await page.waitForFunction(() => {
+        const v = document.querySelector("video");
+        return v && !v.seeking && v.currentTime >= 4;
+      });
+      await page
+        .getByRole("link", { name: "Open draft: A moving idea", exact: true })
+        .click({ position: { x: 100, y: 25 } });
+      await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+      await page.waitForFunction(() => {
+        const v = document.querySelector("video");
+        return (
+          v &&
+          !v.paused &&
+          !v.seeking &&
+          v.currentTime >= 4 &&
+          v.currentTime < 8
+        );
+      });
+      await video.evaluate((v: HTMLVideoElement) => {
+        v.pause();
+        v.currentTime = 7;
+      });
+      await page.waitForFunction(() => {
+        const v = document.querySelector("video");
+        return v && !v.seeking && v.currentTime >= 7;
+      });
+      await page
+        .getByRole("link", { name: "Back to drafts", exact: true })
+        .click();
+      await page.waitForFunction(() => {
+        const v = document.querySelector("video");
+        return v && !v.paused && v.currentTime >= 7 && v.currentTime < 11;
+      });
+      // Muting/pausing controls must not activate the surrounding draft link.
+      await video.click();
+      assert.equal(new URL(page.url()).pathname, "/");
+      await page.getByRole("tab", { name: "Done", exact: true }).click();
+      assert.equal(await video.count(), 0);
+      await page.getByRole("tab", { name: "Drafts 1", exact: true }).click();
+      await page.waitForFunction(
+        () => !document.querySelector("video")?.paused,
+      );
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM drafts WHERE id=$1", [draft]);
+      await db.query("DELETE FROM users WHERE id=$1", [author]);
+      if (mediaId) await rm(mediaPath(mediaId), { force: true });
+      await rm(clipPath, { force: true });
+    }
+  },
+);
 
 test(
   "review cards keep emoji inline and show MP4/WebM thumbnails",
@@ -2017,6 +2160,16 @@ test(
           ).status(),
           404,
         );
+        if (context === other)
+          assert.equal(
+            (
+              await context.request.post(`${reviewURL}?/complete`, {
+                headers,
+                form: { completed: "true" },
+              })
+            ).status(),
+            404,
+          );
       }
       assert.equal((await friend.request.get(mediaURL)).status(), 200);
       assert.equal((await friend.request.get(avatarURL)).status(), 200);
@@ -2039,6 +2192,30 @@ test(
       await reviewer
         .getByText("The Friday timing works.", { exact: true })
         .waitFor();
+      // Commenting is not completion; completing a review never resolves the author's feedback.
+      await reviewer
+        .getByRole("link", { name: "Back to drafts", exact: true })
+        .click();
+      await reviewer
+        .getByRole("tab", { name: "To review 1", exact: true })
+        .waitFor();
+      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
+      await reviewer
+        .getByRole("button", { name: "Finish review", exact: true })
+        .click();
+      await reviewer.getByRole("tab", { name: "Done", exact: true }).waitFor();
+      await reviewer.getByText("Reviewed", { exact: true }).waitFor();
+      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
+      await reviewer
+        .getByRole("button", { name: "Reopen review", exact: true })
+        .click();
+      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
+      await reviewer
+        .getByRole("button", { name: "Finish review", exact: true })
+        .click();
+      await reviewer.waitForURL(
+        (url) => url.pathname === "/" && url.searchParams.get("tab") === "done",
+      );
       content.posts[0].text = "Updated private wording.";
       const updated = await action(author.request, draftId, {
         action: "save",
@@ -2047,6 +2224,36 @@ test(
       });
       assert.ok(updated.revision > privateReview.revision);
       await reviewer.reload();
+      await reviewer
+        .getByRole("tab", { name: "To review 0", exact: true })
+        .click();
+      assert.equal(
+        await reviewer.getByRole("link", { name: /^Review post:/ }).count(),
+        0,
+        "Autosave does not reopen completed reviews",
+      );
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Friends only", exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: "Request another look from Jules",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", {
+          name: "Request another look from Jules",
+          exact: true,
+        })
+        .waitFor({ state: "hidden" });
+      await reviewer.reload();
+      await reviewer
+        .getByRole("tab", { name: "To review 1", exact: true })
+        .click();
+      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
+      await reviewer.getByLabel("Your feedback", { exact: true }).waitFor();
       await reviewer
         .getByText("Updated private wording.", { exact: true })
         .waitFor();
@@ -2849,9 +3056,8 @@ test(
       await page.setViewportSize({ width: 1440, height: 1000 });
       await setPlan(userId, userId, "free", false);
       await page.reload();
-      await page
-        .getByRole("button", { name: "With feedback", exact: true })
-        .click();
+      await page.getByRole("tab", { name: /^Drafts \d+$/ }).click();
+      await page.getByLabel("Search posts").fill("kiwi");
       assert.equal(
         await page
           .getByRole("article", { name: "Draft preview", exact: true })
@@ -2970,15 +3176,11 @@ test(
         .getByRole("link", { name: "LastPeek home", exact: true })
         .click();
       await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
-      await page.getByRole("button", { name: "All", exact: true }).click();
+      await page.getByRole("tab", { name: /^Drafts \d+$/ }).click();
       assert.equal(await page.getByLabel("Sort drafts").count(), 0);
-      await page
-        .getByRole("button", { name: "With feedback", exact: true })
-        .click();
-      assert.deepEqual(await feedOrder(), [feedIds[1]]);
       await page.getByLabel("Search posts").fill("  KIWI  ");
       assert.deepEqual(await feedOrder(), [feedIds[1]]);
-      await page.getByRole("button", { name: "Private", exact: true }).click();
+      await page.getByRole("tab", { name: /^To review \d+$/ }).click();
       await page.getByRole("heading", { name: "Not a peep." }).waitFor();
       assert.equal(
         await page.getByRole("button", { name: "Back to top" }).count(),
@@ -3002,7 +3204,7 @@ test(
         .getByRole("button", { name: "Clear search and filters" })
         .click();
       assert.equal(await feedLinks.count(), 3);
-      await page.getByRole("button", { name: "Shared", exact: true }).click();
+      await page.getByLabel("Search posts").fill("kiwi");
       assert.deepEqual(await feedOrder(), [feedIds[1]]);
       await feedLinks.first().click();
       await page.getByLabel("Post 2 text", { exact: true }).waitFor();
@@ -3011,6 +3213,28 @@ test(
         .getByRole("link", { name: "LastPeek home", exact: true })
         .click();
       await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+      await action(
+        owner.request,
+        feedIds[1],
+        { action: "complete", completed: true, version: 0 },
+        409,
+      );
+      await page
+        .getByRole("link", { name: /^Open draft: Feed example 1/ })
+        .click();
+      await page
+        .getByRole("button", { name: "Mark as posted", exact: true })
+        .click();
+      await page.getByText("Posted", { exact: true }).waitFor();
+      assert.equal(await feedLinks.count(), 1);
+      await page.getByRole("tab", { name: /^Drafts 2$/ }).click();
+      assert.equal(await feedLinks.count(), 2);
+      await page.getByRole("tab", { name: "Done", exact: true }).click();
+      await feedLinks.first().click();
+      await page
+        .getByRole("button", { name: "Move to drafts", exact: true })
+        .click();
+      await page.getByRole("tab", { name: /^Drafts 3$/ }).waitFor();
       await db.query("DELETE FROM drafts WHERE id=ANY($1::uuid[])", [feedIds]);
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByLabel("X handle", { exact: true }).fill("not valid!");

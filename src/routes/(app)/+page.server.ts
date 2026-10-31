@@ -21,11 +21,30 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     shared: boolean;
     shared_revision: number | null;
     feedback: number;
+    posted_at: Date | null;
   }>(
-    `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,
+    `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,d.posted_at,
     (d.share_token IS NOT NULL OR EXISTS (SELECT 1 FROM friend_reviews fr WHERE fr.draft_id=d.id)) AS shared,
     (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
     FROM drafts d WHERE owner_id=$1 ORDER BY updated_at DESC`,
+    [user.id],
+  );
+  const reviews = await db.query<{
+    id: string;
+    content: Content;
+    updated_at: Date;
+    created_at: Date;
+    completed_at: Date | null;
+    token: string;
+    feedback: number;
+  }>(
+    `SELECT d.id,r.content,d.updated_at,fr.created_at,fr.completed_at,d.friend_token AS token,
+      (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
+     FROM friend_reviews fr
+     JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
+     JOIN drafts d ON d.id=fr.draft_id AND d.friend_token IS NOT NULL
+     JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
+     WHERE fr.recipient_id=$1 ORDER BY fr.created_at DESC`,
     [user.id],
   );
   const comments = await db.query<{
@@ -46,10 +65,12 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
      WHERE d.owner_id=$1 AND d.id=ANY($2::uuid[]) ORDER BY c.created_at DESC,c.id DESC`,
     [user.id, drafts.rows.map((draft) => draft.id)],
   );
-  const openingMedia = drafts.rows.flatMap((d) => d.content.posts[0].media);
+  const openingMedia = [...drafts.rows, ...reviews.rows].flatMap(
+    (d) => d.content.posts[0].media,
+  );
   const media = await db.query<Media>(
-    "SELECT id,mime,bytes,filename,width,height FROM media WHERE owner_id=$1 AND id=ANY($2::uuid[])",
-    [user.id, openingMedia],
+    "SELECT id,mime,bytes,filename,width,height FROM media WHERE id=ANY($1::uuid[])",
+    [openingMedia],
   );
   return {
     comments: comments.rows.map((c) => ({
@@ -58,8 +79,18 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     })),
     xSourcesEnabled: await isPro(user.id),
     media: media.rows,
+    reviews: reviews.rows.map((r) => ({
+      ...r,
+      shared: true,
+      posted_at: r.completed_at?.toISOString() ?? null,
+      updated_at: r.updated_at.toISOString(),
+      created_at: r.created_at.toISOString(),
+      completed_at: r.completed_at?.toISOString() ?? null,
+    })),
     drafts: drafts.rows.map((d) => ({
       ...d,
+      token: null,
+      posted_at: d.posted_at?.toISOString() ?? null,
       content: {
         ...d.content,
         author: {

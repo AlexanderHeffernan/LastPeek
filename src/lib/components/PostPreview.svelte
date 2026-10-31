@@ -9,6 +9,7 @@
   import type { XSourcePost as SourcePost } from "$lib/x-post";
   import twitter from "twitter-text";
   import { tick } from "svelte";
+  import { videoPlayback } from "$lib/video-playback";
   import {
     mediaURL,
     avatarURL,
@@ -233,8 +234,11 @@
               )}
               {#if item}<div class="media-item">
                   {#if item.mime.startsWith("video/")}<video
+                      use:videoPlayback={id}
                       src={mediaURL(id, token)}
-                      controls={!timeline}
+                      controls
+                      muted
+                      loop
                       playsinline
                       preload="metadata"
                       aria-label={`Video on post ${index + 1}`}

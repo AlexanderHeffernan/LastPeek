@@ -20,6 +20,7 @@ export type Draft = {
   share_token: string | null;
   friend_token: string | null;
   shared_revision: number | null;
+  posted_at: Date | null;
   updated_at: Date;
 };
 export async function sharedDraft(shareToken: string, userId?: string) {
@@ -196,7 +197,8 @@ export async function shareWithFriend(
     );
     const added = await client.query(
       `INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)
-      ON CONFLICT DO NOTHING RETURNING draft_id`,
+      ON CONFLICT(draft_id,recipient_id) DO UPDATE SET completed_at=NULL,created_at=now()
+      WHERE friend_reviews.completed_at IS NOT NULL RETURNING draft_id`,
       [id, recipientId, friendship.id],
     );
     if (added.rowCount)

@@ -32,12 +32,16 @@
   import ArrowUp from "phosphor-svelte/lib/ArrowUp";
   import Bell from "phosphor-svelte/lib/Bell";
   import GearSix from "phosphor-svelte/lib/GearSix";
+  import CheckCircle from "phosphor-svelte/lib/CheckCircle";
+  import ChatCircleDots from "phosphor-svelte/lib/ChatCircleDots";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    done: CheckCircle,
+    review: ChatCircleDots,
     bell: Bell,
     settings: GearSix,
     up: ArrowUp,

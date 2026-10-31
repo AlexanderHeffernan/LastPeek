@@ -1,7 +1,7 @@
-import { error, fail } from "@sveltejs/kit";
+import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { db, transaction } from "$lib/server/db";
-import { rateLimit } from "$lib/server/auth";
+import { rateLimit, requireUser } from "$lib/server/auth";
 import { draftComments, draftMedia, sharedDraft } from "$lib/server/drafts";
 import { mediaIds } from "$lib/contracts";
 import { sourcePost } from "$lib/server/x-post";
@@ -15,6 +15,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     token: params.token,
     ownerId: draft.owner_id,
     private: draft.private,
+    review:
+      locals.user && draft.private && draft.owner_id !== locals.user.id
+        ? ((
+            await db.query<{ completed_at: Date | null }>(
+              "SELECT completed_at FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
+              [draft.id, locals.user.id],
+            )
+          ).rows.map((r) => ({ completed: r.completed_at !== null }))[0] ??
+          null)
+        : null,
     reviewURL: new URL(`/r/${params.token}`, url.origin).href,
     reviewer: locals.user
       ? {
@@ -30,6 +40,31 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   };
 };
 export const actions: Actions = {
+  complete: async ({ request, params, locals }) => {
+    const user = requireUser(locals);
+    const form = await request.formData();
+    const completed = form.get("completed");
+    if (completed !== "true" && completed !== "false")
+      return fail(400, { message: "Choose a review state.", success: false });
+    await transaction(async (client) => {
+      // Share/revoke and completion serialize on the same draft before checking the grant.
+      const draft = (
+        await client.query(
+          "SELECT id FROM drafts WHERE friend_token=$1 FOR UPDATE",
+          [params.token],
+        )
+      ).rows[0];
+      if (!draft) error(404, "This review is unavailable.");
+      const result = await client.query(
+        `UPDATE friend_reviews fr SET completed_at=CASE WHEN $1 THEN now() ELSE NULL END
+         FROM friendships f WHERE fr.friendship_id=f.id AND f.accepted_at IS NOT NULL
+         AND fr.draft_id=$2 AND fr.recipient_id=$3 RETURNING fr.draft_id`,
+        [completed === "true", draft.id, user.id],
+      );
+      if (!result.rowCount) error(404, "This review is unavailable.");
+    });
+    redirect(303, completed === "true" ? "/?tab=done" : "/?tab=review");
+  },
   comment: async ({ request, params, locals, getClientAddress }) => {
     await rateLimit(`feedback:${getClientAddress()}`, 15, 600);
     const draft = await sharedDraft(params.token, locals.user?.id);

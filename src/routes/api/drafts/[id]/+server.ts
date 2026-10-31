@@ -26,6 +26,18 @@ export const POST: RequestHandler = async (event) => {
   }
   if (!body || typeof body !== "object" || Array.isArray(body))
     error(400, "Send a valid draft action.");
+  if (body.action === "complete") {
+    if (typeof body.completed !== "boolean" || !Number.isInteger(body.version))
+      error(400, "Choose a completion state and save your latest edits.");
+    const result = await db.query(
+      `UPDATE drafts SET posted_at=CASE WHEN $1 THEN now() ELSE NULL END
+       WHERE id=$2 AND owner_id=$3 AND edit_version=$4 RETURNING id`,
+      [body.completed, id, user.id, body.version],
+    );
+    if (!result.rowCount)
+      error(409, "This draft changed. Reload before marking it as posted.");
+    return json({ ok: true });
+  }
   if (body.action === "save") {
     if (!Number.isInteger(body.version))
       error(400, "A draft version is required.");

@@ -140,6 +140,20 @@
       if (JSON.stringify(content) !== saved && !error) changed();
     }
   }
+  async function completeDraft() {
+    if (uploading || !(await save())) return;
+    busy = true;
+    error = "";
+    try {
+      const completed = !data.draft.posted_at;
+      await api({ action: "complete", completed, version });
+      await goto(completed ? "/?tab=done" : "/");
+    } catch (cause) {
+      error = (cause as Error).message;
+    } finally {
+      busy = false;
+    }
+  }
   async function publish() {
     if (
       data.recipients.length &&
@@ -418,7 +432,7 @@
     <Button
       variant="ghost"
       class="icon-button"
-      href="/"
+      href={data.draft.posted_at ? "/?tab=done" : "/"}
       aria-label="Back to drafts"><Icon name="back" size={20} /></Button
     >
     <h1>{postKind}</h1>
@@ -468,6 +482,17 @@
   </section>
   <aside class="draft-sidebar" aria-label="Feedback and sharing">
     <div class="draft-actions">
+      <Button
+        class="completion-action"
+        variant="outline"
+        disabled={busy || saving || uploading || deleting}
+        onclick={completeDraft}
+      >
+        <Icon name={data.draft.posted_at ? "drafts" : "done"} size={18} />{data
+          .draft.posted_at
+          ? "Move to drafts"
+          : "Mark as posted"}
+      </Button>
       <div class="share-actions">
         <Button
           variant={shareToken ? "secondary" : "default"}
@@ -616,15 +641,26 @@
                 alt=""
               />{:else}{friend.name.slice(0, 1).toUpperCase()}{/if}</span
           ><strong>{friend.name}</strong>
-          <Button
-            variant={sent ? "ghost" : "secondary"}
-            disabled={busy || saving || uploading}
-            aria-label={sent
-              ? `Remove ${friend.name}’s review access`
-              : `Send to ${friend.name}`}
-            onclick={() => sendToFriend(friend.user_id, sent)}
-            >{sent ? "Remove access" : "Send"}</Button
-          >
+          <div class="share-friend-actions">
+            {#if data.completedReviews.includes(friend.user_id)}
+              <Button
+                variant="secondary"
+                disabled={busy || saving || uploading}
+                aria-label={`Request another look from ${friend.name}`}
+                onclick={() => sendToFriend(friend.user_id, false)}
+                >Request another look</Button
+              >
+            {/if}
+            <Button
+              variant={sent ? "ghost" : "secondary"}
+              disabled={busy || saving || uploading}
+              aria-label={sent
+                ? `Remove ${friend.name}’s review access`
+                : `Send to ${friend.name}`}
+              onclick={() => sendToFriend(friend.user_id, sent)}
+              >{sent ? "Remove access" : "Send"}</Button
+            >
+          </div>
         </div>
       {:else}<Button variant="outline" href="/friends"
           >Add friends<Icon name="users" size={16} /></Button
@@ -650,6 +686,12 @@
 <ConfirmDialog bind:this={confirmation} />
 
 <style>
+  .share-friend-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
   .share-friends {
     max-height: 40dvh;
     overflow-y: auto;
@@ -667,6 +709,15 @@
   }
   .share-friend .avatar {
     flex-shrink: 0;
+  }
+  @media (max-width: 480px) {
+    .share-friend {
+      flex-wrap: wrap;
+    }
+    .share-friend-actions {
+      width: 100%;
+      align-items: stretch;
+    }
   }
   .share-link-option {
     margin-top: 24px;
@@ -687,6 +738,10 @@
     align-items: center;
     gap: 8px;
     padding-bottom: 16px;
+  }
+  .draft-actions :global(.completion-action) {
+    grid-column: 1 / -1;
+    min-height: 44px;
   }
   .share-actions > :global(button:first-child) {
     flex: 1;
