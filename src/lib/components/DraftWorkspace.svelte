@@ -542,7 +542,7 @@
   .drafts-actions {
     grid-area: create;
     position: sticky;
-    top: 8px;
+    top: 0;
     align-self: start;
     z-index: 10;
     background: var(--background);

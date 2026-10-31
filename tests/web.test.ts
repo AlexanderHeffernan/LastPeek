@@ -1552,6 +1552,20 @@ test(
         0,
         "overflow alone does not show ending actions before scrolling",
       );
+      await page.evaluate(() => scrollTo(0, 120));
+      assert.equal(
+        await page
+          .getByRole("button", { name: "New post", exact: true })
+          .first()
+          .evaluate((button) => {
+            const bounds = button.getBoundingClientRect();
+            return document
+              .elementFromPoint(bounds.x + bounds.width / 2, 0)
+              ?.contains(button);
+          }),
+        true,
+        "sticky creation surface covers the viewport edge without a see-through gap",
+      );
       await page.evaluate(() =>
         scrollTo(0, document.documentElement.scrollHeight),
       );
