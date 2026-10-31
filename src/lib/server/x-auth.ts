@@ -129,7 +129,7 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
     response_type: "code",
     client_id: process.env.X_CLIENT_ID!,
     redirect_uri: `${event.url.origin}/auth/x/callback`,
-    scope: publishDraft ? `${scopes} tweet.write` : scopes,
+    scope: publishDraft ? `${scopes} tweet.write media.write` : scopes,
     state,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     code_challenge_method: "S256",
@@ -205,7 +205,7 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
       ![
         "users.read",
         "tweet.read",
-        ...(flow.publish_draft ? ["tweet.write"] : []),
+        ...(flow.publish_draft ? ["tweet.write", "media.write"] : []),
       ].every((scope) => credentials.scope.split(" ").includes(scope))
     )
       throw new Error("Missing X permissions");

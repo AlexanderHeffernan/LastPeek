@@ -302,7 +302,13 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
       callback(publishingURL.searchParams.get("state")!, owner),
       status(502),
     );
-    grantedScope += " tweet.write";
+    assert.ok(
+      publishingURL.searchParams
+        .get("scope")
+        ?.split(" ")
+        .includes("media.write"),
+    );
+    grantedScope += " tweet.write media.write";
     publishingURL = await publishingStart();
     assert.equal(
       await redirectFrom(

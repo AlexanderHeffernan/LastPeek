@@ -27,7 +27,7 @@
     launched = $state(false);
   let completed = $state<XPublishing | null>(null);
   let snapshot = $state<{
-    text: string;
+    content: string;
     version: number;
     xId: string;
     username: string;
@@ -39,21 +39,32 @@
   let audio: AudioContext | undefined, chargeGain: GainNode | undefined;
   let voices: OscillatorNode[] = [];
   let lastPulse = 0;
+  let disposed = false;
   const multiple = $derived(content.posts.length > 1);
   const problem = $derived(postingProblem(content));
   const publication = $derived(
     completed?.publication || connection.publication,
   );
   const blocked = $derived(
-    publication && ["pending", "unknown"].includes(publication.status),
+    publication &&
+      (publication.status === "unknown" ||
+        (publication.status === "pending" && !publication.resumable)),
   );
-  const ready = $derived(connection.account?.ready);
+  const ready = $derived(
+    connection.account?.ready &&
+      (!content.posts.some((p) => p.media.length) ||
+        connection.account.mediaReady),
+  );
   const unavailable = $derived(
     disabled || sending || Boolean(problem) || Boolean(blocked),
   );
   const fingerprint = $derived(
-    `${version}:${content.posts[0]?.text}:${connection.account?.id}`,
+    `${version}:${JSON.stringify(content)}:${connection.account?.id}`,
   );
+  const sendingLabel = $derived(
+    `${publication?.phase || (content.posts.some((p) => p.media.length) ? "Preparing media" : "Posting")}…`,
+  );
+  const continuing = $derived(Boolean(publication?.resumable));
   let heldFingerprint = "";
 
   function stopTone() {
@@ -136,9 +147,9 @@
     }
   }
   function capture() {
-    if (unavailable || !connection.account?.ready) return false;
+    if (unavailable || !ready || !connection.account) return false;
     snapshot = {
-      text: content.posts[0].text,
+      content: JSON.stringify(content),
       version,
       xId: connection.account.id,
       username: connection.account.username,
@@ -207,7 +218,7 @@
       !snapshot ||
       unavailable ||
       snapshot.version !== version ||
-      snapshot.text !== content.posts[0].text ||
+      snapshot.content !== JSON.stringify(content) ||
       snapshot.xId !== connection.account?.id
     )
       return;
@@ -215,25 +226,40 @@
     error = "";
     dialog?.close();
     try {
-      const response = await fetch(`/api/drafts/${draftId}/post-to-x`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: snapshot.version, xId: snapshot.xId }),
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(
-          result.message ||
-            "Couldn’t finish posting. Check X before trying again.",
-        );
-      completed = result;
-      launched = true;
-      celebrate();
+      while (!disposed) {
+        const response = await fetch(`/api/drafts/${draftId}/post-to-x`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version: snapshot.version,
+            xId: snapshot.xId,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok)
+          throw new Error(
+            result.message ||
+              "Couldn’t finish posting. Check X before trying again.",
+          );
+        completed = result;
+        if (result.publication?.status === "posted") {
+          launched = true;
+          celebrate();
+          break;
+        }
+        if (!result.publication?.resumable)
+          throw new Error("Publishing stopped. Check X before continuing.");
+        if (result.publication.retryAfter)
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(result.publication.retryAfter, 60000)),
+          );
+      }
     } catch (e) {
       error = (e as Error).message;
     } finally {
       try {
         await invalidateAll();
+        if (completed?.publication?.status !== "posted") completed = null;
       } finally {
         sending = false;
       }
@@ -247,12 +273,13 @@
     if (
       snapshot &&
       (snapshot.version !== version ||
-        snapshot.text !== content.posts[0].text ||
+        snapshot.content !== JSON.stringify(content) ||
         snapshot.xId !== connection.account?.id)
     )
       dialog?.close();
   });
   onDestroy(() => {
+    disposed = true;
     cancelHold();
     void audio?.close();
   });
@@ -284,7 +311,7 @@
   }}
 />
 
-{#if publication?.url}
+{#if publication?.status === "posted" && publication.url}
   <span class="launch-shell" data-launched={launched}>
     {#if launched}<span class="burst" aria-hidden="true"
         >{#each Array(8) as _, index}<i style={`--angle:${index * 45}deg`}
@@ -322,7 +349,13 @@
       class="x-publish"
       disabled={unavailable}
       aria-busy={sending}
-      aria-label={sending ? "Posting…" : multiple ? "Post all" : "Post to X"}
+      aria-label={sending
+        ? sendingLabel
+        : continuing
+          ? "Continue posting"
+          : multiple
+            ? "Post all"
+            : "Post to X"}
       aria-describedby={`posting-help-${draftId}`}
       title={problem ||
         `Post as @${connection.account?.username}. Click to confirm, or hold to post.`}
@@ -356,10 +389,8 @@
       <span class="charge" aria-hidden="true"></span>
       <span class="sheen" aria-hidden="true"></span>
       <span class="label"
-        >{#if sending}Posting…{:else if multiple}Post all{:else}Post to <Icon
-            name="x"
-            size={16}
-          />{/if}</span
+        >{#if sending}{sendingLabel}{:else if continuing}Continue posting{:else if multiple}Post
+          all{:else}Post to <Icon name="x" size={16} />{/if}</span
       >
     </Button>
   {/if}
@@ -375,7 +406,18 @@
         X may have received this post. Check X before posting again; retry is
         blocked to avoid duplicates.
       </p>
-    {:else if error}<p role="alert">{error}</p>
+    {:else if error || publication?.message}<p role="alert">
+        {error || publication?.message}
+      </p>
+    {/if}
+    {#if publication?.url && publication.status !== "posted"}
+      <p>
+        <a href={publication.url} target="_blank" rel="noopener noreferrer"
+          >View {publication.completed} published {publication.completed === 1
+            ? "post"
+            : "posts"} on X</a
+        >
+      </p>
     {/if}
   </div>
 {/if}
@@ -386,9 +428,17 @@
   aria-labelledby={`x-title-${draftId}`}
 >
   <h2 id={`x-title-${draftId}`}>
-    {multiple ? "Post all to X?" : "Post to X?"}
+    {continuing
+      ? "Continue posting to X?"
+      : multiple
+        ? "Post all to X?"
+        : "Post to X?"}
   </h2>
   <p>Posting as <strong>@{snapshot?.username}</strong></p>
+  {#if continuing}<p>
+      {publication?.completed} of {publication?.total} posts published. Continue with
+      the remaining posts only.
+    </p>{/if}
   <p class="hold-tip">
     <Icon name="sparkle" size={16} />Tip: hold the post button to skip
     confirmation.

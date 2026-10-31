@@ -1,9 +1,11 @@
 import { readdir, stat, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { db, transaction } from "../src/lib/server/db";
 import { mediaDir, mediaPath } from "../src/lib/server/media";
 import { mediaIds } from "../src/lib/contracts";
 import { avatarDir, avatarPath } from "../src/lib/server/avatars";
 import { activePushSession } from "../src/lib/server/notifications";
+import { xMediaDir } from "../src/lib/server/x-media";
 try {
   await db.query(
     `DELETE FROM push_subscriptions s WHERE NOT ${activePushSession}`,
@@ -19,6 +21,11 @@ try {
   );
   await db.query("DELETE FROM x_source_posts WHERE expires_at<now()");
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
+  for (const file of await readdir(xMediaDir).catch(() => [] as string[])) {
+    const path = join(xMediaDir, file);
+    if ((await stat(path)).mtimeMs < Date.now() - 86400000)
+      await rm(path, { force: true });
+  }
   await transaction(async (client) => {
     // EXCLUSIVE also blocks the ROW SHARE locks taken before save/upload validation.
     await client.query(

@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import sharp from "sharp";
 import { chromium, webkit } from "playwright";
 import { isHttpError } from "@sveltejs/kit";
 import { db } from "../src/lib/server/db";
@@ -8,6 +13,7 @@ import { blankContent } from "../src/lib/contracts";
 import { hash, token } from "../src/lib/server/auth";
 import { encryptXToken, decryptXToken } from "../src/lib/server/x-auth";
 import { postToX, xPublishing } from "../src/lib/server/x-publishing";
+import { storeMedia, mediaPath } from "../src/lib/server/media";
 
 test("X publishing binds saved content and account, reserves costs, and blocks duplicates and uncertain retries", async (t) => {
   process.env.X_CLIENT_ID = "test-client";
@@ -134,6 +140,309 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
       (await xPublishing(userId, draftId)).publication?.status,
       "failed",
     );
+    await t.test(
+      "media completes before posting; threads resume only unfinished posts and retain reply/quote relationships",
+      async (t) => {
+        await db.query(
+          "UPDATE x_accounts SET scope=scope || ' media.write' WHERE user_id=$1",
+          [userId],
+        );
+        await db.query(
+          "UPDATE users SET pro_limits=jsonb_set(pro_limits,'{x_usd}','100') WHERE id=$1",
+          [userId],
+        );
+        const id = randomUUID();
+        const draft = structuredClone(content);
+        draft.posts[0].text = "";
+        draft.posts.push({
+          id: randomUUID(),
+          text: "Second, not first",
+          media: [],
+        });
+        draft.source = {
+          kind: "reply",
+          url: "https://x.com/person/status/999123456789",
+        };
+        await db.query(
+          "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+          [id, userId, draft],
+        );
+        const fixture = join(tmpdir(), `${id}.webm`);
+        const sent: Record<string, unknown>[] = [];
+        let failSecond = true,
+          loseSecond = false,
+          processingFailure = false,
+          mediaId = 8000;
+        const initialized: { mime: string; bytes: number; category: string }[] =
+          [];
+        const appended: Buffer[] = [];
+        let checks = 0;
+        t.mock.method(
+          globalThis,
+          "fetch",
+          async (url: string | URL | Request, init?: RequestInit) => {
+            const path = String(url).replace("https://api.x.com/2/", "");
+            if (path === "media/upload/initialize") {
+              const body = JSON.parse(String(init?.body));
+              initialized.push({
+                mime: body.media_type,
+                bytes: body.total_bytes,
+                category: body.media_category,
+              });
+              return Response.json({
+                data: { id: String(++mediaId), expires_after_secs: 3600 },
+              });
+            }
+            if (path.endsWith("/append")) {
+              const form = init?.body as FormData;
+              assert.equal(form.get("segment_index"), "0");
+              appended.push(
+                Buffer.from(await (form.get("media") as Blob).arrayBuffer()),
+              );
+              return new Response(null, { status: 204 });
+            }
+            if (path.endsWith("/finalize"))
+              return Response.json({
+                data: {
+                  id: String(mediaId),
+                  processing_info: {
+                    state: processingFailure ? "failed" : "pending",
+                    check_after_secs: 0,
+                  },
+                },
+              });
+            if (path.startsWith("media/upload?")) {
+              checks++;
+              return Response.json({
+                data: {
+                  id: String(mediaId),
+                  processing_info: { state: "succeeded" },
+                },
+              });
+            }
+            assert.equal(
+              path,
+              "tweets",
+              "Never access any real provider endpoint",
+            );
+            const body = JSON.parse(String(init?.body));
+            sent.push(body);
+            if (body.text === "Second, not first" && loseSecond)
+              throw new TypeError("Lost second-post response");
+            if (body.text === "Second, not first" && failSecond)
+              return Response.json({}, { status: 403 });
+            return Response.json(
+              {
+                data: {
+                  id:
+                    body.text === "Second, not first"
+                      ? "222123456789"
+                      : "111123456789",
+                },
+              },
+              { status: 201 },
+            );
+          },
+        );
+        const advance = () => postToX(userId, id, 1, xId);
+        const finish = async () => {
+          for (let i = 0; i < 50; i++) {
+            const result = await advance();
+            if (result.publication?.status === "posted") return result;
+            if (result.publication?.retryAfter)
+              await new Promise((r) =>
+                setTimeout(r, result.publication!.retryAfter),
+              );
+          }
+          assert.fail("Publishing failed to finish within bounded steps");
+        };
+        const paths: string[] = [];
+        try {
+          const original = await sharp({
+            create: {
+              width: 40,
+              height: 30,
+              channels: 3,
+              background: "#ff6b5b",
+            },
+          })
+            .avif()
+            .toBuffer();
+          const photo = await storeMedia(original, "photo.avif", id, userId);
+          paths.push(mediaPath(photo.id));
+          draft.posts[0].media = [photo.id];
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          // Older grants remain good for text, but cannot upload without consent.
+          await db.query(
+            "UPDATE x_accounts SET scope=replace(scope,' media.write','') WHERE user_id=$1",
+            [userId],
+          );
+          await assert.rejects(advance(), rejects(409));
+          assert.equal(initialized.length, 0);
+          await db.query(
+            "UPDATE x_accounts SET scope=scope || ' media.write' WHERE user_id=$1",
+            [userId],
+          );
+          await assert.rejects(finish(), rejects(502));
+          assert.equal(sent.length, 2);
+          assert.deepEqual(sent[0], {
+            media: { media_ids: ["8001"] },
+            reply: { in_reply_to_tweet_id: "999123456789" },
+          });
+          assert.deepEqual(sent[1], {
+            text: "Second, not first",
+            reply: { in_reply_to_tweet_id: "111123456789" },
+          });
+          assert.equal(initialized[0].mime, "image/jpeg");
+          assert.equal(initialized[0].bytes, appended[0].length);
+          assert.equal((await sharp(appended[0]).metadata()).format, "jpeg");
+          assert.deepEqual(
+            await readFile(mediaPath(photo.id)),
+            original,
+            "Original review media stays intact",
+          );
+          assert.equal(checks, 1, "Wait for media readiness before posting");
+          const partial = await xPublishing(userId, id);
+          assert.equal(partial.publication?.completed, 1);
+          assert.equal(partial.publication?.resumable, true);
+          await db.query("UPDATE drafts SET edit_version=2 WHERE id=$1", [id]);
+          await assert.rejects(postToX(userId, id, 2, xId), rejects(409));
+          await db.query("UPDATE drafts SET edit_version=1 WHERE id=$1", [id]);
+          failSecond = false;
+          assert.equal((await finish()).publication?.completed, 2);
+          assert.equal(
+            sent.filter((p) => !p.text).length,
+            1,
+            "Never resend the confirmed opening post",
+          );
+          // Actual WebM conversion exercises the same upload path for videos.
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          execFileSync("ffmpeg", [
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=160x120:d=0.8",
+            "-c:v",
+            "libvpx-vp9",
+            fixture,
+          ]);
+          const video = await storeMedia(
+            await readFile(fixture),
+            "clip.webm",
+            id,
+            userId,
+          );
+          paths.push(mediaPath(video.id));
+          draft.posts = [
+            { ...draft.posts[0], text: "Video quote", media: [video.id] },
+          ];
+          draft.source = {
+            kind: "quote",
+            url: "https://x.com/person/status/999123456789",
+          };
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          await finish();
+          assert.equal(initialized.at(-1)?.mime, "video/mp4");
+          assert.equal(initialized.at(-1)?.category, "tweet_video");
+          assert.equal(appended.at(-1)?.subarray(4, 8).toString(), "ftyp");
+          assert.deepEqual(sent.at(-1), {
+            text: "Video quote",
+            media: { media_ids: ["8002"] },
+            quote_tweet_id: "999123456789",
+          });
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          delete draft.source;
+          const gif = await storeMedia(
+            await sharp(original).gif().toBuffer(),
+            "animation.gif",
+            id,
+            userId,
+          );
+          paths.push(mediaPath(gif.id));
+          draft.posts[0] = {
+            ...draft.posts[0],
+            text: "A GIF",
+            media: [gif.id],
+          };
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          await finish();
+          assert.equal(initialized.at(-1)?.category, "tweet_gif");
+          assert.equal(appended.at(-1)?.subarray(0, 3).toString(), "GIF");
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          const photos = [photo.id];
+          for (const format of ["jpeg", "png", "webp"] as const) {
+            const image = await storeMedia(
+              await sharp(original).toFormat(format).toBuffer(),
+              `photo.${format}`,
+              id,
+              userId,
+            );
+            photos.push(image.id);
+            paths.push(mediaPath(image.id));
+          }
+          draft.posts[0] = {
+            ...draft.posts[0],
+            text: "Four photos",
+            media: photos,
+          };
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          await finish();
+          assert.deepEqual(sent.at(-1), {
+            text: "Four photos",
+            media: { media_ids: ["8004", "8005", "8006", "8007"] },
+          });
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          processingFailure = true;
+          const before = sent.length;
+          await assert.rejects(finish(), rejects(502));
+          assert.equal(
+            sent.length,
+            before,
+            "Failed media must never fall back to a text-only post",
+          );
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          draft.posts = [
+            { id: randomUUID(), text: "Opening only once", media: [] },
+            { id: randomUUID(), text: "Second, not first", media: [] },
+          ];
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          loseSecond = true;
+          await assert.rejects(finish(), rejects(409));
+          const uncertain = await xPublishing(userId, id);
+          assert.equal(uncertain.publication?.completed, 1);
+          assert.equal(uncertain.publication?.status, "unknown");
+          assert.equal(uncertain.publication?.resumable, false);
+          const attempts = sent.length;
+          await assert.rejects(advance(), rejects(409));
+          assert.equal(
+            sent.length,
+            attempts,
+            "An uncertain later post cannot replay any of the thread",
+          );
+        } finally {
+          await db.query("DELETE FROM drafts WHERE id=$1", [id]);
+          await rm(fixture, { force: true });
+          for (const path of paths) await rm(path, { force: true });
+        }
+      },
+    );
     // Browser checks only intercept the publication boundary. No real X writes.
     await db.query("DELETE FROM x_publications WHERE draft_id=$1", [draftId]);
     await db.query(
@@ -148,6 +457,8 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
       const context = await browser.newContext({
         viewport: { width: 1280, height: 900 },
         reducedMotion: "reduce",
+        // Keep publication mocks authoritative; PWA coverage runs separately.
+        serviceWorkers: "block",
       });
       await context.addCookies([
         { name: "lastpeek_session", value: session, url: base },
@@ -242,8 +553,41 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
       await postAll.waitFor();
       assert.equal(
         await postAll.isDisabled(),
-        true,
-        "Unsupported threads must never post only the opening item",
+        false,
+        "Threads can publish all posts",
+      );
+      await page.unroute("**/post-to-x");
+      let steps = 0;
+      await page.route("**/post-to-x", async (route) => {
+        steps++;
+        await route.fulfill({
+          status: 200,
+          json: {
+            ...published,
+            publication: {
+              ...published.publication,
+              status: steps === 3 ? "posted" : "pending",
+              url: steps === 3 ? published.publication!.url : null,
+              completed: steps === 1 ? 0 : steps === 2 ? 1 : 2,
+              total: 2,
+              phase: "Posting",
+              resumable: steps < 3,
+            },
+          },
+        });
+      });
+      await postAll.click();
+      await page
+        .getByRole("dialog", { name: "Post all to X?" })
+        .getByRole("button", { name: "Post now", exact: true })
+        .click();
+      await page
+        .getByRole("link", { name: "View on X", exact: true })
+        .waitFor();
+      assert.equal(
+        steps,
+        3,
+        "One confirmation advances the job until every post is confirmed",
       );
       await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
         draftId,
