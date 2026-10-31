@@ -78,6 +78,8 @@ Previews approximate X, not pixel-perfect parity. Avatars currently use initials
 
 In iPhone/iPad Safari, use **Share → Add to Home Screen** (enable **Open as Web App** if offered). Desktop Chrome/Edge and Android Chrome offer installation from their browser menu. LastPeek opens in its own window with a dark launch screen, its own icon, and safe-area spacing. Apple launch images cover common full-screen phone/tablet sizes in both orientations; iPad multitasking and future screen sizes may use the OS fallback.
 
+Installed mobile/tablet apps are portrait-only. The manifest requests portrait; iOS does not enforce that setting, so rotating an installed touch-screen app shows a portrait prompt without losing the page or unsaved form state. Fullscreen media may rotate where the browser permits it, then returns to portrait (or the prompt) on exit. Normal browser windows and desktop layouts remain unrestricted. Landscape Apple launch images remain as a fallback for iOS launches before the portrait prompt appears.
+
 The app still needs a connection. A small service worker caches **only** a public offline retry page, never drafts, review links, accounts, or media. Failed edits retain the existing inline save errors; nothing is queued for background submission. Updates wait until existing app windows close rather than replacing an active composer. iOS controls when installed icons and launch screens refresh; an existing installation may need to be removed and added again to refresh its install assets (save any open edits first).
 
 `npm run pwa:generate` rebuilds the checked-in icons and Apple launch images from `static/favicon.svg`. Screen sizes and matching launch links share `src/lib/pwa.ts`.

@@ -5,6 +5,7 @@
   import ArrowLeft from "phosphor-svelte/lib/ArrowLeft";
   import Link from "phosphor-svelte/lib/Link";
   import PencilSimple from "phosphor-svelte/lib/PencilSimple";
+  import NotePencil from "phosphor-svelte/lib/NotePencil";
   import ImageSquare from "phosphor-svelte/lib/ImageSquare";
   import ChatCircle from "phosphor-svelte/lib/ChatCircle";
   import Check from "phosphor-svelte/lib/Check";
@@ -27,8 +28,15 @@
   import ChartBar from "phosphor-svelte/lib/ChartBar";
   import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
   import Minus from "phosphor-svelte/lib/Minus";
-  let { name, size = 20 }: { name: string; size?: number } = $props();
+  import MagnifyingGlass from "phosphor-svelte/lib/MagnifyingGlass";
+  import ArrowUp from "phosphor-svelte/lib/ArrowUp";
+  let {
+    name,
+    size = 20,
+    weight = "regular",
+  }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    up: ArrowUp,
     refresh: ArrowsClockwise,
     overview: SquaresFour,
     users: Users,
@@ -42,6 +50,7 @@
     back: ArrowLeft,
     link: Link,
     edit: PencilSimple,
+    drafts: NotePencil,
     image: ImageSquare,
     comment: ChatCircle,
     check: Check,
@@ -57,8 +66,9 @@
     reply: ArrowBendUpLeft,
     x: XLogo,
     minus: Minus,
+    search: MagnifyingGlass,
   };
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>
 
-<Glyph {size} weight="regular" aria-hidden="true" />
+<Glyph {size} {weight} aria-hidden="true" />

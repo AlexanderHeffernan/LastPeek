@@ -11,6 +11,7 @@
   import {
     mediaURL,
     avatarURL,
+    relativeTime,
     type Content,
     type Media,
   } from "$lib/contracts";
@@ -26,6 +27,7 @@
     focusedPost,
     timeline = false,
     sourcePost = null,
+    updatedAt,
   }: {
     content: Content;
     media: Media[];
@@ -38,6 +40,7 @@
     focusedPost?: string;
     timeline?: boolean;
     sourcePost?: SourcePost | null;
+    updatedAt?: string;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -139,13 +142,19 @@
           />{:else}{content.author.name.slice(0, 1).toUpperCase() || "Y"}{/if}
       </div>
       <div class="post-body">
-        <div class="post-author">
+        <div class="post-author" class:timeline-author={timeline}>
           <strong>{content.author.name || "Your name"}</strong><span
             class="handle"
             >{content.author.handle
               ? `@${content.author.handle.replace(/^@/, "")}`
               : ""}</span
-          >{#if content.posts.length > 1}<span class="post-position"
+          >{#if updatedAt}<time
+              datetime={updatedAt}
+              title={`Updated ${new Date(updatedAt).toLocaleString()}`}
+              ><span aria-hidden="true"> · </span><span class="sr-only"
+                >Updated
+              </span>{relativeTime(updatedAt)}</time
+            >{/if}{#if content.posts.length > 1}<span class="post-position"
               >{index + 1}/{content.posts.length}</span
             >{#if editing && post.id === active}<Button
                 variant="ghost"
@@ -372,6 +381,24 @@
 </section>
 
 <style>
+  .timeline-author {
+    flex-wrap: nowrap;
+  }
+  .timeline-author strong,
+  .timeline-author .handle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .timeline-author .handle {
+    flex-shrink: 2;
+  }
+  .timeline-author time {
+    flex-shrink: 0;
+    color: #71767b;
+    white-space: nowrap;
+  }
   .source-unavailable {
     margin: 12px 0 0;
     color: #93989d;

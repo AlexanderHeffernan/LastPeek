@@ -31,8 +31,12 @@ accounts form the admin team: they can read administration and manage their
 invitations, but only the owner can grant or revoke admin membership. This is
 authorization, not a feature flag. AI review grants never confer admin access.
 
-The Admin link and `~` toggle a modal overlay without navigating away from the
-current page. Closing with `~`, Escape, the backdrop or the close button preserves the page,
+There is no visible Admin navigation button. `~` toggles a modal overlay on desktop;
+on mobile, hold the centered mascot for 600ms to open it. An ordinary mascot tap
+reacts and scrolls to the top. Moving away or starting a scroll cancels the hold.
+Both entry points require existing admin access; the gesture is not authorization.
+Opening the overlay never navigates away from the current page.
+Closing with `~`, Escape, the backdrop or the close button preserves the page,
 form state and scroll position underneath. Typing `~` in an input or editor
 does not open it. `/siteadmin` remains available as a full page, including on
 mobile. Overview contains key figures, global monthly API costs/requests and service health. Accounts, Feature flags, API usage

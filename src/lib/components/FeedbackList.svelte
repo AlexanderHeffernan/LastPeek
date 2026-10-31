@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { relativeTime, type Feedback, type Content } from "$lib/contracts";
@@ -23,8 +24,11 @@
 {#each comments as comment (comment.id)}
   {@const index = content.posts.findIndex((p) => p.id === comment.post_id)}
   <article
+    id={`feedback-${comment.id}`}
+    tabindex="-1"
     class="feedback-card"
     class:resolved={comment.resolved}
+    class:targeted={page.url.hash === `#feedback-${comment.id}`}
     aria-label={`Feedback from ${comment.name}`}
   >
     <div class="feedback-person">

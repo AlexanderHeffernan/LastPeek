@@ -418,7 +418,11 @@
             </div>{/if}
         </div>{/each}
     </section>
-    <aside class="feedback-column" aria-label="Feedback and sharing">
+    <aside
+      id="feedback"
+      class="feedback-column"
+      aria-label="Feedback and sharing"
+    >
       <FeedbackList
         comments={data.comments}
         revision={dirty ? null : sharedRevision}

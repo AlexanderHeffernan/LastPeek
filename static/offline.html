@@ -65,6 +65,18 @@
         outline: 2px solid #ff6b5b;
         outline-offset: 4px;
       }
+      .portrait-copy {
+        display: none;
+      }
+      @media (display-mode: standalone) and (pointer: coarse) and (orientation: landscape) {
+        .offline-copy,
+        button {
+          display: none;
+        }
+        .portrait-copy {
+          display: block;
+        }
+      }
     </style>
   </head>
   <body>
@@ -95,8 +107,10 @@
           </g>
         </g>
       </svg>
-      <h1>You’re offline.</h1>
-      <p>
+      <h1 class="portrait-copy">Back to portrait.</h1>
+      <p class="portrait-copy">Turn your device to keep peeking.</p>
+      <h1 class="offline-copy">You’re offline.</h1>
+      <p class="offline-copy">
         Reconnect to open LastPeek. If you have unsaved edits in another window,
         keep it open until they’re saved.
       </p>

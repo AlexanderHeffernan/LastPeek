@@ -3,6 +3,7 @@
   import { page } from "$app/state";
   import { setContext } from "svelte";
   import SiteAdmin from "$lib/components/SiteAdmin.svelte";
+  import PortraitOrientation from "$lib/components/PortraitOrientation.svelte";
   import { appleLaunchImages } from "$lib/pwa";
   let { children } = $props();
   let adminDialog = $state<HTMLDialogElement>();
@@ -72,7 +73,10 @@
     />
   {/each}
 </svelte:head>
-<div class="app-content">{@render children()}</div>
+<div class="app-content" class:signed-in={page.route.id?.startsWith("/(app)")}>
+  {@render children()}
+</div>
+<PortraitOrientation />
 {#if page.data.canViewAdmin}
   <dialog
     bind:this={adminDialog}
@@ -101,11 +105,13 @@
     </div>
   </dialog>
 {/if}
-<footer class="footer-note">
-  LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
-    >Source code</a
-  > · AGPLv3
-</footer>
+{#if !page.route.id?.startsWith("/(app)")}
+  <footer class="footer-note">
+    LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
+      >Source code</a
+    > · AGPLv3
+  </footer>
+{/if}
 
 <style>
   .siteadmin-overlay {

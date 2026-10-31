@@ -35,7 +35,7 @@ async function login(page: Page, account: string, secret = password) {
   await page.getByLabel("Email", { exact: true }).fill(account);
   await page.getByLabel("Password", { exact: true }).fill(secret);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+  await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
 }
 async function action(
   request: APIRequestContext,
@@ -90,6 +90,7 @@ test(
         await context.request.get(`${baseURL}${manifestLink}`)
       ).json();
       assert.equal(manifest.display, "standalone");
+      assert.equal(manifest.orientation, "portrait");
       assert.equal(
         manifest.start_url,
         "/",
@@ -118,6 +119,48 @@ test(
         const landscape = launch.media.includes("landscape");
         assert.equal(metadata.width, Number(landscape ? height : width));
         assert.equal(metadata.height, Number(landscape ? width : height));
+      }
+      await page.setViewportSize({ width: 844, height: 390 });
+      assert.equal(
+        await page.getByRole("dialog", { name: "Back to portrait." }).count(),
+        0,
+        "ordinary browser windows are not orientation-gated",
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      const installed = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+      });
+      try {
+        // Emulate iOS home-screen launch; viewport rotation remains real.
+        await installed.addInitScript(() =>
+          Object.defineProperty(navigator, "standalone", { value: true }),
+        );
+        const app = await installed.newPage();
+        await app.goto(`${baseURL}/login`);
+        await app
+          .getByLabel("Email", { exact: true })
+          .fill("portrait-check@example.test");
+        await app.setViewportSize({ width: 844, height: 390 });
+        const portraitPrompt = app.getByRole("dialog", {
+          name: "Back to portrait.",
+        });
+        await portraitPrompt.waitFor();
+        await app.keyboard.press("Escape");
+        assert.ok(
+          await portraitPrompt.isVisible(),
+          "landscape prompt cannot be dismissed to use the app",
+        );
+        await app.setViewportSize({ width: 390, height: 844 });
+        await portraitPrompt.waitFor({ state: "hidden" });
+        assert.equal(
+          await app.getByLabel("Email", { exact: true }).inputValue(),
+          "portrait-check@example.test",
+          "rotation preserves form state",
+        );
+      } finally {
+        await installed.close();
       }
       await page.evaluate(() => navigator.serviceWorker.ready);
       await page.reload();
@@ -327,6 +370,18 @@ test(
       await authorPage.locator("body").click({ position: { x: 2, y: 2 } });
       await authorPage.keyboard.press("~");
       assert.equal(new URL(authorPage.url()).pathname, "/");
+      await authorPage.setViewportSize({ width: 390, height: 844 });
+      await authorPage
+        .getByRole("button", { name: "Back to top", exact: true })
+        .click({ delay: 700 });
+      assert.equal(
+        await authorPage
+          .getByRole("dialog", { name: "Site admin overlay" })
+          .count(),
+        0,
+        "secret gesture grants no access to regular accounts",
+      );
+      await authorPage.setViewportSize({ width: 1280, height: 900 });
 
       await login(page, emails[0]);
       assert.equal(
@@ -394,7 +449,11 @@ test(
         .waitFor();
       await page.keyboard.press("Escape");
       assert.equal(await page.getByRole("dialog").isVisible(), false);
-      await page.getByRole("link", { name: "Admin", exact: true }).click();
+      assert.equal(
+        await page.getByRole("link", { name: "Admin", exact: true }).count(),
+        0,
+      );
+      await page.keyboard.press("~");
       assert.equal(new URL(page.url()).pathname, "/settings");
       await page.setViewportSize({ width: 390, height: 844 });
       await screenshot(page, "siteadmin-overlay-mobile");
@@ -471,7 +530,22 @@ test(
         "test~",
         "Backdrop dismissal preserves the underlying form.",
       );
-      await page.getByRole("link", { name: "Admin", exact: true }).click();
+      const secretMascot = page.getByRole("button", {
+        name: "Back to top",
+        exact: true,
+      });
+      await secretMascot.click();
+      assert.equal(
+        await page
+          .getByRole("dialog", { name: "Site admin overlay" })
+          .isVisible(),
+        false,
+        "ordinary mascot taps do not open admin",
+      );
+      await secretMascot.click({ delay: 700 });
+      await page
+        .getByRole("dialog", { name: "Site admin overlay", exact: true })
+        .waitFor();
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.route("**/siteadmin/snapshot?**", (route) => route.abort());
       await page.getByRole("button", { name: "Refresh", exact: true }).click();
@@ -1166,6 +1240,91 @@ test(
           .waitFor();
       }
       await login(page, email);
+      const navigation = page.getByRole("navigation", {
+        name: "Main navigation",
+      });
+      const accountLink = navigation.getByRole("link", {
+        name: "Account settings",
+      });
+      const desktopNav = (await navigation.boundingBox())!;
+      const draftFeed = (await page
+        .getByRole("region", { name: "Draft feed", exact: true })
+        .boundingBox())!;
+      assert.ok(
+        desktopNav.x > 0,
+        "navigation follows the centered application, not the screen edge",
+      );
+      assert.equal(desktopNav.x + desktopNav.width, draftFeed.x);
+      assert.ok(desktopNav.width <= 72);
+      const newPost = (await page
+        .getByRole("button", { name: "New post", exact: true })
+        .boundingBox())!;
+      assert.ok(
+        newPost.x > draftFeed.x + draftFeed.width,
+        "desktop creation belongs in the right column, not above the feed",
+      );
+      assert.equal(desktopNav.y, 0);
+      assert.equal(desktopNav.height, 1000);
+      assert.ok((await accountLink.boundingBox())!.y > 900);
+      // Check rendered geometry, not computed CSS: Safari can reject SVG keyframes.
+      const mascot = navigation.getByRole("link", { name: "LastPeek home" });
+      const eyeHeight = await mascot.evaluate(
+        (link) => link.querySelector("ellipse")!.getBoundingClientRect().height,
+      );
+      await mascot.hover();
+      // Leaving during the blink must not cancel the expression midway through.
+      await navigation
+        .getByRole("link", { name: "Drafts", exact: true })
+        .hover();
+      await page.waitForFunction(
+        ({ link, eyeHeight }) =>
+          link!.querySelector("ellipse")!.getBoundingClientRect().height >
+          eyeHeight + 2,
+        { link: await mascot.elementHandle(), eyeHeight },
+      );
+      await page.waitForFunction(
+        ({ link, eyeHeight }) =>
+          Math.abs(
+            link!.querySelector("ellipse")!.getBoundingClientRect().height -
+              eyeHeight,
+          ) < 0.1,
+        { link: await mascot.elementHandle(), eyeHeight },
+      );
+      await accountLink.click();
+      await page
+        .getByRole("heading", { name: "Account.", exact: true })
+        .waitFor();
+      assert.equal(await accountLink.getAttribute("aria-current"), "page");
+      await navigation
+        .getByRole("link", { name: "Drafts", exact: true })
+        .click();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(await navigation.getByRole("link").count(), 2);
+        assert.ok(
+          (await page
+            .getByRole("link", { name: "Account settings" })
+            .boundingBox())!.y < 64,
+        );
+        const mobileLogo = (await page
+          .getByRole("button", { name: "Back to top", exact: true })
+          .boundingBox())!;
+        assert.equal(mobileLogo.x + mobileLogo.width / 2, width / 2);
+        const mobileNav = (await navigation.boundingBox())!;
+        assert.equal(mobileNav.x, 0);
+        assert.equal(mobileNav.width, width);
+        assert.equal(mobileNav.y + mobileNav.height, 844);
+        assert.ok(mobileNav.height >= 60 && mobileNav.height < 100);
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+          width,
+        );
+        assert.equal(await page.getByRole("contentinfo").count(), 0);
+        assert.ok(await page.getByLabel("Search posts").isVisible());
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.evaluate(() => scrollTo(0, 0));
       const sessionCookie = (await owner.cookies()).find((cookie) =>
         cookie.name.endsWith("lastpeek.session_token"),
       );
@@ -1229,13 +1388,104 @@ test(
           links.map((link) => link.getAttribute("href")?.split("/").at(-1)),
         );
       assert.deepEqual(await feedOrder(), [feedIds[0], feedIds[2], feedIds[1]]);
+      assert.equal(
+        await page.getByRole("button", { name: "Back to top" }).count(),
+        0,
+        "short, unscrolled list has no ending actions",
+      );
+      await setFeatureAccess(
+        email,
+        "x-source-posts",
+        true,
+        "test",
+        "Exercise end-of-list creation options",
+      );
+      await page.reload();
+      await page.setViewportSize({ width: 390, height: 400 });
+      const firstPostY = await feedLinks
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().top + scrollY);
+      const mobileHeader = page.getByRole("banner");
+      const floatingPost = page
+        .getByRole("button", {
+          name: "New post",
+          exact: true,
+        })
+        .first();
+      const raisedY = (await floatingPost.boundingBox())!.y;
+      await page.evaluate(() => scrollTo(0, 200));
+      await page.waitForFunction(
+        (el) => el!.getBoundingClientRect().top >= innerHeight,
+        await navigation.elementHandle(),
+      );
+      assert.ok((await mobileHeader.boundingBox())!.y < -60);
+      const loweredY = (await floatingPost.boundingBox())!.y;
+      assert.equal(Math.round(loweredY - raisedY), 64);
+      assert.ok(loweredY + 56 < 400, "floating creation remains onscreen");
+      assert.equal(
+        await feedLinks
+          .first()
+          .evaluate((el) => el.getBoundingClientRect().top + scrollY),
+        firstPostY,
+        "hiding chrome does not move posts in the document",
+      );
+      await floatingPost.click();
+      const mobileMenu = page.getByLabel("New post actions", { exact: true });
+      await mobileMenu
+        .getByRole("button", { name: "New Quote", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "New Quote", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page.evaluate(() => scrollTo(0, 40));
+      await page.waitForFunction(
+        (el) => el!.getBoundingClientRect().top === 0,
+        await mobileHeader.elementHandle(),
+      );
+      assert.ok((await page.getByLabel("Search posts").boundingBox())!.y > 64);
+      await mobileHeader
+        .getByRole("button", { name: "Back to top", exact: true })
+        .click();
+      await page.waitForFunction(() => scrollY === 0);
+      await page.setViewportSize({ width: 1440, height: 300 });
+      assert.equal(
+        await page.getByRole("group", { name: "End of drafts" }).count(),
+        0,
+        "overflow alone does not show ending actions before scrolling",
+      );
+      await page.evaluate(() =>
+        scrollTo(0, document.documentElement.scrollHeight),
+      );
+      const ending = page.getByRole("group", { name: "End of drafts" });
+      await ending.getByRole("button", { name: "Back to top" }).waitFor();
+      await ending.getByRole("button", { name: "New post options" }).click();
+      await page
+        .getByRole("button", { name: "New Quote", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "New Quote", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await ending.getByRole("button", { name: "Back to top" }).click();
+      await page.waitForFunction(() => scrollY === 0);
+      await ending.waitFor({ state: "hidden" });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await setFeatureAccess(
+        email,
+        "x-source-posts",
+        false,
+        "test",
+        "Restore feature-gated account",
+      );
+      await page.reload();
       await page
         .getByRole("button", { name: "With feedback", exact: true })
         .click();
       assert.equal(
-        await feedLinks
-          .first()
-          .getByText("1 open comment", { exact: true })
+        await page
+          .getByRole("article", { name: "Draft preview", exact: true })
+          .getByRole("link", { name: "1 open comment", exact: true })
           .count(),
         1,
       );
@@ -1244,40 +1494,153 @@ test(
         1,
         "feed uses current profile",
       );
+      assert.equal(
+        await page.getByRole("link", { name: "2 posts in thread" }).count(),
+        1,
+      );
+      assert.equal(
+        await page
+          .getByRole("link", { name: "Shared for review", exact: true })
+          .count(),
+        1,
+      );
+      await page.getByRole("link", { name: "2 posts in thread" }).hover();
+      await page
+        .getByRole("tooltip", { name: "Thread", exact: true })
+        .waitFor();
+      await page.getByRole("link", { name: "2 posts in thread" }).focus();
+      await page.keyboard.press("Tab");
+      await page
+        .getByRole("tooltip", { name: "Feedback", exact: true })
+        .waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "Back to top" }).count(),
+        0,
+      );
+      const headerTime = feedLinks.first().locator("time");
+      assert.equal(
+        await headerTime.getAttribute("datetime"),
+        (
+          await db.query("SELECT updated_at FROM drafts WHERE id=$1", [
+            feedIds[1],
+          ])
+        ).rows[0].updated_at.toISOString(),
+      );
+      const feedbackIds = Array.from({ length: 6 }, () => randomUUID());
+      for (const [index, commentId] of feedbackIds.entries()) {
+        await db.query(
+          `INSERT INTO comments(id,draft_id,revision,post_id,name,body,resolved,created_at)
+           SELECT $1,id,shared_revision,(content->'posts'->0->>'id')::uuid,'Reader',
+           $3,$4,now()+($5::int * interval '1 second') FROM drafts WHERE id=$2`,
+          [
+            commentId,
+            feedIds[1],
+            `Feedback-only mango ${index}`,
+            index === 5,
+            index,
+          ],
+        );
+      }
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+      const feedbackLinks = page.getByRole("link", {
+        name: /^Open feedback from/,
+      });
+      assert.equal(
+        await feedbackLinks.count(),
+        5,
+        "five recent open comments, not resolved feedback",
+      );
+      assert.ok(
+        (await feedbackLinks.first().getAttribute("href"))?.endsWith(
+          `#feedback-${feedbackIds[4]}`,
+        ),
+      );
+      await page.getByLabel("Search posts").fill("  MANGO 5  ");
+      assert.deepEqual(
+        await feedOrder(),
+        [],
+        "draft search does not match feedback",
+      );
+      await navigation
+        .getByRole("link", { name: "Feedback", exact: true })
+        .click();
+      await page.getByRole("main", { name: "Feedback", exact: true }).waitFor();
+      await page.getByLabel("Search feedback").fill("  MANGO 5  ");
+      const feedbackFeed = page.getByRole("region", {
+        name: "Feedback feed",
+        exact: true,
+      });
+      assert.equal(
+        await feedbackFeed
+          .getByRole("link", { name: /^Open feedback from/ })
+          .count(),
+        1,
+        "resolved feedback remains searchable",
+      );
+      await page.getByRole("button", { name: "Open", exact: true }).click();
+      assert.equal(await feedbackFeed.getByRole("link").count(), 0);
+      await page.getByRole("button", { name: "Resolved", exact: true }).click();
+      await feedbackFeed
+        .getByRole("link", { name: /^Open feedback from/ })
+        .click();
+      const targetFeedback = page
+        .getByRole("article", { name: "Feedback from Reader" })
+        .filter({ hasText: "Feedback-only mango 5" });
+      await targetFeedback.waitFor();
+      assert.equal(new URL(page.url()).hash, `#feedback-${feedbackIds[5]}`);
+      assert.ok(
+        await targetFeedback.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.top >= 0 && rect.top < innerHeight;
+        }),
+        "feedback link scrolls to the original comment",
+      );
+      await page
+        .getByRole("link", { name: "LastPeek home", exact: true })
+        .click();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       await page.getByRole("button", { name: "All", exact: true }).click();
-      await page.getByLabel("Sort drafts").selectOption("oldest");
-      assert.deepEqual(await feedOrder(), feedIds);
-      await page.getByLabel("Sort drafts").selectOption("newest");
-      assert.deepEqual(await feedOrder(), [...feedIds].reverse());
+      assert.equal(await page.getByLabel("Sort drafts").count(), 0);
       await page
         .getByRole("button", { name: "With feedback", exact: true })
         .click();
       assert.deepEqual(await feedOrder(), [feedIds[1]]);
-      await page.getByLabel("Search drafts").fill("  KIWI  ");
+      await page.getByLabel("Search posts").fill("  KIWI  ");
       assert.deepEqual(await feedOrder(), [feedIds[1]]);
       await page.getByRole("button", { name: "Private", exact: true }).click();
-      await page
-        .getByRole("heading", { name: "No matching drafts." })
-        .waitFor();
+      await page.getByRole("heading", { name: "Not a peep." }).waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "Back to top" }).count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "New post", exact: true })
+          .count(),
+        2,
+        "empty results retain a creation action",
+      );
+      assert.equal(
+        await page
+          .getByRole("link", { name: "LastPeek home", exact: true })
+          .count(),
+        1,
+        "empty mascot is decorative, not another navigation link",
+      );
       await page
         .getByRole("button", { name: "Clear search and filters" })
         .click();
       assert.equal(await feedLinks.count(), 3);
       await page.getByRole("button", { name: "Shared", exact: true }).click();
       assert.deepEqual(await feedOrder(), [feedIds[1]]);
-      const profileSave = page.waitForResponse(
-        (response) =>
-          response.url().endsWith(`/api/drafts/${feedIds[1]}`) &&
-          response.request().postDataJSON()?.action === "save",
-      );
       await feedLinks.first().click();
       await page.getByLabel("Post 2 text", { exact: true }).waitFor();
-      assert.equal((await profileSave).status(), 200);
       await page.getByText("All changes saved", { exact: true }).waitFor();
       await page
         .getByRole("link", { name: "LastPeek home", exact: true })
         .click();
-      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       await db.query("DELETE FROM drafts WHERE id=ANY($1::uuid[])", [feedIds]);
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByLabel("X handle", { exact: true }).fill("not valid!");
@@ -1598,11 +1961,14 @@ test(
       await page.waitForLoadState("networkidle");
       const id = page.url().split("/").at(-1)!;
       await page.getByRole("link", { name: "LastPeek home" }).click();
-      await page.getByRole("button", { name: "New post", exact: true }).click();
+      await page
+        .getByRole("button", { name: "New post", exact: true })
+        .first()
+        .click();
       await page.getByLabel("Post 1 text", { exact: true }).waitFor();
       assert.notEqual(page.url().split("/").at(-1), id);
       await page.getByRole("link", { name: "LastPeek home" }).click();
-      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       assert.equal(
         await page.getByRole("button", { name: "New post options" }).count(),
         0,
@@ -2131,6 +2497,13 @@ test(
       assert.equal((await guest.request.get(mediaURL)).status(), 404);
       await login(stranger, strangerEmail);
       assert.equal(
+        await stranger
+          .getByRole("link", { name: /^Open feedback from/ })
+          .count(),
+        0,
+        "another author's feedback is never included in the sidebar",
+      );
+      assert.equal(
         (
           await other.request.post(aiURL, {
             data: {},
@@ -2589,7 +2962,9 @@ test(
       await joining.getByLabel("Email", { exact: true }).fill(invitedEmail);
       await joining.getByLabel(/^Password/).fill(password);
       await joining.getByRole("button", { name: "Create account" }).click();
-      await joining.getByRole("heading", { name: "Your drafts." }).waitFor();
+      await joining
+        .getByRole("main", { name: "Drafts", exact: true })
+        .waitFor();
       await joining.goto(`${baseURL}/settings`);
       assert.equal(
         await joining
@@ -2714,7 +3089,7 @@ test(
         .getByRole("dialog", { name: "Delete this draft?" })
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
-      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       assert.equal(
         (await guest.request.get(`${baseURL}/r/${renewed.token}`)).status(),
         404,
