@@ -94,6 +94,7 @@
         <PostPreview
           content={data.content}
           media={data.media}
+          sourcePost={data.sourcePost}
           token={data.token}
           focusedPost={postId}
           onfocuspost={focusPost}

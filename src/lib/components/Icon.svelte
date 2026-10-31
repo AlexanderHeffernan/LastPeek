@@ -16,6 +16,9 @@
   import CaretDown from "phosphor-svelte/lib/CaretDown";
   import LockSimple from "phosphor-svelte/lib/LockSimple";
   import Stack from "phosphor-svelte/lib/Stack";
+  import Quotes from "phosphor-svelte/lib/Quotes";
+  import ArrowBendUpLeft from "phosphor-svelte/lib/ArrowBendUpLeft";
+  import XLogo from "phosphor-svelte/lib/XLogo";
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const icons = {
     eye: Eye,
@@ -35,6 +38,9 @@
     down: CaretDown,
     lock: LockSimple,
     thread: Stack,
+    quote: Quotes,
+    reply: ArrowBendUpLeft,
+    x: XLogo,
   };
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>

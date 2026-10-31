@@ -388,6 +388,7 @@
         <PostPreview
           bind:content
           {media}
+          sourcePost={data.sourcePost}
           editing
           onchange={changed}
           onupload={upload}

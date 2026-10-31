@@ -12,6 +12,15 @@ image. State changes lock the account and atomically append actor, reason, threa
 and time to audit history. Repeating the same change is a no-op. There are no admin
 overrides, percentages, public management routes or hosted flag dependencies.
 
+`x-source-posts` separately enables New Quote and New Reply. It also defaults to
+off for every account. The server checks the draft owner's current grant before
+reading the source cache or calling X, including on anonymous review pages.
+Reviewers need no grant or account. Revocation removes source previews and blocks
+new source drafts without preventing edits or human feedback. An in-flight lookup
+is not cancelled; its result may finish after revocation. The X token and instance
+budget remain independent requirements. Grant this feature using the same audited
+operator command below with `"feature": "x-source-posts"`.
+
 ## Local operator CLI
 
 From a trusted checkout or inside web, send JSON on stdin to `npm run --silent

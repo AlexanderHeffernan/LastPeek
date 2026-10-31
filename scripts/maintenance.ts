@@ -10,6 +10,7 @@ try {
   await db.query(
     "DELETE FROM rate_limits WHERE window_at<now()-interval '2 days'",
   );
+  await db.query("DELETE FROM x_source_posts WHERE expires_at<now()");
   await transaction(async (client) => {
     // EXCLUSIVE also blocks the ROW SHARE locks taken before save/upload validation.
     await client.query(

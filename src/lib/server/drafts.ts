@@ -25,7 +25,7 @@ export async function sharedDraft(shareToken: string) {
     error(404, "This review link is unavailable. It may have been revoked.");
   const row = (
     await db.query(
-      `SELECT d.id,d.shared_revision,r.content FROM drafts d
+      `SELECT d.id,d.owner_id,d.shared_revision,r.content FROM drafts d
        JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
        WHERE d.share_token=$1`,
       [shareToken],
@@ -35,6 +35,7 @@ export async function sharedDraft(shareToken: string) {
     error(404, "This review link is unavailable. It may have been revoked.");
   return {
     id: row.id as string,
+    owner_id: row.owner_id as string,
     shared_revision: row.shared_revision as number,
     content: contentSchema.parse(row.content),
   };

@@ -16,6 +16,7 @@ import { passwordHash, token, hash as tokenHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
 import { avatarPath } from "../src/lib/server/avatars";
 import type { Content } from "../src/lib/contracts";
+import { X_SOURCE_UNAVAILABLE, type XSourcePost } from "../src/lib/x-post";
 
 // Only run against a disposable development instance whose DATABASE_URL matches the server.
 const baseURL = process.env.TEST_BASE_URL || "http://127.0.0.1:4173";
@@ -494,17 +495,221 @@ test(
       await screenshot(page, "avatar-upload-error");
       await page.getByRole("link", { name: "LastPeek home" }).click();
       await page
-        .getByRole("button", { name: "Write your first draft", exact: true })
+        .getByRole("button", { name: "Write your first post", exact: true })
         .click();
       await page.getByLabel("Post 1 text", { exact: true }).waitFor();
       await page.waitForLoadState("networkidle");
       const id = page.url().split("/").at(-1)!;
       await page.getByRole("link", { name: "LastPeek home" }).click();
-      await page
-        .getByRole("button", { name: "New draft", exact: true })
-        .click();
+      await page.getByRole("button", { name: "New post", exact: true }).click();
       await page.getByLabel("Post 1 text", { exact: true }).waitFor();
       assert.notEqual(page.url().split("/").at(-1), id);
+      await page.getByRole("link", { name: "LastPeek home" }).click();
+      await page.getByRole("heading", { name: "Your drafts." }).waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "New post options" }).count(),
+        0,
+        "even admins have no X access by default",
+      );
+      await screenshot(page, "x-gate-disabled");
+      const denied = await owner.request.post(`${baseURL}/?/create`, {
+        form: { kind: "quote", url: "https://x.com/source/status/1" },
+        headers: { Origin: origin },
+      });
+      assert.equal(
+        denied.status(),
+        503,
+        "direct creation cannot bypass the grant",
+      );
+      await setFeatureAccess(
+        email,
+        "x-source-posts",
+        true,
+        "browser test",
+        "X source trial",
+      );
+      await page.reload();
+      // Native source cards are fixture-backed: tests must never spend real X credits.
+      const sourcePostId = String(
+        BigInt(`0x${userId.replaceAll("-", "").slice(0, 15)}`),
+      );
+      const sourceURL = `https://x.com/source/status/${sourcePostId}`;
+      const sourceCard: XSourcePost = {
+        id: sourcePostId,
+        url: sourceURL,
+        text: "A little context before replying.\nMore details: https://t.co/test #BuildInPublic",
+        createdAt: "2026-10-01T08:30:00.000Z",
+        author: {
+          name: "Source author",
+          username: "source",
+          avatar: "https://pbs.twimg.com/test-avatar.jpg",
+        },
+        links: [
+          {
+            text: "https://t.co/test",
+            url: "https://t.co/test",
+            label: "example.com/full",
+          },
+        ],
+        media: [],
+      };
+      await page.route("https://pbs.twimg.com/**", async (route) =>
+        route.fulfill({
+          contentType: "image/png",
+          body: await sharp({
+            create: {
+              width: 80,
+              height: 80,
+              channels: 3,
+              background: "#ff6b5b",
+            },
+          })
+            .png()
+            .toBuffer(),
+        }),
+      );
+      const cacheSource = (card: XSourcePost | null) =>
+        db.query(
+          `INSERT INTO x_source_posts(post_id,content,expires_at) VALUES($1,$2,now()+interval '1 hour')
+         ON CONFLICT(post_id) DO UPDATE SET content=EXCLUDED.content,expires_at=EXCLUDED.expires_at`,
+          [sourcePostId, card ? JSON.stringify(card) : null],
+        );
+      let lastSourceDraft = "";
+      for (const kind of ["quote", "reply"] as const) {
+        await page.getByRole("link", { name: "LastPeek home" }).click();
+        await page
+          .getByRole("button", { name: "New post options", exact: true })
+          .click();
+        await screenshot(page, "x-gate-enabled-menu");
+        await page
+          .getByRole("button", {
+            name: kind === "quote" ? "New Quote" : "New Reply",
+            exact: true,
+          })
+          .click();
+        const dialog = page.getByRole("dialog", {
+          name: kind === "quote" ? "New Quote" : "New Reply",
+        });
+        await dialog
+          .getByLabel("X post link")
+          .fill("https://example.com/not-a-post");
+        await dialog
+          .getByRole("button", { name: `Create ${kind}`, exact: true })
+          .click();
+        await dialog.getByRole("alert").waitFor();
+        assert.equal(
+          await dialog.getByLabel("X post link").inputValue(),
+          "https://example.com/not-a-post",
+        );
+        await dialog
+          .getByLabel("X post link")
+          .fill(`https://twitter.com/source/status/${sourcePostId}?s=20`);
+        await cacheSource(null);
+        const draftCount = (
+          await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [
+            userId,
+          ])
+        ).rows[0].count;
+        await dialog
+          .getByRole("button", { name: `Create ${kind}`, exact: true })
+          .click();
+        await dialog.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
+        assert.equal(
+          (
+            await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [
+              userId,
+            ])
+          ).rows[0].count,
+          draftCount,
+          "an unavailable source must not create an empty draft",
+        );
+        await screenshot(page, `source-${kind}-unavailable`);
+        await cacheSource(sourceCard);
+        await dialog
+          .getByRole("button", { name: `Create ${kind}`, exact: true })
+          .click();
+        await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+        const sourceId = page.url().split("/").at(-1)!;
+        lastSourceDraft = sourceId;
+        await page
+          .getByRole("link", { name: "Source author on X", exact: true })
+          .waitFor();
+        assert.equal(
+          await page
+            .getByRole("link", { name: "example.com/full", exact: true })
+            .getAttribute("href"),
+          "https://t.co/test",
+        );
+        assert.equal(
+          await page
+            .getByRole("link", { name: "#BuildInPublic", exact: true })
+            .getAttribute("href"),
+          "https://x.com/hashtag/BuildInPublic",
+        );
+        assert.equal(await page.locator("iframe").count(), 0);
+        await screenshot(page, `source-${kind}-native`);
+        const sourceVersion = await edited(page, () =>
+          page
+            .getByLabel("Post 1 text", { exact: true })
+            .fill(`My ${kind} for review`),
+        );
+        await page.reload();
+        assert.equal(
+          await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
+          `My ${kind} for review`,
+        );
+        const source = {
+          kind,
+          url: sourceURL,
+        };
+        assert.deepEqual(
+          (await db.query("SELECT content FROM drafts WHERE id=$1", [sourceId]))
+            .rows[0].content.source,
+          source,
+        );
+        const shared = await action(owner.request, sourceId, {
+          action: "publish",
+          version: sourceVersion,
+        });
+        await reviewer.goto(`${baseURL}/r/${shared.token}`);
+        const original = reviewer.getByRole("link", {
+          name: "View on X",
+          exact: true,
+        });
+        await original.waitFor();
+        assert.equal(await original.getAttribute("href"), source.url);
+        assert.deepEqual(
+          (
+            await db.query("SELECT content FROM revisions WHERE draft_id=$1", [
+              sourceId,
+            ])
+          ).rows[0].content.source,
+          source,
+        );
+      }
+      // Loss of source access must not destroy drafts or hide existing feedback.
+      await setFeatureAccess(
+        email,
+        "x-source-posts",
+        false,
+        "browser test",
+        "End X trial",
+      );
+      await reviewer.reload();
+      await reviewer.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
+      assert.equal(await reviewer.locator("iframe").count(), 0);
+      await page.goto(`${baseURL}/drafts/${lastSourceDraft}`);
+      await page.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
+      await edited(page, () =>
+        page
+          .getByLabel("Post 1 text", { exact: true })
+          .fill("Still editable without X"),
+      );
+      await screenshot(page, "source-existing-unavailable");
+      await db.query("DELETE FROM x_source_posts WHERE post_id=$1", [
+        sourcePostId,
+      ]);
+      await page.unroute("https://pbs.twimg.com/**");
       await page.goto(`${baseURL}/drafts/${id}`);
       assert.equal(
         await page.getByRole("button", { name: "Save", exact: true }).count(),
@@ -597,7 +802,9 @@ test(
       const access = await featureAccess(email);
       assert.equal(access.features["ai-review"], false);
       assert.deepEqual(
-        access.history.map((entry) => [entry.enabled, entry.reason]),
+        access.history
+          .filter((entry) => entry.feature === "ai-review")
+          .map((entry) => [entry.enabled, entry.reason]),
         [
           [false, "E2E revoke"],
           [true, "E2E enable"],

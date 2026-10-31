@@ -21,7 +21,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts",
-    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts"
+    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts tests/x-post.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -72,6 +72,20 @@ The app still needs a connection. A small service worker caches **only** a publi
 
 `npm run pwa:generate` rebuilds the checked-in icons and Apple launch images from `static/favicon.svg`. Screen sizes and matching launch links share `src/lib/pwa.ts`.
 
+## Optional X source previews
+
+Quotes and replies require an explicit `x-source-posts` account grant, off by
+default even for admins; see [feature access](docs/operations.md). The menu is
+hidden without access. Server checks use the draft owner, including for anonymous
+reviewers, before any cached read or paid lookup. Revoking access leaves existing
+drafts editable and replaces source previews with the unavailable status.
+
+Set `X_API_BEARER_TOKEN` in the server's secret environment to render public source posts as native cards for reply/quote drafts. No X user login or posting permissions are needed. Without a token, with unavailable/unsupported posts, or at the request budget, quote/reply creation returns “Quotes and replies aren’t available right now.” Existing drafts remain editable and show that status in place of the source card. There is no embed fallback. The token is never sent to browsers. X images/videos load directly from its fixed media hosts with no referrer; no draft text or review URL is sent to the API.
+
+`X_API_MONTHLY_BUDGET_USD` defaults to `5`; `0` disables API lookups. Each instance reserves **US$0.05 per lookup attempt** in PostgreSQL before making the request, including failures. The reservation is deliberately conservative, not actual billed spend: announced rates for one post, its author and four media objects total US$0.035. At the default budget this permits 100 attempts per UTC calendar month, including refreshes. It does not automatically purchase credits or change X billing settings. Instances/apps sharing X credits have separate counters; keep X's own account spending limit and auto-recharge settings in place, and review the reservation if provider pricing changes.
+
+Successful source cards cache for 15 minutes across drafts/reviewers; failures back off for five minutes, with no automatic HTTP retries. Page loads revalidate expired entries, never displaying expired content. Autosave makes no lookup. Maintenance removes expired source content; source cards are not stored in immutable draft revisions or review-preview images. Sensitive, edited, quoted/reposted sources and polls are unavailable until their required presentation is supported. The API is optional and does not publish to X. Apply SQL migrations before starting the new version. Configure the production secret separately from Amp's development project secrets.
+
 ## Optional AI second look
 
 Set `OPENAI_API_KEY` in the server's secret environment and restart web, then explicitly grant the account `ai-review` to enable **AI second look** beside author feedback. All accounts, including admins, default to off. With no key or grant, the control is hidden and the complete human-review workflow remains available. See [feature access and agent operations](docs/operations.md) for the audited CLI and restricted Pi tools. Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; overrides must support Responses structured outputs and low reasoning effort.
@@ -115,7 +129,7 @@ npm test
 ORIGIN=http://127.0.0.1:4173 npm run build
 npx playwright install chromium webkit
 # Start the production build on 4173 against a disposable development DB:
-PORT=4173 npm start
+X_API_BEARER_TOKEN=test-only-not-a-real-key PORT=4173 npm start
 # In another terminal, using the SAME DATABASE_URL / MEDIA_DIR:
 npm run test:e2e
 TEST_BROWSER=webkit npm run test:e2e

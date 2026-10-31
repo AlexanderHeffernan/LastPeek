@@ -4,11 +4,13 @@ import { db, transaction } from "$lib/server/db";
 import { rateLimit } from "$lib/server/auth";
 import { draftComments, draftMedia, sharedDraft } from "$lib/server/drafts";
 import { mediaIds } from "$lib/contracts";
+import { sourcePost } from "$lib/server/x-post";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const draft = await sharedDraft(params.token);
   const allowedIds = new Set(mediaIds(draft.content));
   return {
+    sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     token: params.token,
     reviewURL: new URL(`/r/${params.token}`, url.origin).href,
     reviewerName: locals.user?.name ?? null,

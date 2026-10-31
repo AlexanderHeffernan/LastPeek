@@ -1,12 +1,27 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
+  import { Popover } from "bits-ui";
+  import { tick } from "svelte";
   import { enhance } from "$app/forms";
   import Icon from "$lib/components/Icon.svelte";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import { relativeTime } from "$lib/contracts";
-  let { data } = $props();
+  let { data, form } = $props();
   let busy = $state(false);
+  let createOpen = $state(false);
+  let sourceDialog = $state<HTMLDialogElement>();
+  let kind = $state<"quote" | "reply">("quote");
+  let url = $state("");
+  let createError = $state("");
+  async function openSource(next: "quote" | "reply") {
+    createOpen = false;
+    kind = next;
+    url = "";
+    createError = "";
+    await tick();
+    sourceDialog?.showModal();
+  }
   let query = $state("");
   let filter = $state("all");
   let sort = $state("updated");
@@ -45,28 +60,58 @@
 <main class="drafts-page">
   <div class="drafts-heading row between">
     <h1>Your drafts.</h1>
-    <form
-      method="POST"
-      action="?/create"
-      use:enhance={() => {
-        busy = true;
-        return async ({ update }) => {
-          await update();
-          busy = false;
-        };
-      }}
-    >
-      <Button type="submit" disabled={busy}
-        ><Icon name="plus" size={16} />{busy ? "Opening…" : "New draft"}</Button
+    <div class="share-actions">
+      <form
+        method="POST"
+        action="?/create"
+        use:enhance={() => {
+          busy = true;
+          return async ({ update }) => {
+            await update();
+            busy = false;
+          };
+        }}
       >
-    </form>
+        <Button type="submit" disabled={busy}
+          ><Icon name="plus" size={16} />{busy
+            ? "Opening…"
+            : "New post"}</Button
+        >
+      </form>
+      {#if data.xSourcesEnabled}<Popover.Root bind:open={createOpen}>
+          <Popover.Trigger
+            >{#snippet child({ props })}
+              <Button
+                {...props}
+                disabled={busy}
+                class="share-toggle"
+                aria-label="New post options"
+                ><Icon name="down" size={15} /></Button
+              >
+            {/snippet}</Popover.Trigger
+          >
+          <Popover.Content
+            class="share-menu"
+            sideOffset={8}
+            align="end"
+            aria-label="New post actions"
+          >
+            <Button variant="ghost" onclick={() => openSource("quote")}
+              ><Icon name="quote" size={16} />New Quote</Button
+            >
+            <Button variant="ghost" onclick={() => openSource("reply")}
+              ><Icon name="reply" size={16} />New Reply</Button
+            >
+          </Popover.Content>
+        </Popover.Root>{/if}
+    </div>
   </div>
   {#if !data.drafts.length}
     <div class="empty">
       <div class="empty-icon"><Icon name="edit" size={25} /></div>
       <h2>Start something worth sharing.</h2>
       <form method="POST" action="?/create" use:enhance>
-        <Button type="submit">Write your first draft</Button>
+        <Button type="submit">Write your first post</Button>
       </form>
     </div>
   {:else}
@@ -154,7 +199,82 @@
   {/if}
 </main>
 
+<dialog
+  bind:this={sourceDialog}
+  class="confirm-dialog source-dialog"
+  aria-labelledby="source-title"
+  oncancel={(event) => {
+    if (busy) event.preventDefault();
+  }}
+>
+  <h2 id="source-title">New {kind === "quote" ? "Quote" : "Reply"}</h2>
+  <form
+    method="POST"
+    action="?/create"
+    use:enhance={() => {
+      busy = true;
+      createError = "";
+      return async ({ result, update }) => {
+        busy = false;
+        if (result.type === "failure") {
+          createError =
+            (result.data?.error as string) ||
+            "Couldn’t create your post. Try again.";
+        } else if (result.type === "error") {
+          createError = "Couldn’t create your post. Try again.";
+        } else {
+          sourceDialog?.close();
+          await update();
+        }
+      };
+    }}
+  >
+    <input type="hidden" name="kind" value={kind} />
+    <label for="source-url">X post link</label>
+    <Input
+      id="source-url"
+      name="url"
+      type="url"
+      required
+      maxlength={2048}
+      placeholder="https://x.com/username/status/…"
+      bind:value={url}
+      aria-invalid={!!createError}
+      aria-describedby={createError ? "source-error" : undefined}
+    />
+    {#if createError}<p id="source-error" role="alert" class="danger">
+        {createError}
+      </p>{/if}
+    <div class="row dialog-actions">
+      <Button
+        variant="outline"
+        disabled={busy}
+        onclick={() => sourceDialog?.close()}>Cancel</Button
+      >
+      <Button type="submit" disabled={busy}
+        >{busy
+          ? "Creating…"
+          : kind === "quote"
+            ? "Create quote"
+            : "Create reply"}</Button
+      >
+    </div>
+  </form>
+</dialog>
+{#if form?.error}<p role="alert" class="action-error">{form.error}</p>{/if}
+
 <style>
+  .source-dialog h2 {
+    margin-top: 0;
+  }
+  .source-dialog label {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .source-dialog .dialog-actions {
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
   .drafts-page {
     width: 100%;
     max-width: 600px;

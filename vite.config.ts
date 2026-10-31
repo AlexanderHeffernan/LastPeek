@@ -14,9 +14,10 @@ export default defineConfig({
         directives: {
           "default-src": ["self"],
           "script-src": ["self"],
+          "frame-src": ["none"],
           "style-src": ["self", "unsafe-inline"],
-          "img-src": ["self", "blob:"],
-          "media-src": ["self", "blob:"],
+          "img-src": ["self", "blob:", "https://pbs.twimg.com"],
+          "media-src": ["self", "blob:", "https://video.twimg.com"],
           "object-src": ["none"],
           "base-uri": ["self"],
           "frame-ancestors": ["none"],

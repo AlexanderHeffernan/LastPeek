@@ -57,7 +57,7 @@ jobs:
       - name: Test running production server
         shell: bash
         run: |
-          npm start > /tmp/lastpeek-server.log 2>&1 &
+          X_API_BEARER_TOKEN=test-only-not-a-real-key npm start > /tmp/lastpeek-server.log 2>&1 &
           server=$!
           trap 'kill "$server"' EXIT
           for i in {1..30}; do

@@ -28,6 +28,8 @@ services:
       BODY_SIZE_LIMIT: 55M
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      X_API_BEARER_TOKEN: ${X_API_BEARER_TOKEN:-}
+      X_API_MONTHLY_BUDGET_USD: ${X_API_MONTHLY_BUDGET_USD:-5}
     volumes:
       - media:/app/data/media
     depends_on:

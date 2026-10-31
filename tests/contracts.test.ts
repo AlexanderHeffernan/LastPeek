@@ -30,6 +30,34 @@ test("drafts preserve multiline Unicode text and stable post/media order", () =>
   assert.ok(hasContent(content), "media-only posts are valid");
 });
 
+test("reply and quote sources survive validation with canonical X post links", () => {
+  for (const kind of ["reply", "quote"] as const) {
+    const content = blankContent("Alex");
+    content.source = {
+      kind,
+      url: " https://twitter.com/Interior/status/463440424141459456/photo/1?s=20 ",
+    };
+    const parsed = contentSchema.parse(content);
+    assert.deepEqual(parsed.source, {
+      kind,
+      url: "https://x.com/Interior/status/463440424141459456",
+    });
+    assert.deepEqual(contentSchema.parse(parsed), parsed);
+    for (const url of [
+      "https://x.com/Interior",
+      "https://x.com.evil.test/a/status/123",
+      "https://evil.test/a/status/123",
+      "javascript:alert(1)",
+      "https://x.com/a/status/0",
+    ]) {
+      assert.equal(
+        contentSchema.safeParse({ ...content, source: { kind, url } }).success,
+        false,
+      );
+    }
+  }
+});
+
 test("rejects ambiguous identities, invalid handles and attachment/thread limits", () => {
   const valid = blankContent("Alex");
   valid.author.handle = "@alex_123";
@@ -82,6 +110,10 @@ test("operator commands accept explicit grants and reject expanded authority", (
     reason: "End trial",
   };
   assert.equal(operatorCommand.parse(grant).action, "set_feature_access");
+  assert.equal(
+    operatorCommand.parse({ ...grant, feature: "x-source-posts" }).action,
+    "set_feature_access",
+  );
   for (const input of [
     { ...grant, feature: "unknown" },
     { ...grant, enabled: "false" },

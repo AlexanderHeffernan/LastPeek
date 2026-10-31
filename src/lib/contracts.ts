@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const xPostURLSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .regex(
+    /^https:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/[1-9][0-9]{0,19}(?:\/(?:photo|video)\/[1-4])?\/?(?:[?#].*)?$/i,
+    "Enter an X post link, such as https://x.com/username/status/123456789.",
+  )
+  .transform((value) => {
+    const path = new URL(value).pathname;
+    return `https://x.com${path.replace(/\/(?:photo|video)\/[1-4]\/?$|\/$/gi, "").replace(/\/status\//i, "/status/")}`;
+  });
+
 export const postSchema = z.object({
   id: z.uuid(),
   text: z.string().max(25000),
@@ -21,6 +34,9 @@ export const contentSchema = z
     title: z.string().trim().max(120).default(""),
     author: authorSchema,
     posts: z.array(postSchema).min(1).max(25),
+    source: z
+      .object({ kind: z.enum(["quote", "reply"]), url: xPostURLSchema })
+      .optional(),
   })
   .superRefine((content, ctx) => {
     if (new Set(content.posts.map((p) => p.id)).size !== content.posts.length)

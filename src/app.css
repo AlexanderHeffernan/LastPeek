@@ -380,12 +380,14 @@
   display: flex;
   align-items: center;
 }
-.share-actions:has(.share-toggle) > [data-slot="button"]:first-child {
+.share-actions:has(.share-toggle) > [data-slot="button"]:first-child,
+.share-actions:has(.share-toggle) > form > [data-slot="button"] {
   border-radius: 999px 0 0 999px;
+  border-right-width: 0;
 }
 .share-toggle[data-slot="button"] {
   border-radius: 0 999px 999px 0;
-  border-left: 1px solid var(--line);
+  border-left-width: 0;
   padding-inline: 10px;
 }
 .delete-draft[data-slot="button"] {

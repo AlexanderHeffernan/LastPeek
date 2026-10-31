@@ -3,6 +3,9 @@
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "./Icon.svelte";
+  import XSourcePost from "./XSourcePost.svelte";
+  import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
+  import type { XSourcePost as SourcePost } from "$lib/x-post";
   import twitter from "twitter-text";
   import { tick } from "svelte";
   import {
@@ -22,6 +25,7 @@
     onfocuspost,
     focusedPost,
     timeline = false,
+    sourcePost = null,
   }: {
     content: Content;
     media: Media[];
@@ -33,6 +37,7 @@
     onfocuspost?: (postId: string, quote: string) => void;
     focusedPost?: string;
     timeline?: boolean;
+    sourcePost?: SourcePost | null;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -89,6 +94,17 @@
   }}
 />
 <section aria-label="Post thread">
+  {#if content.source?.kind === "reply" && !timeline}
+    <div class="reply-source">
+      <span class="source-label"
+        ><Icon name="reply" size={16} />Replying to</span
+      >
+      {#if sourcePost}<XSourcePost post={sourcePost} />
+      {:else}<p class="source-unavailable" role="status">
+          {X_SOURCE_UNAVAILABLE}
+        </p>{/if}
+    </div>
+  {/if}
   {#each content.posts as post, index (post.id)}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -253,6 +269,25 @@
                 </div>{/if}
             {/each}
           </div>{/if}
+        {#if index === 0 && content.source}
+          {#if timeline}<div class="source-label">
+              <Icon name={content.source.kind} size={16} />{content.source
+                .kind === "quote"
+                ? "Quote post"
+                : "Reply"}
+            </div>
+          {:else if content.source.kind === "quote"}
+            <div class="quote-source">
+              <span class="source-label"
+                ><Icon name="quote" size={16} />Quoting</span
+              >
+              {#if sourcePost}<XSourcePost post={sourcePost} />
+              {:else}<p class="source-unavailable" role="status">
+                  {X_SOURCE_UNAVAILABLE}
+                </p>{/if}
+            </div>
+          {/if}
+        {/if}
         {#if (editing && post.id === active) || (!editing && oncopy)}{@const count =
             twitter.parseTweet(post.text).weightedLength}
           <div class="post-tools">
@@ -335,3 +370,29 @@
     </article>
   {/each}
 </section>
+
+<style>
+  .source-unavailable {
+    margin: 12px 0 0;
+    color: #93989d;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .source-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #93989d;
+    font-size: 13px;
+  }
+  .reply-source {
+    padding: 16px;
+    border-bottom: 1px solid #2f3336;
+  }
+  .quote-source {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid #2f3336;
+    border-radius: 16px;
+  }
+</style>
