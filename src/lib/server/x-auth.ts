@@ -1,4 +1,9 @@
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto";
 import { error, redirect, type RequestEvent } from "@sveltejs/kit";
 import { z } from "zod";
 import { db, transaction } from "./db";
@@ -11,6 +16,8 @@ import {
   token,
 } from "./auth";
 import { avatarLimit, storeAvatar } from "./avatars";
+import { hasFeature } from "./features";
+import { ownedDraft } from "./drafts";
 
 const scopes = "tweet.read users.read offline.access";
 const cookie = "lastpeek_x_oauth";
@@ -26,7 +33,7 @@ export type XProfile = z.infer<typeof profileSchema>;
 
 // Tokens are recoverable for future user-specific API features, but not from a
 // database backup alone. Keep the private auth key with the media backup.
-async function encrypt(value: string) {
+export async function encryptXToken(value: string) {
   const key = createHash("sha256")
     .update(await signingSecret())
     .digest();
@@ -41,11 +48,33 @@ async function encrypt(value: string) {
   );
 }
 
+export async function decryptXToken(value: string) {
+  const key = createHash("sha256")
+    .update(await signingSecret())
+    .digest();
+  const bytes = Buffer.from(value, "base64url");
+  const cipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12));
+  cipher.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([
+    cipher.update(bytes.subarray(28)),
+    cipher.final(),
+  ]).toString("utf8");
+}
+
 export async function startXAuth(event: RequestEvent): Promise<never> {
   if (!xAuthEnabled()) error(503, "X sign-in isn’t configured yet.");
   await rateLimit(`x-auth:${event.getClientAddress()}`, 20, 900);
   const form = await event.request.formData();
   const invite = String(form.get("invite") || "");
+  const publishDraft = String(form.get("publishDraft") || "");
+  if (publishDraft) {
+    if (
+      !event.locals.user ||
+      !(await hasFeature(event.locals.user.id, "x-publishing"))
+    )
+      error(403, "X posting isn’t enabled for this account.");
+    await ownedDraft(publishDraft, event.locals.user.id);
+  }
   let email: string | null = null;
   if (invite) {
     if (event.locals.user)
@@ -76,7 +105,7 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
     verifier = token();
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
   await db.query(
-    "INSERT INTO x_oauth_flows(state_hash,browser_hash,verifier,origin,user_id,invite_hash,email) VALUES($1,$2,$3,$4,$5,$6,$7)",
+    "INSERT INTO x_oauth_flows(state_hash,browser_hash,verifier,origin,user_id,invite_hash,email,publish_draft) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
     [
       hash(state),
       hash(browser),
@@ -85,6 +114,7 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
       event.locals.user?.id || null,
       invite ? hash(invite) : null,
       email,
+      publishDraft || null,
     ],
   );
   event.cookies.set(cookie, browser, {
@@ -99,7 +129,7 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
     response_type: "code",
     client_id: process.env.X_CLIENT_ID!,
     redirect_uri: `${event.url.origin}/auth/x/callback`,
-    scope: scopes,
+    scope: publishDraft ? `${scopes} tweet.write` : scopes,
     state,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     code_challenge_method: "S256",
@@ -130,7 +160,11 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
   if (event.url.searchParams.has("error"))
     redirect(
       303,
-      flow.user_id ? "/settings?x=cancelled" : "/login?x=cancelled",
+      flow.publish_draft
+        ? `/drafts/${flow.publish_draft}`
+        : flow.user_id
+          ? "/settings?x=cancelled"
+          : "/login?x=cancelled",
     );
   const code = event.url.searchParams.get("code");
   if (!code || code.length > 2048)
@@ -168,9 +202,11 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
       })
       .parse(await response.json());
     if (
-      !["users.read", "tweet.read"].every((scope) =>
-        credentials.scope.split(" ").includes(scope),
-      )
+      ![
+        "users.read",
+        "tweet.read",
+        ...(flow.publish_draft ? ["tweet.write"] : []),
+      ].every((scope) => credentials.scope.split(" ").includes(scope))
     )
       throw new Error("Missing X permissions");
     const identity = await fetch(
@@ -189,9 +225,9 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
       "Couldn’t connect to X. Return to the account or invitation page and try again.",
     );
   }
-  const accessToken = await encrypt(credentials.access_token);
+  const accessToken = await encryptXToken(credentials.access_token);
   const refreshToken = credentials.refresh_token
-    ? await encrypt(credentials.refresh_token)
+    ? await encryptXToken(credentials.refresh_token)
     : null;
   // A random, undisclosed password preserves compatibility with the preceding
   // image. X-only users can explicitly set their first password in Account.
@@ -271,7 +307,7 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
         new Date(Date.now() + credentials.expires_in * 1000),
         credentials.scope,
         profile,
-        Boolean(flow.user_id),
+        Boolean(flow.user_id && !flow.publish_draft),
       ],
     );
     return { userId, created };
@@ -292,9 +328,11 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
   }
   redirect(
     303,
-    flow.user_id || outcome.created
-      ? `/settings?x=${photoFailed ? "photo-failed" : outcome.created ? "joined" : "linked"}`
-      : "/",
+    flow.publish_draft
+      ? `/drafts/${flow.publish_draft}`
+      : flow.user_id || outcome.created
+        ? `/settings?x=${photoFailed ? "photo-failed" : outcome.created ? "joined" : "linked"}`
+        : "/",
   );
 }
 

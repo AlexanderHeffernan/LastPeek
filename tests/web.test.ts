@@ -837,7 +837,10 @@ test(
         .getByRole("link", { name: "Feature flags", exact: true })
         .click();
       const flags = operator({ action: "admin_flags" });
-      assert.equal(flags.flags.length, 0);
+      assert.deepEqual(
+        flags.flags.map((flag: { feature: string }) => flag.feature),
+        ["x-publishing"],
+      );
       await page
         .getByRole("textbox", { name: "Search users for feature flags" })
         .waitFor();

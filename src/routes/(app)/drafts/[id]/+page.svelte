@@ -6,6 +6,7 @@
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import AIReview from "$lib/components/AIReview.svelte";
+  import XPublish from "$lib/components/XPublish.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import {
     contentSchema,
@@ -322,6 +323,20 @@
   }}
 />
 <svelte:head><title>{postKind} · LastPeek</title></svelte:head>
+{#snippet publishingControls()}
+  <XPublish
+    draftId={data.draft.id}
+    {content}
+    {version}
+    connection={data.xPublishing}
+    disabled={dirty ||
+      saving ||
+      uploading ||
+      pending.length > 0 ||
+      busy ||
+      deleting}
+  />
+{/snippet}
 <main class="draft-page">
   <header class="draft-heading">
     <Button
@@ -348,6 +363,9 @@
       onchange={changed}
       onupload={upload}
       oncopy={copy}
+      publishing={data.xPublishing.enabled || data.xPublishing.publication
+        ? publishingControls
+        : undefined}
     />
     {#each pending as item}<div class="pending">
         <div class="row between">

@@ -28,6 +28,7 @@
     timeline = false,
     sourcePost = null,
     updatedAt,
+    publishing,
   }: {
     content: Content;
     media: Media[];
@@ -41,6 +42,7 @@
     timeline?: boolean;
     sourcePost?: SourcePost | null;
     updatedAt?: string;
+    publishing?: import("svelte").Snippet;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -302,7 +304,7 @@
             </div>
           {/if}
         {/if}
-        {#if (editing && post.id === active) || (!editing && oncopy)}{@const count =
+        {#if (editing && (post.id === active || (publishing && index === content.posts.length - 1))) || (!editing && oncopy)}{@const count =
             twitter.parseTweet(post.text).weightedLength}
           <div class="post-tools">
             <div class="post-action-icons">
@@ -359,24 +361,27 @@
                   title={count > 280 ? "X Premium required" : "Character count"}
                   >{count}/280</span
                 >
-                {#if content.posts.length < 25}<Button
-                    variant="outline"
-                    class="icon-button add-post"
-                    aria-label="Add post to thread"
-                    title="Add post to thread"
-                    onclick={async () => {
-                      const id = crypto.randomUUID();
-                      content.posts = content.posts.toSpliced(index + 1, 0, {
-                        id,
-                        text: "",
-                        media: [],
-                      });
-                      onchange();
-                      activeId = id;
-                      await tick();
-                      document.getElementById(`post-text-${id}`)?.focus();
-                    }}><Icon name="plus" size={20} /></Button
-                  >{/if}
+                <div class="post-submit-actions">
+                  {#if content.posts.length < 25}<Button
+                      variant="outline"
+                      class="icon-button add-post"
+                      aria-label="Add post to thread"
+                      title="Add post to thread"
+                      onclick={async () => {
+                        const id = crypto.randomUUID();
+                        content.posts = content.posts.toSpliced(index + 1, 0, {
+                          id,
+                          text: "",
+                          media: [],
+                        });
+                        onchange();
+                        activeId = id;
+                        await tick();
+                        document.getElementById(`post-text-${id}`)?.focus();
+                      }}><Icon name="plus" size={20} /></Button
+                    >{/if}
+                  {#if index === content.posts.length - 1 && publishing}{@render publishing()}{/if}
+                </div>
               </div>
             {/if}
           </div>{/if}

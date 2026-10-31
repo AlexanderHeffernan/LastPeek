@@ -807,6 +807,34 @@
 .post-count {
   margin-left: auto;
 }
+.post-count:has(.x-publish),
+.post-count:has(.posting-feedback) {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.post-submit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.post-submit-actions:has(.posting-feedback) {
+  flex: 1 0 auto;
+  min-width: 0;
+}
+.post-submit-actions:has(.posting-feedback) .add-post {
+  margin-left: 0;
+}
+@media (max-width: 600px) {
+  .post-count:has(.posting-feedback) {
+    flex-basis: 100%;
+  }
+}
 .post-tools .icon-button[data-slot="button"] {
   color: var(--primary);
   padding: 9px;

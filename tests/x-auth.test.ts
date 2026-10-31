@@ -39,6 +39,7 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
     .png()
     .toBuffer();
   let providerFailure = false;
+  let grantedScope = "tweet.read users.read offline.access";
   t.mock.method(
     globalThis,
     "fetch",
@@ -53,7 +54,7 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
           access_token: "test-access-token",
           refresh_token: "test-refresh-token",
           expires_in: 7200,
-          scope: "tweet.read users.read offline.access",
+          scope: grantedScope,
         });
       }
       if (String(url).startsWith("https://api.x.com/2/users/me"))
@@ -263,12 +264,71 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
       ).rows[0].import_pending,
       true,
     );
+    const publishingDraft = randomUUID();
+    await db.query("INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)", [
+      publishingDraft,
+      ownerId,
+      {
+        author: { name: "Owner", handle: "" },
+        posts: [{ id: randomUUID(), text: "Ready", media: [] }],
+      },
+    ]);
+    await assert.rejects(
+      startXAuth(
+        event("/auth/x/start", { publishDraft: publishingDraft }, owner),
+      ),
+      status(403),
+    );
+    await db.query(
+      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-publishing')",
+      [ownerId],
+    );
+    const publishingStart = async () =>
+      new URL(
+        await redirectFrom(
+          startXAuth(
+            event("/auth/x/start", { publishDraft: publishingDraft }, owner),
+          ),
+        ),
+      );
+    let publishingURL = await publishingStart();
+    assert.ok(
+      publishingURL.searchParams
+        .get("scope")
+        ?.split(" ")
+        .includes("tweet.write"),
+    );
+    await assert.rejects(
+      callback(publishingURL.searchParams.get("state")!, owner),
+      status(502),
+    );
+    grantedScope += " tweet.write";
+    publishingURL = await publishingStart();
+    assert.equal(
+      await redirectFrom(
+        callback(publishingURL.searchParams.get("state")!, owner),
+      ),
+      `/drafts/${publishingDraft}`,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS count FROM x_publications WHERE draft_id=$1",
+          [publishingDraft],
+        )
+      ).rows[0].count,
+      0,
+      "Authorisation must never publish automatically",
+    );
   } finally {
     await db.query(
       "DELETE FROM x_oauth_flows WHERE user_id=ANY($1::uuid[]) OR email=$2",
       [users, email],
     );
     await db.query("DELETE FROM invites WHERE created_by=$1", [ownerId]);
+    await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [
+      users,
+    ]);
     await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [users]);
     for (const id of avatarIds.filter(Boolean))
       await rm(avatarPath(id), { force: true });

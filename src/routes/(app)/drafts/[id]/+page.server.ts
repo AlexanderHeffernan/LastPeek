@@ -3,6 +3,7 @@ import { ownedDraft, draftMedia, draftComments } from "$lib/server/drafts";
 import { aiEnabled } from "$lib/server/openai";
 import { isPro } from "$lib/server/plans";
 import { sourcePost } from "$lib/server/x-post";
+import { xPublishing } from "$lib/server/x-publishing";
 import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   const draft = await ownedDraft(params.id, requireUser(locals).id);
@@ -11,6 +12,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     draftComments(draft.id),
   ]);
   return {
+    xPublishing: await xPublishing(draft.owner_id, draft.id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
     draft: { ...draft, updated_at: draft.updated_at.toISOString() },

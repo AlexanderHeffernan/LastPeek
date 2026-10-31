@@ -31,7 +31,15 @@ The owner controls plans and allowances in site admin. Free changes apply immedi
 
 Over-quota accounts keep editing, sharing, human feedback, copying, downloading and deletion. Creation and storage additions are blocked when they would exceed limits. Deleting a draft deletes its revisions, comments, review link and attachments; removing one attachment may leave revision-retained media until the draft is deleted. No automated excess-data deletion policy is implemented. A future notified retention policy needs its own terms and warning flow.
 
-AI and X access are released plan capabilities, not feature flags. The feature-flag administration page remains for future experiments. API budgets reserve conservatively before requests; known costs reconcile against usage, while unknown costs keep their reservation. Global safety caps still apply. Site admin's financial model is hypothetical, separate from live allowances and not a provider invoice.
+AI review and X source reads are released plan capabilities, not feature flags. Experimental X publishing uses the separate `x-publishing` grant. API budgets reserve conservatively before requests; known costs reconcile against usage, while unknown costs keep their reservation. Global safety caps still apply. Site admin's financial model is hypothetical, separate from live allowances and not a provider invoice.
+
+## Experimental X publishing
+
+Pro authors explicitly granted `x-publishing` can post one text-only draft of up to 280 weighted characters to their connected X account. Media, threads, replies and quotes remain manual. Publishing is optional; local accounts and review workflows do not require it. Request `tweet.write` only through the author's explicit Allow posting / Connect X action, then return to the draft without posting automatically.
+
+Post to X sits to the right of the final add-post button, using the X logo in place of the letter. Multi-post drafts say Post all but remain disabled until thread publishing is supported. A normal click or keyboard activation opens a compact confirmation of the actual connected account with a tip that holding skips confirmation; do not repeat the draft or add a sound checkbox. Holding for 1.5 seconds is an alternative confirmation, with a warm gradient charge, synthesized musical feedback and best-effort device vibration. Keep idle controls free of extra helper text; account and gesture remain accessible in the button's description/title. Releasing early after beginning a hold, leaving the button, scrolling/cancelling, losing focus, hiding the page, Escape or changing the draft cancels the gesture. Respect reduced motion; never depend on sound or haptics to communicate state.
+
+Successful publishing retains the draft and feedback and exposes View on X. Edits never rewrite the publication record or update X; its title identifies edits since posting. One successful or uncertain publication blocks further publication from that draft. A lost response or interrupted request must never automatically retry. Definite provider rejection permits another explicit attempt. The first experiment does not reconcile uncertain publications automatically. Deleting the LastPeek draft does not delete anything on X. Real-account compatibility and billing still require an explicitly authorised live trial.
 
 ## Next, not now
 
