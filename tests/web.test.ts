@@ -3850,7 +3850,7 @@ for (const scenario of [
           "direct creation cannot bypass the grant",
         );
         await setPlan(userId, userId, "pro", false);
-        await page.reload();
+        await page.reload({ waitUntil: "networkidle" });
         // Native source cards are fixture-backed: tests must never spend real X credits.
         const sourcePostId = String(
           BigInt(`0x${userId.replaceAll("-", "").slice(0, 15)}`),
@@ -4010,7 +4010,9 @@ for (const scenario of [
         const previousViewport = page.viewportSize()!;
         await page.setViewportSize({ width: 390, height: 844 });
         for (const kind of ["reply", "quote"] as const) {
-          await page.goto(baseURL);
+          // This menu needs its client handler, not merely the SSR Drafts main.
+          // Wait for cold imports before clicking or replacing this document.
+          await page.goto(baseURL, { waitUntil: "networkidle" });
           await page
             .getByRole("main", { name: "Drafts", exact: true })
             .waitFor();
@@ -4223,7 +4225,7 @@ for (const scenario of [
           await page.keyboard.press("Escape");
         }
         await page.setViewportSize(previousViewport);
-        await page.goto(baseURL);
+        await page.goto(baseURL, { waitUntil: "networkidle" });
         let lastSourceDraft = "";
         for (const kind of ["quote", "reply"] as const) {
           await page.getByRole("link", { name: "LastPeek home" }).click();
@@ -4307,7 +4309,7 @@ for (const scenario of [
               .getByLabel("Post 1 text", { exact: true })
               .fill(`My ${kind} for review`),
           );
-          await page.reload();
+          await page.reload({ waitUntil: "networkidle" });
           assert.equal(
             await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
             `My ${kind} for review`,
@@ -4361,7 +4363,9 @@ for (const scenario of [
           .getByText(X_SOURCE_UNAVAILABLE, { exact: true })
           .waitFor();
         assert.equal(await reviewer.locator("iframe").count(), 0);
-        await page.goto(`${baseURL}/drafts/${lastSourceDraft}`);
+        await page.goto(`${baseURL}/drafts/${lastSourceDraft}`, {
+          waitUntil: "networkidle",
+        });
         await page.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
         await edited(page, () =>
           page
