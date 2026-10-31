@@ -398,6 +398,56 @@ test(
       assert.equal(new URL(page.url()).pathname, "/settings");
       await page.setViewportSize({ width: 390, height: 844 });
       await screenshot(page, "siteadmin-overlay-mobile");
+      if (engine === chromium) {
+        const cdp = await owner.newCDPSession(page);
+        for (const { width, height, insets } of [
+          {
+            width: 390,
+            height: 844,
+            insets: { top: 59, bottom: 34, left: 0, right: 0 },
+          },
+          {
+            width: 844,
+            height: 390,
+            insets: { top: 0, bottom: 21, left: 59, right: 21 },
+          },
+        ]) {
+          await page.setViewportSize({ width, height });
+          await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets });
+          await page.evaluate(
+            () =>
+              new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => resolve()),
+                ),
+              ),
+          );
+          for (const element of [
+            page.getByRole("dialog", {
+              name: "Site admin overlay",
+              exact: true,
+            }),
+            page.getByRole("heading", { name: "Site admin.", exact: true }),
+            page.getByRole("button", { name: "Close site admin", exact: true }),
+          ]) {
+            const bounds = await element.boundingBox();
+            assert.ok(bounds);
+            assert.ok(
+              bounds.x >= insets.left + 8 && bounds.y >= insets.top + 8,
+              "Admin and its controls must clear the notch/status area.",
+            );
+            assert.ok(
+              bounds.x + bounds.width <= width - insets.right - 8 &&
+                bounds.y + bounds.height <= height - insets.bottom - 8,
+              "Admin and its controls must clear side insets and the home indicator.",
+            );
+          }
+          await screenshot(page, `siteadmin-safe-area-${width}`);
+        }
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: {} });
+        await cdp.detach();
+        await page.setViewportSize({ width: 390, height: 844 });
+      }
       await page
         .getByRole("heading", { name: "Site admin.", exact: true })
         .click();

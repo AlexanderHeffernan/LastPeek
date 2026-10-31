@@ -109,10 +109,17 @@
 
 <style>
   .siteadmin-overlay {
-    width: min(1100px, calc(100% - 32px));
+    inset: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+    width: min(
+      1100px,
+      calc(100% - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))
+    );
     max-width: none;
     height: min(92dvh, 1000px);
-    max-height: calc(100dvh - 32px);
+    max-height: calc(
+      100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+    );
     padding: 0;
     margin: auto;
     border: 1px solid var(--line);
@@ -138,9 +145,15 @@
   }
   @media (max-width: 650px) {
     .siteadmin-overlay {
-      width: calc(100% - 16px);
-      height: calc(100dvh - 16px);
-      max-height: calc(100dvh - 16px);
+      width: calc(
+        100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)
+      );
+      height: calc(
+        100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+      );
+      max-height: calc(
+        100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+      );
       border-radius: 12px;
     }
   }
