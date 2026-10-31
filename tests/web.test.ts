@@ -908,6 +908,13 @@ test(
       const image = await sharp({
         create: { width: 900, height: 520, channels: 3, background: "#dce8c6" },
       })
+        .composite([
+          {
+            input: Buffer.from(
+              '<svg width="900" height="520"><path fill="red" d="M0 0h90v520H0z"/><path fill="blue" d="M810 0h90v520h-90z"/></svg>',
+            ),
+          },
+        ])
         .png()
         .toBuffer();
       const upload = page.waitForResponse((r) =>
@@ -1098,6 +1105,18 @@ test(
       const previewSize = await sharp(previewBytes).metadata();
       assert.equal(previewSize.width, 1200);
       assert.equal(previewSize.height, 630);
+      // Both outer edges survive in the shared card, rather than a centre crop.
+      for (const [left, expected] of [
+        [800, [255, 0, 0]],
+        [1135, [0, 0, 255]],
+      ] as const) {
+        const pixel = await sharp(previewBytes)
+          .extract({ left, top: 350, width: 1, height: 1 })
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+        assert.deepEqual([...pixel], expected);
+      }
       assert.equal(
         (
           await guest.request.get(`${baseURL}/r/${"A".repeat(43)}/preview.png`)

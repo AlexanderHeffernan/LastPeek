@@ -1,8 +1,22 @@
 import sharp, { type OverlayOptions } from "sharp";
 import { readFile } from "node:fs/promises";
+import { render } from "svelte/server";
+import Brand from "../components/Brand.svelte";
 import type { Content, Media } from "../contracts";
 import { mediaPath } from "./media";
 import { avatarPath } from "./avatars";
+
+// Use the app's outlined wordmark and resting eyes, not a font approximation.
+const brand = render(Brand)
+  .body.match(/<svg[\s\S]*?<\/svg>/)![0]
+  .replace(
+    "<svg",
+    '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="43"',
+  )
+  .replace(
+    "</svg>",
+    "<style>.brand-bubble{fill:#ff6b5b;stroke:#ff6b5b}.brand-eye,.brand-word{fill:#f2f0ec}.brand-pupil{fill:#0b0b0c}.brand-iris{fill:#ff6b5b}</style></svg>",
+  );
 
 function escape(value: string) {
   return value.replace(/\0/g, "�").replace(
@@ -65,7 +79,10 @@ export async function reviewPreview(content: Content, media: Media[]) {
     try {
       photo = await sharp(mediaPath(image.id), { limitInputPixels: 40_000_000 })
         .rotate()
-        .resize(hasText ? 352 : 1088, 380, { fit: "cover" })
+        .resize(hasText ? 352 : 1088, 380, {
+          fit: "contain",
+          background: "#000000",
+        })
         .png()
         .toBuffer();
     } catch {
@@ -139,22 +156,9 @@ export async function reviewPreview(content: Content, media: Media[]) {
       top: 162,
     });
   layers.push({
-    input: await text(
-      content.posts.length > 1
-        ? `${content.posts.length} posts · Give a second look`
-        : "Give a second look",
-      780,
-      22,
-      "#71767b",
-      32,
-    ),
-    left: 56,
-    top: 574,
-  });
-  layers.push({
-    input: await text("LastPeek", 180, 26, "#ff6b5b", 36),
-    left: 1000,
-    top: 570,
+    input: await sharp(Buffer.from(brand)).png().toBuffer(),
+    left: 924,
+    top: 564,
   });
   return sharp({
     create: { width: 1200, height: 630, channels: 3, background: "#000000" },
