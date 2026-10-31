@@ -201,10 +201,25 @@ test(
         v.pause();
         v.currentTime = 4;
       });
-      await page.waitForFunction(() => {
-        const v = document.querySelector("video");
-        return v && !v.seeking && v.currentTime >= 4;
-      });
+      await page
+        .waitForFunction(() => {
+          const v = document.querySelector("video");
+          return v && !v.seeking && v.currentTime >= 4;
+        })
+        .catch(async (error) => {
+          console.error(
+            "Video seek state:",
+            await video.evaluate((v: HTMLVideoElement) => ({
+              time: v.currentTime,
+              duration: v.duration,
+              paused: v.paused,
+              seeking: v.seeking,
+              ready: v.readyState,
+              error: v.error?.message,
+            })),
+          );
+          throw error;
+        });
       await page
         .getByRole("link", { name: "Open draft: A moving idea", exact: true })
         .click({ position: { x: 100, y: 25 } });
@@ -1767,6 +1782,9 @@ test(
       );
       await context.clearCookies();
       await page.goto(`${baseURL}/login?x=unlinked`);
+      // Unlike the native sign-in form, dismissing this SSR notice needs the
+      // client bootstrap to finish before its first keyboard interaction.
+      await page.waitForLoadState("networkidle");
       await page
         .getByRole("heading", { name: "Welcome back.", exact: true })
         .waitFor();
@@ -1782,9 +1800,8 @@ test(
       );
       await page
         .getByRole("button", { name: "Dismiss X sign-in notice", exact: true })
-        .focus();
-      await page.keyboard.press("Enter");
-      assert.equal(await page.getByRole("status").count(), 0);
+        .press("Enter");
+      await page.getByRole("status").waitFor({ state: "hidden" });
       const consent = await xConsent(page);
       await page
         .getByRole("button", { name: "Sign in with X", exact: true })
@@ -1799,6 +1816,7 @@ test(
       );
       await page.waitForURL(`${baseURL}/login?x=cancelled`);
       await page.goto(`${baseURL}/login?x=unlinked`);
+      await page.waitForLoadState("networkidle");
       await page
         .getByRole("button", { name: "Dismiss X sign-in notice", exact: true })
         .click();
@@ -2617,7 +2635,18 @@ for (const scenario of [
     const crashes: string[] = [];
     let dismissNextDialog = false;
     for (const p of [page, reviewer, stranger]) {
-      p.on("pageerror", (e) => crashes.push(e.message));
+      p.on("pageerror", (e) => {
+        console.error("Browser exception stack:", e.stack);
+        crashes.push(e.message);
+      });
+      p.on("requestfailed", (request) => {
+        if (request.resourceType() === "script")
+          console.error(
+            "Failed browser script:",
+            new URL(request.url()).pathname,
+            request.failure()?.errorText,
+          );
+      });
       p.on("dialog", (dialog) => {
         if (p === page && dismissNextDialog) {
           dismissNextDialog = false;
@@ -4300,6 +4329,9 @@ for (const scenario of [
             version: sourceVersion,
           });
           await reviewer.goto(`${baseURL}/r/${shared.token}`);
+          // This standalone scenario cold-loads the review client. Finish its
+          // bootstrap before a later hard navigation/reload can cancel imports.
+          await reviewer.waitForLoadState("networkidle");
           await reviewer
             .getByRole("heading", {
               name: kind === "reply" ? "Comment" : "Quote",

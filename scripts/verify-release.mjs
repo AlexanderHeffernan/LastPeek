@@ -329,14 +329,14 @@ try {
       if (!options.focused) jobs.push({ integration: true });
       const failures = [];
       const concurrency = Math.min(
-        4,
+        3,
         Math.max(1, availableParallelism()),
         jobs.length,
       );
       console.log(
-        `Running ${jobs.length} isolated validation shards with ${concurrency} workers`,
+        `Running ${jobs.length} isolated validation shards with ${concurrency} workers, one active scenario per browser engine`,
       );
-      let next = 0;
+      const activeBrowsers = new Set();
       async function execute(job) {
         const jobStarted = Date.now();
         const { browser } = job;
@@ -496,12 +496,22 @@ try {
       }
       await Promise.all(
         Array.from({ length: concurrency }, async () => {
-          while (next < jobs.length && failures.length === 0) {
-            const job = jobs[next++];
+          while (jobs.length && failures.length === 0) {
+            // Parallel WebKit processes made unrelated bootstrap, focus and media
+            // scenarios intermittent under CI load. Engines still overlap, but
+            // each engine advances its own scenarios serially.
+            const index = jobs.findIndex(
+              (job) => !job.browser || !activeBrowsers.has(job.browser),
+            );
+            if (index < 0) return;
+            const [job] = jobs.splice(index, 1);
+            if (job.browser) activeBrowsers.add(job.browser);
             try {
               await execute(job);
             } catch (error) {
               failures.push(error);
+            } finally {
+              activeBrowsers.delete(job.browser);
             }
           }
         }),
