@@ -3001,12 +3001,12 @@ test(
       await floatingPost.click();
       const mobileMenu = page.getByLabel("New post actions", { exact: true });
       await mobileMenu
-        .getByRole("button", { name: "New Quote", exact: true })
-        .click();
-      await page
-        .getByRole("heading", { name: "New Quote", exact: true })
+        .getByRole("button", { name: "Paste to reply or quote", exact: true })
         .waitFor();
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await mobileMenu
+        .getByRole("button", { name: "New post", exact: true })
+        .waitFor();
+      await page.keyboard.press("Escape");
       await page.evaluate(() => scrollTo(0, 40));
       await page.waitForFunction(
         (el) => el!.getBoundingClientRect().top === 0,
@@ -3044,12 +3044,9 @@ test(
       await ending.getByRole("button", { name: "Back to top" }).waitFor();
       await ending.getByRole("button", { name: "New post options" }).click();
       await page
-        .getByRole("button", { name: "New Quote", exact: true })
-        .click();
-      await page
-        .getByRole("heading", { name: "New Quote", exact: true })
+        .getByRole("button", { name: "Paste to reply or quote", exact: true })
         .waitFor();
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page.keyboard.press("Escape");
       await ending.getByRole("button", { name: "Back to top" }).click();
       await page.waitForFunction(() => scrollY === 0);
       await ending.waitFor({ state: "hidden" });
@@ -3712,6 +3709,314 @@ test(
          ON CONFLICT(post_id) DO UPDATE SET content=EXCLUDED.content,expires_at=EXCLUDED.expires_at`,
           [sourcePostId, card ? JSON.stringify(card) : null],
         );
+      if (engine === chromium) {
+        // Use the real browser clipboard and permission grant. Opening only reads
+        // with an existing grant; unrelated contents and read failures stay quiet.
+        await owner.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await page.evaluate(() => {
+          const read = navigator.clipboard.readText.bind(navigator.clipboard);
+          sessionStorage.setItem("clipboard-reads", "0");
+          Object.defineProperty(navigator.clipboard, "readText", {
+            configurable: true,
+            async value() {
+              try {
+                return await read();
+              } finally {
+                sessionStorage.setItem(
+                  "clipboard-reads",
+                  String(Number(sessionStorage.getItem("clipboard-reads")) + 1),
+                );
+              }
+            },
+          });
+        });
+        let reads = 0;
+        const menu = page.getByRole("dialog", { name: "New post actions" });
+        for (const text of [
+          sourceURL,
+          "https://example.com/not-an-x-post",
+          "",
+          "https://twitter.com/changed/status/456?s=20",
+        ]) {
+          await page.evaluate(
+            (text) => navigator.clipboard.writeText(text),
+            text,
+          );
+          await page
+            .getByRole("button", { name: "New post options", exact: true })
+            .click();
+          await page.waitForFunction(
+            (reads) =>
+              Number(sessionStorage.getItem("clipboard-reads")) === reads,
+            ++reads,
+          );
+          if (text === sourceURL || text.includes("twitter.com")) {
+            await menu
+              .getByText(
+                text === sourceURL
+                  ? sourceURL.replace("https://", "")
+                  : "x.com/changed/status/456",
+                { exact: true },
+              )
+              .waitFor();
+            await menu
+              .getByRole("button", { name: "New reply", exact: true })
+              .waitFor();
+            assert.equal(
+              await menu
+                .getByRole("button", { name: "New post", exact: true })
+                .count(),
+              0,
+            );
+          } else {
+            await menu
+              .getByRole("button", {
+                name: "Paste to reply or quote",
+                exact: true,
+              })
+              .waitFor();
+            assert.equal(await menu.getByRole("status").textContent(), "");
+          }
+          await page.keyboard.press("Escape");
+          await menu.waitFor({ state: "hidden" });
+        }
+        for (const state of ["prompt", "denied"]) {
+          await owner.clearPermissions();
+          if (state === "denied")
+            await owner.grantPermissions(["clipboard-write"]);
+          await page
+            .getByRole("button", { name: "New post options", exact: true })
+            .click();
+          assert.equal(
+            await page.evaluate(
+              async () =>
+                (
+                  await navigator.permissions.query({
+                    name: "clipboard-read" as PermissionName,
+                  })
+                ).state,
+            ),
+            state,
+          );
+          await menu
+            .getByRole("button", {
+              name: "Paste to reply or quote",
+              exact: true,
+            })
+            .waitFor();
+          assert.equal(
+            await page.evaluate(() =>
+              Number(sessionStorage.getItem("clipboard-reads")),
+            ),
+            reads,
+            "opening must not attempt a read that could prompt",
+          );
+          await page.keyboard.press("Escape");
+          await menu.waitFor({ state: "hidden" });
+        }
+        await owner.clearPermissions();
+      }
+      // Clipboard permissions are browser/OS-owned. Exercise both delivered text
+      // and denied access through the UI, without spending real provider credits.
+      const previousViewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const kind of ["reply", "quote"] as const) {
+        await page.goto(baseURL);
+        await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+        await page.evaluate(
+          ({ kind, sourcePostId }) => {
+            Object.defineProperty(navigator, "clipboard", {
+              configurable: true,
+              value: {
+                async readText() {
+                  if (kind === "reply") throw new Error("Permission denied");
+                  return `https://twitter.com/source/status/${sourcePostId}?s=20`;
+                },
+                async writeText() {
+                  throw new Error("Permission denied");
+                },
+              },
+            });
+          },
+          { kind, sourcePostId },
+        );
+        await page
+          .getByRole("button", { name: "New post", exact: true })
+          .click();
+        const menu = page.getByRole("dialog", { name: "New post actions" });
+        await menu.waitFor();
+        // Without a grant (or permission-query support), + must not initiate a paste.
+        await menu
+          .getByRole("button", { name: "Paste to reply or quote", exact: true })
+          .waitFor();
+        assert.equal(await menu.getByRole("button").count(), 2);
+        await menu
+          .getByRole("button", { name: "Paste to reply or quote", exact: true })
+          .click();
+        if (kind === "reply") {
+          await menu
+            .getByRole("button", { name: "Couldn’t paste link", exact: true })
+            .waitFor();
+          await page.evaluate(() => {
+            Object.assign(navigator.clipboard, {
+              async readText() {
+                return sessionStorage.getItem("test-clipboard") || "";
+              },
+            });
+          });
+          await menu
+            .getByRole("button", {
+              name: "Paste to reply or quote",
+              exact: true,
+            })
+            .waitFor();
+          for (const text of ["", "https://example.com/not-an-x-post"]) {
+            await page.evaluate(
+              (text) => sessionStorage.setItem("test-clipboard", text),
+              text,
+            );
+            await menu
+              .getByRole("button", {
+                name: "Paste to reply or quote",
+                exact: true,
+              })
+              .click();
+            await menu
+              .getByRole("button", { name: "No X link copied", exact: true })
+              .waitFor();
+            assert.equal(await menu.getByRole("button").count(), 2);
+            await menu
+              .getByRole("button", {
+                name: "Paste to reply or quote",
+                exact: true,
+              })
+              .waitFor();
+          }
+          await page.evaluate(
+            (text) => sessionStorage.setItem("test-clipboard", text),
+            sourceURL,
+          );
+          await menu
+            .getByRole("button", {
+              name: "Paste to reply or quote",
+              exact: true,
+            })
+            .click();
+        }
+        await menu
+          .getByText(sourceURL.replace("https://", ""), { exact: true })
+          .waitFor();
+        assert.equal(await menu.getByRole("button").count(), 2);
+        assert.equal(
+          await menu
+            .getByRole("button", { name: "New post", exact: true })
+            .count(),
+          0,
+        );
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
+        await page
+          .getByRole("button", { name: "New post", exact: true })
+          .click();
+        await menu
+          .getByRole("button", { name: "Paste to reply or quote", exact: true })
+          .waitFor();
+        assert.equal(
+          await menu.getByText("From X", { exact: true }).count(),
+          0,
+        );
+        await menu
+          .getByRole("button", { name: "Paste to reply or quote", exact: true })
+          .click();
+        await menu
+          .getByRole("button", { name: "New reply", exact: true })
+          .waitFor();
+        const draftCount = (
+          await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [
+            userId,
+          ])
+        ).rows[0].count;
+        await cacheSource(null);
+        await menu
+          .getByRole("button", {
+            name: `New ${kind}`,
+            exact: true,
+          })
+          .click();
+        await menu.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
+        assert.equal(
+          (
+            await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [
+              userId,
+            ])
+          ).rows[0].count,
+          draftCount,
+        );
+        await cacheSource(sourceCard);
+        await menu
+          .getByRole("button", {
+            name: `New ${kind}`,
+            exact: true,
+          })
+          .click();
+        await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+        const importedId = page.url().split("/").at(-1)!;
+        assert.deepEqual(
+          (
+            await db.query("SELECT content FROM drafts WHERE id=$1", [
+              importedId,
+            ])
+          ).rows[0].content.source,
+          { kind, url: sourceURL },
+        );
+        await edited(page, () =>
+          page
+            .getByLabel("Post 1 text", { exact: true })
+            .fill(`Prepared ${kind} — not published`),
+        );
+        await page
+          .getByRole("button", { name: "Finish in X", exact: true })
+          .click();
+        const finish = page.getByRole("dialog", {
+          name: `Finish your ${kind}`,
+        });
+        await finish
+          .getByRole("button", { name: `Copy ${kind}`, exact: true })
+          .click();
+        await finish.getByRole("alert").waitFor();
+        await page.evaluate(() => {
+          Object.assign(navigator.clipboard, {
+            async writeText(text: string) {
+              sessionStorage.setItem("test-copied-text", text);
+            },
+          });
+        });
+        await finish
+          .getByRole("button", { name: `Copy ${kind}`, exact: true })
+          .click();
+        await finish
+          .getByRole("button", { name: "Copied", exact: true })
+          .waitFor();
+        assert.equal(
+          await page.evaluate(() => sessionStorage.getItem("test-copied-text")),
+          `Prepared ${kind} — not published`,
+        );
+        const original = finish.getByRole("link", {
+          name: "Open original in X",
+          exact: true,
+        });
+        assert.equal(await original.getAttribute("href"), sourceURL);
+        assert.equal(await original.getAttribute("target"), "_blank");
+        assert.equal(
+          await page
+            .getByRole("button", { name: "Post to X", exact: true })
+            .count(),
+          0,
+        );
+        await page.keyboard.press("Escape");
+      }
+      await page.setViewportSize(previousViewport);
+      await page.goto(baseURL);
       let lastSourceDraft = "";
       for (const kind of ["quote", "reply"] as const) {
         await page.getByRole("link", { name: "LastPeek home" }).click();
@@ -3719,29 +4024,25 @@ test(
           .getByRole("button", { name: "New post options", exact: true })
           .click();
         await screenshot(page, "x-gate-enabled-menu");
-        await page
-          .getByRole("button", {
-            name: kind === "quote" ? "New Quote" : "New Reply",
-            exact: true,
-          })
-          .click();
         const dialog = page.getByRole("dialog", {
-          name: kind === "quote" ? "New Quote" : "New Reply",
+          name: "New post actions",
         });
+        // A normal desktop paste event works while the menu is open, without
+        // requiring clipboard-read permission or affecting ordinary text inputs.
+        await dialog.evaluate((element, text) => {
+          const clipboardData = new DataTransfer();
+          clipboardData.setData("text/plain", text);
+          element.dispatchEvent(
+            new ClipboardEvent("paste", {
+              clipboardData,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        }, `https://twitter.com/source/status/${sourcePostId}?s=20`);
         await dialog
-          .getByLabel("X post link")
-          .fill("https://example.com/not-a-post");
-        await dialog
-          .getByRole("button", { name: `Create ${kind}`, exact: true })
-          .click();
-        await dialog.getByRole("alert").waitFor();
-        assert.equal(
-          await dialog.getByLabel("X post link").inputValue(),
-          "https://example.com/not-a-post",
-        );
-        await dialog
-          .getByLabel("X post link")
-          .fill(`https://twitter.com/source/status/${sourcePostId}?s=20`);
+          .getByRole("button", { name: `New ${kind}`, exact: true })
+          .waitFor();
         await cacheSource(null);
         const draftCount = (
           await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [
@@ -3749,7 +4050,7 @@ test(
           ])
         ).rows[0].count;
         await dialog
-          .getByRole("button", { name: `Create ${kind}`, exact: true })
+          .getByRole("button", { name: `New ${kind}`, exact: true })
           .click();
         await dialog.getByText(X_SOURCE_UNAVAILABLE, { exact: true }).waitFor();
         assert.equal(
@@ -3764,7 +4065,7 @@ test(
         await screenshot(page, `source-${kind}-unavailable`);
         await cacheSource(sourceCard);
         await dialog
-          .getByRole("button", { name: `Create ${kind}`, exact: true })
+          .getByRole("button", { name: `New ${kind}`, exact: true })
           .click();
         await page.getByLabel("Post 1 text", { exact: true }).waitFor();
         await page

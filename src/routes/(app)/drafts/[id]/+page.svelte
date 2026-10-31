@@ -48,6 +48,25 @@
   let sharingOpen = $state(false);
   let shareError = $state("");
   let moreOpen = $state(false);
+  let finishOpen = $state(false);
+  let finishCopiedText = $state<string | null>(null);
+  let finishError = $state("");
+  const finishKind = $derived(
+    content.source?.kind === "reply" ? "reply" : "quote",
+  );
+  const finishCopied = $derived(
+    finishCopiedText !== null && finishCopiedText === content.posts[0].text,
+  );
+  async function copyForX() {
+    finishError = "";
+    const text = content.posts[0].text;
+    try {
+      await navigator.clipboard.writeText(text);
+      finishCopiedText = text;
+    } catch {
+      finishError = "Couldn’t copy. Select and copy your text in the editor.";
+    }
+  }
   const postKind = $derived(
     content.source?.kind === "reply"
       ? "Comment"
@@ -414,18 +433,29 @@
 />
 <svelte:head><title>{postKind} · LastPeek</title></svelte:head>
 {#snippet publishingControls()}
-  <XPublish
-    draftId={data.draft.id}
-    {content}
-    {version}
-    connection={data.xPublishing}
-    disabled={dirty ||
-      saving ||
-      uploading ||
-      pending.length > 0 ||
-      busy ||
-      deleting}
-  />
+  {#if content.source}
+    <Button
+      variant="outline"
+      aria-label="Finish in X"
+      onclick={() => {
+        finishCopiedText = null;
+        finishError = "";
+        finishOpen = true;
+      }}>Finish in <Icon name="x" size={16} /></Button
+    >
+  {/if}
+  {#if data.xPublishing.enabled || data.xPublishing.publication}<XPublish
+      draftId={data.draft.id}
+      {content}
+      {version}
+      connection={data.xPublishing}
+      disabled={dirty ||
+        saving ||
+        uploading ||
+        pending.length > 0 ||
+        busy ||
+        deleting}
+    />{/if}
 {/snippet}
 <main class="draft-page">
   <header class="draft-heading">
@@ -453,7 +483,9 @@
       onchange={changed}
       onupload={upload}
       oncopy={copy}
-      publishing={data.xPublishing.enabled || data.xPublishing.publication
+      publishing={content.source ||
+      data.xPublishing.enabled ||
+      data.xPublishing.publication
         ? publishingControls
         : undefined}
     />
@@ -605,6 +637,41 @@
     </div>
   </aside>
 </main>
+<Dialog.Root bind:open={finishOpen}>
+  <Dialog.Content class="sm:max-w-[400px]">
+    <Dialog.Header>
+      <Dialog.Title>Finish your {finishKind}</Dialog.Title>
+      <Dialog.Description>
+        {finishKind === "reply"
+          ? "Copy your text, then open the original post and paste into a reply on X."
+          : "Copy your text, then open the original post, choose Quote and paste on X."}
+      </Dialog.Description>
+    </Dialog.Header>
+    <Button
+      variant="outline"
+      disabled={!content.posts[0].text.trim()}
+      onclick={copyForX}
+      ><Icon name={finishCopied ? "check" : "copy"} size={18} />{finishCopied
+        ? "Copied"
+        : `Copy ${finishKind}`}</Button
+    >
+    {#if finishError}<p class="action-error" role="alert">{finishError}</p>{/if}
+    <Button
+      href={content.source?.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open original in X"
+    >
+      Open original in <Icon name="x" size={18} />
+    </Button>
+    {#if content.posts.length > 1 || content.posts.some((post) => post.media.length)}
+      <p class="small muted">
+        Copy each additional post and download attachments from the editor to
+        add them in X.
+      </p>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
 <Dialog.Root bind:open={sharingOpen}>
   <Dialog.Content
     showCloseButton={false}

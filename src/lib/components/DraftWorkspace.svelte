@@ -2,7 +2,7 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Popover } from "bits-ui";
-  import { tick, getContext, untrack } from "svelte";
+  import { getContext, onDestroy, untrack } from "svelte";
   import { page } from "$app/state";
   import { replaceState } from "$app/navigation";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
@@ -10,7 +10,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
   import PostPreview from "$lib/components/PostPreview.svelte";
-  import { avatarURL, relativeTime } from "$lib/contracts";
+  import { avatarURL, relativeTime, xPostURLSchema } from "$lib/contracts";
   import type { PageData, ActionData } from "../../routes/(app)/$types";
   let {
     data,
@@ -20,6 +20,60 @@
   const navigation = getContext<{ reveal: () => void }>("mobile-navigation");
   let busy = $state(false);
   let createOpen = $state<string | null>(null);
+  let clipboardURL = $state("");
+  let pasteMessage = $state("");
+  let pasteTimer: ReturnType<typeof setTimeout>;
+  let clipboardRequest = 0;
+  let createError = $state("");
+  onDestroy(() => clearTimeout(pasteTimer));
+  function pasteFailed(message: string) {
+    clearTimeout(pasteTimer);
+    pasteMessage = message;
+    pasteTimer = setTimeout(() => (pasteMessage = ""), 2200);
+  }
+  function acceptLink(text: string, showError = true) {
+    ++clipboardRequest;
+    const parsed = xPostURLSchema.safeParse(text);
+    clipboardURL = parsed.success ? parsed.data : "";
+    createError = "";
+    clearTimeout(pasteTimer);
+    pasteMessage = "";
+    if (!parsed.success && showError) pasteFailed("No X link copied");
+  }
+  async function readClipboard(automatic = false) {
+    const request = ++clipboardRequest;
+    try {
+      if (automatic) {
+        const permission = await navigator.permissions.query({
+          name: "clipboard-read" as PermissionName,
+        });
+        if (
+          permission.state !== "granted" ||
+          request !== clipboardRequest ||
+          !createOpen ||
+          !document.hasFocus()
+        )
+          return;
+      }
+      const text = await navigator.clipboard.readText();
+      if (request !== clipboardRequest || !createOpen) return;
+      acceptLink(text, !automatic);
+    } catch {
+      if (automatic || request !== clipboardRequest || !createOpen) return;
+      pasteFailed("Couldn’t paste link");
+    }
+  }
+  function openCreation(open: boolean, location: string) {
+    createOpen = open ? location : null;
+    ++clipboardRequest;
+    clearTimeout(pasteTimer);
+    if (open) {
+      clipboardURL = "";
+      pasteMessage = "";
+      createError = "";
+      void readClipboard(true);
+    }
+  }
   let draftList = $state<HTMLDivElement>();
   let scrollY = $state(0);
   let endRequiresScroll = $state(false);
@@ -46,18 +100,6 @@
       window.removeEventListener("resize", measure);
     };
   });
-  let sourceDialog = $state<HTMLDialogElement>();
-  let kind = $state<"quote" | "reply">("quote");
-  let url = $state("");
-  let createError = $state("");
-  async function openSource(next: "quote" | "reply") {
-    createOpen = null;
-    kind = next;
-    url = "";
-    createError = "";
-    await tick();
-    sourceDialog?.showModal();
-  }
   let query = $state("");
   let filter = $state(
     untrack(() => feedbackPage)
@@ -110,7 +152,19 @@
   );
 </script>
 
-<svelte:window bind:scrollY />
+<svelte:window
+  bind:scrollY
+  onpaste={(event) => {
+    if (!createOpen || busy || event.defaultPrevented) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest('input, textarea, [contenteditable="true"]')
+    )
+      return;
+    event.preventDefault();
+    acceptLink(event.clipboardData?.getData("text/plain") || "");
+  }}
+/>
 
 {#snippet newPost(
   label = "New post",
@@ -147,7 +201,7 @@
     {/if}
     {#if options && data.xSourcesEnabled}<Popover.Root
         open={createOpen === location}
-        onOpenChange={(open) => (createOpen = open ? location : null)}
+        onOpenChange={(open) => openCreation(open, location)}
       >
         <Popover.Trigger
           >{#snippet child({ props })}
@@ -169,12 +223,75 @@
           {/snippet}</Popover.Trigger
         >
         <Popover.Content
-          class="share-menu"
+          class="share-menu create-menu"
           sideOffset={8}
           align="end"
+          role="dialog"
           aria-label="New post actions"
         >
-          {#if location === "floating"}
+          {#if clipboardURL}
+            <div class="clipboard-source">
+              <strong>From X</strong>
+              <p>
+                <Icon name="link" size={16} /><span
+                  >{clipboardURL.replace("https://", "")}</span
+                >
+              </p>
+            </div>
+            {#each ["reply", "quote"] as sourceKind}
+              <form
+                method="POST"
+                action="?/create"
+                use:enhance={() => {
+                  busy = true;
+                  createError = "";
+                  return async ({ result, update }) => {
+                    busy = false;
+                    if (result.type === "failure" || result.type === "error") {
+                      createError =
+                        result.type === "failure"
+                          ? (result.data?.error as string) ||
+                            "Couldn’t create your post. Try again."
+                          : "Couldn’t create your post. Try again.";
+                    } else {
+                      createOpen = null;
+                      await update();
+                    }
+                  };
+                }}
+              >
+                <input type="hidden" name="kind" value={sourceKind} />
+                <input type="hidden" name="url" value={clipboardURL} />
+                <Button variant="ghost" type="submit" disabled={busy}>
+                  <Icon name={sourceKind} size={18} />{sourceKind === "reply"
+                    ? "New reply"
+                    : "New quote"}
+                </Button>
+              </form>
+            {/each}
+            {#if createError}<p class="clipboard-error" role="alert">
+                {createError}
+              </p>{/if}
+          {:else}
+            <Button
+              variant="ghost"
+              onclick={() => readClipboard()}
+              aria-label={pasteMessage || "Paste to reply or quote"}
+            >
+              <Icon name="copy" size={18} />
+              <span class="paste-label">
+                <span class:paste-hidden={!!pasteMessage}
+                  >Paste to reply or quote</span
+                >
+                <span
+                  class="paste-message"
+                  class:paste-hidden={!pasteMessage}
+                  aria-hidden="true">{pasteMessage}</span
+                >
+              </span>
+            </Button>
+            <span class="sr-only" role="status">{pasteMessage}</span>
+            <div class="creation-divider"></div>
             <form
               method="POST"
               action="?/create"
@@ -192,12 +309,6 @@
               >
             </form>
           {/if}
-          <Button variant="ghost" onclick={() => openSource("quote")}
-            ><Icon name="quote" size={16} />New Quote</Button
-          >
-          <Button variant="ghost" onclick={() => openSource("reply")}
-            ><Icon name="reply" size={16} />New Reply</Button
-          >
         </Popover.Content>
       </Popover.Root>{/if}
   </div>
@@ -525,69 +636,6 @@
   </a>
 {/snippet}
 
-<dialog
-  bind:this={sourceDialog}
-  class="confirm-dialog source-dialog"
-  aria-labelledby="source-title"
-  oncancel={(event) => {
-    if (busy) event.preventDefault();
-  }}
->
-  <h2 id="source-title">New {kind === "quote" ? "Quote" : "Reply"}</h2>
-  <form
-    method="POST"
-    action="?/create"
-    use:enhance={() => {
-      busy = true;
-      createError = "";
-      return async ({ result, update }) => {
-        busy = false;
-        if (result.type === "failure") {
-          createError =
-            (result.data?.error as string) ||
-            "Couldn’t create your post. Try again.";
-        } else if (result.type === "error") {
-          createError = "Couldn’t create your post. Try again.";
-        } else {
-          sourceDialog?.close();
-          await update();
-        }
-      };
-    }}
-  >
-    <input type="hidden" name="kind" value={kind} />
-    <label for="source-url">X post link</label>
-    <Input
-      id="source-url"
-      name="url"
-      type="url"
-      required
-      maxlength={2048}
-      placeholder="https://x.com/username/status/…"
-      bind:value={url}
-      aria-invalid={!!createError}
-      aria-describedby={createError ? "source-error" : undefined}
-    />
-    {#if createError}<p id="source-error" role="alert" class="danger">
-        {createError}
-      </p>{/if}
-    <div class="row dialog-actions">
-      <Button
-        variant="outline"
-        disabled={busy}
-        onclick={() => sourceDialog?.close()}>Cancel</Button
-      >
-      <Button type="submit" disabled={busy}
-        >{busy
-          ? "Creating…"
-          : kind === "quote"
-            ? "Create quote"
-            : "Create reply"}</Button
-      >
-    </div>
-  </form>
-</dialog>
-
 <style>
   .queue-count {
     color: var(--muted-foreground);
@@ -602,6 +650,61 @@
     color: var(--muted-foreground);
     font-size: 12px;
   }
+  :global(.create-menu) {
+    width: min(320px, calc(100vw - 32px));
+    max-height: min(520px, calc(100dvh - 100px));
+    overflow-y: auto;
+  }
+  :global(.create-menu [data-slot="button"]) {
+    min-height: 44px;
+  }
+  .clipboard-source {
+    min-width: 0;
+    padding: 8px;
+  }
+  .paste-label {
+    display: grid;
+    text-align: left;
+  }
+  .paste-label span {
+    grid-area: 1 / 1;
+    transition: opacity 220ms ease;
+  }
+  .paste-message {
+    color: var(--danger);
+  }
+  .paste-hidden {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .paste-label span {
+      transition: none;
+    }
+  }
+  .clipboard-source p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    margin: 8px 0 0;
+  }
+  .clipboard-source span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .creation-divider {
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+  }
+  .clipboard-error {
+    color: var(--danger);
+    font-size: 13px;
+    padding: 4px 8px;
+    margin: 0;
+  }
   .feed-toolbar {
     display: contents;
   }
@@ -614,17 +717,6 @@
   }
   :global(.all-feedback) {
     width: 100%;
-  }
-  .source-dialog h2 {
-    margin-top: 0;
-  }
-  .source-dialog label {
-    display: block;
-    margin-bottom: 8px;
-  }
-  .source-dialog .dialog-actions {
-    margin-top: 24px;
-    flex-wrap: wrap;
   }
   .drafts-page {
     width: 100%;
