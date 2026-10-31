@@ -19,6 +19,7 @@ if ! command -v tailscale >/dev/null; then
   sudo systemctl disable --now tailscaled
 fi
 npm ci
+npm run browsers:install
 exclude="$(git rev-parse --git-path info/exclude)"
 grep -Fxq '/.amp/in/' "$exclude" || printf '\n/.amp/in/\n' >> "$exclude"
 mkdir -p .amp/in

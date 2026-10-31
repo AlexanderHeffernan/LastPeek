@@ -10,33 +10,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: lastpeek-${{ github.workflow }}-${{ github.ref }}
+  # PR updates replace their previous validation. Main commits validate/build
+  # independently; only updating the mutable release tag is serialized below.
+  group: lastpeek-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16-bookworm
-        env:
-          POSTGRES_USER: lastpeek
-          POSTGRES_PASSWORD: ci-only
-          POSTGRES_DB: lastpeek_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U lastpeek -d lastpeek_test"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-    env:
-      DATABASE_URL: postgres://lastpeek:ci-only@127.0.0.1:5432/lastpeek_test
-      MEDIA_DIR: ./data/test-media
-      ORIGIN: http://127.0.0.1:4173
-      PORT: 4173
-      LASTPEEK_OWNER_ID: 11111111-1111-4111-8111-111111111111
-      # Enable the mocked OAuth flow without real X credentials or API calls.
-      X_CLIENT_ID: test-only-client-id
-      X_CLIENT_SECRET: test-only-client-secret
+    timeout-minutes: 5
+    outputs:
+      runtime: ${{ steps.plan.outputs.runtime }}
+      playwright: ${{ steps.plan.outputs.playwright }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,30 +38,58 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run format:check && npm run check && npm test && npm run build
-      - run: npm audit --audit-level=moderate
-      - run: npm run db:migrate && npm run db:migrate
-      - run: npx playwright install --with-deps chromium webkit
-      - name: Test running production server
-        shell: bash
-        run: |
-          X_API_BEARER_TOKEN=test-only-not-a-real-key npm start > /tmp/lastpeek-server.log 2>&1 &
-          server=$!
-          trap 'kill "$server"' EXIT
-          for i in {1..30}; do
-            if curl -fsS "$ORIGIN/health"; then break; fi
-            sleep 1
-          done
-          curl -fsS "$ORIGIN/health"
-          npm run test:e2e
-          TEST_BROWSER=webkit npm run test:e2e
+      - id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/release-policy.mjs plan "$BASE_SHA" >> "$GITHUB_OUTPUT"
+      - name: Check documentation-only changes
+        if: steps.plan.outputs.runtime == 'false'
+        run: npm ci && npm run format:check
 
-  publish:
+  check:
+    needs: plan
+    if: needs.plan.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Lockfile-selected browser image avoids installing WebKit's OS dependencies
+    # and downloading both browser engines on every fresh runner.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.plan.outputs.playwright }}-noble
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: lastpeek
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: lastpeek_test
+        options: >-
+          --health-cmd "pg_isready -U lastpeek -d lastpeek_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://lastpeek:ci-only@postgres:5432/postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm run verify:release -- --force
+
+  build:
     needs: check
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'AlexanderHeffernan/LastPeek'
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -84,7 +97,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -94,13 +106,50 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: true
-          tags: |
-            ghcr.io/alexanderheffernan/lastpeek:latest
-            ghcr.io/alexanderheffernan/lastpeek:${{ github.sha }}
+          tags: ghcr.io/alexanderheffernan/lastpeek:${{ github.sha }}-${{ matrix.arch }}
           build-args: |
             ORIGIN=https://lastpeek.alexheffernan.dev
             REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=lastpeek-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=lastpeek-${{ matrix.arch }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: lastpeek-promote-main
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check for a superseding application commit
+        id: current
+        run: |
+          git fetch origin main
+          node scripts/release-policy.mjs promote "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Publish the checked multi-architecture release
+        if: steps.current.outputs.promote == 'true'
+        env:
+          IMAGE: ghcr.io/alexanderheffernan/lastpeek
+        run: |
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$IMAGE:$GITHUB_SHA" --tag "$IMAGE:latest" \
+            "$IMAGE:$GITHUB_SHA-amd64" "$IMAGE:$GITHUB_SHA-arm64"

@@ -20,7 +20,9 @@
     "operator": "node --env-file-if-exists=.env --import tsx scripts/operator.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts",
+    "browsers:install": "playwright install --with-deps chromium webkit",
+    "verify:release": "node --env-file-if-exists=.env scripts/verify-release.mjs",
+    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts tests/release-policy.test.mjs",
     "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts"
   },
   "devDependencies": {

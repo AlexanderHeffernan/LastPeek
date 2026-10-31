@@ -133,20 +133,19 @@ Rehearse **backup and restore**: stop web and maintenance writers, take `pg_dump
 ## Verification and code map
 
 ```sh
-npm run format:check
-npm run check
-npm test
-ORIGIN=http://127.0.0.1:4173 npm run build
-npx playwright install chromium webkit
-# Start the production build on 4173 against a disposable development DB:
-X_API_BEARER_TOKEN=test-only-not-a-real-key PORT=4173 npm start
-# In another terminal, using the SAME DATABASE_URL / MEDIA_DIR:
-npm run test:e2e
-TEST_BROWSER=webkit npm run test:e2e
-SCREENSHOTS=1 npm run test:e2e
+# One-time browser + system dependency setup (included in orb setup):
+npm run browsers:install
+# Local PostgreSQL must be running; DATABASE_URL supplies local admin access.
+npm run verify:release
+# Ignore the local verification receipt and rerun everything:
+npm run verify:release -- --force
 ```
 
-Browser tests create unique disposable accounts, exercise actual HTTP/auth/upload/review flows, and remove their own database rows/files. Do not point them at production. `TEST_BASE_URL` selects a different running instance. Screenshots contain synthetic test data under `.amp/in/artifacts/` (ignored locally); never commit private screenshots. WebKit automation is not proof of every Safari/iPhone codec.
+Release verification installs locked npm dependencies, checks formatting/types/unit tests and dependency advisories, builds a production server, applies migrations twice, then runs Chromium and WebKit. It uses a private source/build copy, random loopback port, synthetic OAuth credentials and a fresh database/media directory for **each** engine. PostgreSQL credentials must allow creating/dropping databases; non-local database hosts are rejected (CI also accepts its `postgres` service). It never clears preview/production rate limits, touches preview media or rebuilds the running portal. All fixtures are removed after success or failure.
+
+A local receipt under `.amp/in/release-verification.json` reuses a successful browser/build check only while application, test, lockfile, workflow and tooling contents and the Node/platform version are unchanged. Documentation-only edits and commit/rebase metadata do not invalidate it. Formatting and dependency audit always rerun; CI always performs full verification. Fetch before verifying and rerun the command after integration: it decides whether the tested inputs still match, rather than blindly repeating the suite. Visual inspection/recordings are separate evidence and still required for UI changes.
+
+For focused debugging, `npm run test:e2e` still targets an already-running **disposable** instance; `TEST_BASE_URL` selects its URL and `TEST_BROWSER=webkit` selects WebKit. Both processes must use the same database/media and build-time origin. `SCREENSHOTS=1` captures synthetic data under `.amp/in/artifacts/` (ignored locally); never commit private screenshots. Never run E2E against production. WebKit automation is not proof of every Safari/iPhone codec.
 
 `tests/fixtures/video.mp4` is a generated three-second silent H.264 clip (320 × 180, moving square), not user media. The image in browser tests is an intentionally solid-colour generated PNG.
 
