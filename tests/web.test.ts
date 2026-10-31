@@ -1478,6 +1478,8 @@ test(
       const raisedY = (await floatingPost.boundingBox())!.y;
       assert.ok((await navigation.boundingBox())!.height <= 60);
       const partialScroll = await mobileHeader.evaluate(async (header) => {
+        // Keep the gesture active so slow CI frames cannot trigger idle settling.
+        dispatchEvent(new Event("touchstart"));
         const top = header.getBoundingClientRect().top;
         scrollTo(0, 24);
         await new Promise<void>((resolve) =>
@@ -1488,7 +1490,9 @@ test(
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         );
-        return { top, down, reversed: header.getBoundingClientRect().top };
+        const reversed = header.getBoundingClientRect().top;
+        dispatchEvent(new Event("touchend"));
+        return { top, down, reversed };
       });
       assert.equal(
         Math.round(partialScroll.top - partialScroll.down),
