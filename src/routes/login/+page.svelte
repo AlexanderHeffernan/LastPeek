@@ -6,6 +6,7 @@
   import Icon from "$lib/components/Icon.svelte";
   let { data, form } = $props();
   let busy = $state(false);
+  let xNoticeDismissed = $state(false);
 </script>
 
 <header class="topbar">
@@ -31,6 +32,22 @@
           ><Icon name="x" size={18} />Sign in with X</Button
         >
       </form>
+      {#if data.xUnlinked && !xNoticeDismissed}
+        <div class="notice mt-3 flex items-start gap-2" role="status">
+          <p class="m-0 min-w-0 flex-1">
+            This X account isn’t linked yet. Try another X account, sign in with
+            your password to link it from Account, or use an invitation to join.
+          </p>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="-mt-1 -mr-2 size-10 text-muted-foreground"
+            aria-label="Dismiss X sign-in notice"
+            onclick={() => (xNoticeDismissed = true)}
+            ><Icon name="close" size={16} /></Button
+          >
+        </div>
+      {/if}
       <p class="small muted auth-divider">or use your password</p>
     {/if}
     <form

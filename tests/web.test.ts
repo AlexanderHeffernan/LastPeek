@@ -1099,7 +1099,68 @@ test(
         0,
       );
       await context.clearCookies();
-      await login(page, `${id}@example.test`);
+      await page.goto(`${baseURL}/login?x=unlinked`);
+      await page
+        .getByRole("heading", { name: "Welcome back.", exact: true })
+        .waitFor();
+      await page
+        .getByRole("status")
+        .getByText("This X account isn’t linked yet.", { exact: false })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("link", { name: "Back to sign in", exact: true })
+          .count(),
+        0,
+      );
+      await page
+        .getByRole("button", { name: "Dismiss X sign-in notice", exact: true })
+        .focus();
+      await page.keyboard.press("Enter");
+      assert.equal(await page.getByRole("status").count(), 0);
+      await page.route("https://x.com/i/oauth2/authorize**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "Test X consent" }),
+      );
+      await page
+        .getByRole("button", { name: "Sign in with X", exact: true })
+        .click();
+      await page.waitForURL("https://x.com/i/oauth2/authorize**");
+      const retried = new URL(page.url());
+      assert.equal(
+        retried.searchParams.get("redirect_uri"),
+        `${origin}/auth/x/callback`,
+      );
+      await page.goto(
+        `${baseURL}/auth/x/callback?state=${retried.searchParams.get("state")}&error=access_denied`,
+      );
+      await page.waitForURL(`${baseURL}/login?x=cancelled`);
+      await page.goto(`${baseURL}/login?x=unlinked`);
+      await page
+        .getByRole("button", { name: "Dismiss X sign-in notice", exact: true })
+        .click();
+      await page
+        .getByLabel("Email", { exact: true })
+        .fill(`${id}@example.test`);
+      await page.getByLabel("Password", { exact: true }).fill("wrong-password");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page
+        .getByRole("alert")
+        .getByText("That email and password don’t match.")
+        .waitFor();
+      assert.equal(
+        await page.getByLabel("Email", { exact: true }).inputValue(),
+        `${id}@example.test`,
+      );
+      assert.equal(await page.getByRole("status").count(), 0);
+      await page.getByLabel("Password", { exact: true }).fill(password);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.waitForURL(`${baseURL}/`);
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+      assert.equal(
+        (await db.query("SELECT 1 FROM x_accounts WHERE user_id=$1", [id]))
+          .rowCount,
+        0,
+      );
     } finally {
       await browser.close();
       await db.query("DELETE FROM users WHERE id=$1", [id]);

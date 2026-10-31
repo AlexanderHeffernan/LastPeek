@@ -10,6 +10,7 @@ export const load: PageServerLoad = ({ locals, url }) => {
     devSignIn: devSignIn(),
     xEnabled: xAuthEnabled(),
     xCancelled: url.searchParams.get("x") === "cancelled",
+    xUnlinked: url.searchParams.get("x") === "unlinked",
   };
 };
 export const actions: Actions = {

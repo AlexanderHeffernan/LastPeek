@@ -231,11 +231,7 @@ export async function finishXAuth(event: RequestEvent): Promise<never> {
     } else if (existing) {
       userId = existing.user_id;
     } else {
-      if (!flow.invite_hash)
-        error(
-          403,
-          "This X account isn’t linked yet. Sign in with your password to link it, or use an invitation to join.",
-        );
+      if (!flow.invite_hash) redirect(303, "/login?x=unlinked");
       const invite = await client.query(
         "SELECT id FROM invites WHERE hash=$1 AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE",
         [flow.invite_hash],

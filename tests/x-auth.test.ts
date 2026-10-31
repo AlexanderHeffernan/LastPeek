@@ -166,7 +166,18 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
     providerFailure = false;
 
     const noInvite = await start();
-    await assert.rejects(callback(noInvite), status(403));
+    assert.equal(await redirectFrom(callback(noInvite)), "/login?x=unlinked");
+    assert.equal(cookies.has("lastpeek_session"), false);
+    assert.equal(
+      (await db.query("SELECT 1 FROM x_accounts WHERE x_id=$1", [profile.id]))
+        .rowCount,
+      0,
+    );
+    assert.equal(
+      (await db.query("SELECT 1 FROM users WHERE email=$1", [email])).rowCount,
+      0,
+    );
+    await assert.rejects(callback(noInvite), status(400));
     const state = await start({ invite, email });
     assert.equal(await redirectFrom(callback(state)), "/settings?x=joined");
     const joined = (
