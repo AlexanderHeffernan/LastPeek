@@ -13,7 +13,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     token: params.token,
     reviewURL: new URL(`/r/${params.token}`, url.origin).href,
-    reviewerName: locals.user?.name ?? null,
+    reviewer: locals.user
+      ? { name: locals.user.name, avatar_id: locals.user.avatar_id }
+      : null,
     content: draft.content,
     revision: draft.shared_revision,
     media: (await draftMedia(draft.id)).filter((m) => allowedIds.has(m.id)),
@@ -72,7 +74,7 @@ export const actions: Actions = {
       );
       if (!active.rowCount) error(404, "This review link is unavailable.");
       await client.query(
-        "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
         [
           crypto.randomUUID(),
           draft.id,
@@ -81,6 +83,7 @@ export const actions: Actions = {
           name,
           body,
           quote || null,
+          locals.user?.id ?? null,
         ],
       );
     });

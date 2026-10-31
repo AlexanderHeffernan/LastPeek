@@ -171,7 +171,10 @@ export async function draftMedia(id: string): Promise<Media[]> {
 export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
-      "SELECT id,revision,post_id,name,body,suggestion,quote,resolved,created_at FROM comments WHERE draft_id=$1 ORDER BY created_at DESC",
+      `SELECT c.id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
+       u.avatar_id,c.body,c.suggestion,c.quote,c.resolved,c.created_at
+       FROM comments c LEFT JOIN users u ON u.id=c.user_id
+       WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
       [id],
     )
   ).rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));

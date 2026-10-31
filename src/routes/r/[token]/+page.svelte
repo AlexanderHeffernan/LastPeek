@@ -82,11 +82,13 @@
     content={`Opening post by ${data.content.author.name}: ${previewDescription}`}
   />
 </svelte:head>
-<header class="topbar">
-  <Brand href="/login" /><a class="small muted" href="/login"
-    >Sign in<Icon name="arrow" size={12} /></a
-  >
-</header>
+{#if !data.reviewer}
+  <header class="topbar">
+    <Brand href="/login" /><a class="small muted" href="/login"
+      >Sign in<Icon name="arrow" size={12} /></a
+    >
+  </header>
+{/if}
 <main class="workspace">
   <div class="workspace-grid">
     <section>
@@ -108,7 +110,7 @@
         method="POST"
         action="?/comment"
         use:enhance={({ cancel }) => {
-          if (!data.reviewerName && !name.trim() && !signingIn) {
+          if (!data.reviewer && !name.trim() && !signingIn) {
             cancel();
             identityDialog?.showModal();
             return;
@@ -190,6 +192,7 @@
         comments={data.comments}
         revision={data.revision}
         content={data.content}
+        token={data.token}
         emptyText="Be the first to give this draft a second look."
       />
     </aside>

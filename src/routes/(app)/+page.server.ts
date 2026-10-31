@@ -31,6 +31,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     id: string;
     draft_id: string;
     name: string;
+    avatar_id: string | null;
     body: string;
     suggestion: string | null;
     quote: string | null;
@@ -38,8 +39,9 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     resolved: boolean;
     created_at: Date;
   }>(
-    `SELECT c.id,c.draft_id,c.name,c.body,c.suggestion,c.quote,c.revision,c.resolved,c.created_at
+    `SELECT c.id,c.draft_id,COALESCE(u.name,c.name) AS name,u.avatar_id,c.body,c.suggestion,c.quote,c.revision,c.resolved,c.created_at
      FROM comments c JOIN drafts d ON d.id=c.draft_id
+     LEFT JOIN users u ON u.id=c.user_id
      WHERE d.owner_id=$1 AND d.id=ANY($2::uuid[]) ORDER BY c.created_at DESC,c.id DESC`,
     [user.id, drafts.rows.map((draft) => draft.id)],
   );

@@ -66,6 +66,7 @@ export type Feedback = {
   post_id: string | null;
   quote: string | null;
   name: string;
+  avatar_id: string | null;
   body: string;
   suggestion: string | null;
   resolved: boolean;

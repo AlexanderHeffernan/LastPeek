@@ -13,6 +13,12 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
         SELECT 1 FROM drafts d JOIN revisions r ON r.draft_id=d.id
         WHERE d.share_token=$3 AND d.shared_revision IS NOT NULL
           AND r.content->'author'->>'avatar'=$1::text
+      ) OR EXISTS (
+        SELECT 1 FROM comments c JOIN users u ON u.id=c.user_id
+        JOIN drafts d ON d.id=c.draft_id
+        WHERE u.avatar_id=$1 AND (d.owner_id=$2 OR (
+          d.share_token=$3 AND d.shared_revision IS NOT NULL
+        ))
       )
     )`,
     [

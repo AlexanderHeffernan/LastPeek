@@ -492,26 +492,6 @@
 .feedback-column {
   min-width: 0;
 }
-.editor-grid {
-  grid-template-areas: "posts actions" "posts feedback";
-  grid-template-rows: auto 1fr;
-  row-gap: 24px;
-}
-.editor-posts {
-  grid-area: posts;
-}
-.editor-actions {
-  grid-area: actions;
-}
-.draft-action-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.draft-action-row [data-slot="button"] {
-  padding-inline: 12px;
-}
 .share-actions {
   display: flex;
   align-items: center;
@@ -525,10 +505,6 @@
   border-radius: 0 999px 999px 0;
   border-left-width: 0;
   padding-inline: 10px;
-}
-.delete-draft[data-slot="button"] {
-  border-radius: 50%;
-  margin-left: auto;
 }
 .share-menu {
   z-index: 30;
@@ -585,9 +561,6 @@
 }
 .ai-results > p {
   font-size: 13px;
-}
-.editor-grid > .feedback-column {
-  grid-area: feedback;
 }
 .post-panel {
   border: 1px solid #2f3336;
@@ -1288,14 +1261,6 @@ progress {
     grid-template-columns: minmax(0, 600px);
     gap: 32px;
   }
-  .editor-grid {
-    grid-template-areas: "actions" "posts" "feedback";
-    grid-template-rows: auto;
-    row-gap: 24px;
-  }
-  .editor-actions .row {
-    flex-wrap: nowrap;
-  }
   .auth-shell {
     gap: 40px;
   }
@@ -1310,10 +1275,6 @@ progress {
   .signed-in .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
-  }
-  .signed-in .editor-grid {
-    grid-template-areas: "actions" "posts" "feedback";
-    grid-template-rows: auto;
   }
   .signed-in .feedback-column {
     position: static;
@@ -1439,17 +1400,6 @@ progress {
   }
   .post-tools {
     flex-wrap: wrap;
-  }
-  .draft-action-row {
-    gap: 6px;
-  }
-  .draft-action-row [data-slot="button"] {
-    font-size: 13px;
-    padding-inline: 8px;
-    gap: 6px;
-  }
-  .draft-action-row .share-toggle {
-    width: 40px;
   }
   .auth-shell {
     grid-template-columns: 1fr;

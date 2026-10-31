@@ -41,6 +41,14 @@
   let shareOpen = $state(false),
     origin = $state("");
   let copied = $state(false);
+  let moreOpen = $state(false);
+  const postKind = $derived(
+    content.source?.kind === "reply"
+      ? "Comment"
+      : content.source?.kind === "quote"
+        ? "Quote"
+        : "Post",
+  );
   let deleteDialog = $state<HTMLDialogElement>();
   let deleting = $state(false);
   let pending: {
@@ -134,9 +142,9 @@
         throw new Error("Retry or dismiss failed uploads before sharing.");
       if (!(await save())) return;
       const result = await api({ action: "publish", version });
+      await invalidateAll();
       shareToken = result.token;
       sharedRevision = result.revision;
-      await invalidateAll();
     } catch (e) {
       error = (e as Error).message;
     } finally {
@@ -173,8 +181,7 @@
       copied = true;
       setTimeout(() => (copied = false), 2500);
     } else {
-      error =
-        "Couldn’t copy the link. Open preview from the link menu to copy its address.";
+      error = `Couldn’t copy the link. Copy this address: ${origin}/r/${shareToken}`;
     }
   }
   async function resolveComment(comment: Feedback) {
@@ -314,66 +321,129 @@
     }
   }}
 />
-<svelte:head><title>Your post · LastPeek</title></svelte:head>
-<main class="workspace">
-  <div class="workspace-grid editor-grid">
-    <div class="editor-actions">
-      <div class="draft-action-row">
-        <div class="share-actions">
-          <Button
-            variant={shareToken ? "secondary" : "default"}
-            disabled={busy || saving || uploading || deleting}
-            onclick={() => (shareToken ? copyLink() : publish())}
-            ><Icon
-              name={copied ? "check" : shareToken ? "copy" : "link"}
-              size={15}
-            />{busy
-              ? "Preparing…"
-              : shareToken
-                ? copied
-                  ? "Copied!"
-                  : "Copy link"
-                : "Share draft"}</Button
+<svelte:head><title>{postKind} · LastPeek</title></svelte:head>
+<main class="draft-page">
+  <header class="draft-heading">
+    <Button
+      variant="ghost"
+      class="icon-button"
+      href="/"
+      aria-label="Back to drafts"><Icon name="back" size={20} /></Button
+    >
+    <h1>{postKind}</h1>
+    <Button
+      variant="ghost"
+      class="edit-shortcut"
+      onclick={() =>
+        document.getElementById(`post-text-${content.posts[0].id}`)?.focus()}
+      ><Icon name="edit" size={16} />Edit</Button
+    >
+  </header>
+  <section class="editor-posts" aria-label="Edit draft">
+    <PostPreview
+      bind:content
+      {media}
+      sourcePost={data.sourcePost}
+      editing
+      onchange={changed}
+      onupload={upload}
+      oncopy={copy}
+    />
+    {#each pending as item}<div class="pending">
+        <div class="row between">
+          <span>{item.file.name}</span><span
+            >{item.active ? `${item.progress}%` : "Not uploaded"}</span
           >
-          {#if shareToken}<Popover.Root bind:open={shareOpen}>
-              <Popover.Trigger
-                >{#snippet child({ props })}<Button
-                    {...props}
-                    variant="secondary"
-                    aria-label="Review link options"
-                    class="share-toggle"><Icon name="down" size={15} /></Button
-                  >{/snippet}</Popover.Trigger
-              >
-              <Popover.Content
-                class="share-menu"
-                sideOffset={8}
-                align="end"
-                aria-label="Review link actions"
-              >
-                <Button
-                  variant="ghost"
-                  href={`/r/${shareToken}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onclick={() => (shareOpen = false)}
-                  ><Icon name="eye" size={16} />Open preview</Button
-                >
-                <Button variant="ghost" class="danger" onclick={revoke}
-                  ><Icon name="trash" size={16} />Remove link</Button
-                >
-              </Popover.Content>
-            </Popover.Root>{/if}
         </div>
-        {#if data.aiEnabled}<AIReview draftId={data.draft.id} {content} />{/if}
+        {#if item.active}<progress
+            value={item.progress}
+            max="100"
+            aria-label={`Uploading ${item.file.name}`}
+          ></progress>{:else}<p class="danger" role="alert">{item.error}</p>
+          <div class="row">
+            <Button variant="outline" onclick={() => sendUpload(item.id)}
+              >Retry upload</Button
+            ><Button
+              variant="ghost"
+              onclick={() =>
+                (pending = pending.filter((p) => p.id !== item.id))}
+              >Dismiss</Button
+            >
+          </div>{/if}
+      </div>{/each}
+  </section>
+  <aside class="draft-sidebar" aria-label="Feedback and sharing">
+    <div class="draft-actions">
+      <div class="share-actions">
         <Button
-          variant="secondary"
-          class="icon-button danger delete-draft"
-          aria-label="Delete draft"
-          title="Delete draft"
-          disabled={uploading || saving || busy || deleting}
-          onclick={() => deleteDialog?.showModal()}
-          ><Icon name="trash" size={20} /></Button
+          variant={shareToken ? "secondary" : "default"}
+          aria-busy={busy}
+          disabled={busy || saving || uploading || deleting}
+          onclick={() => (shareToken ? copyLink() : publish())}
+          ><Icon
+            name={copied ? "check" : shareToken ? "copy" : "link"}
+            size={15}
+          />{busy
+            ? "Preparing…"
+            : shareToken
+              ? copied
+                ? "Copied!"
+                : "Copy link"
+              : "Share draft"}</Button
         >
+        {#if shareToken}<Popover.Root bind:open={shareOpen}>
+            <Popover.Trigger
+              >{#snippet child({ props })}<Button
+                  {...props}
+                  variant="secondary"
+                  aria-label="Review link options"
+                  class="share-toggle"><Icon name="down" size={15} /></Button
+                >{/snippet}</Popover.Trigger
+            >
+            <Popover.Content
+              class="share-menu"
+              sideOffset={8}
+              align="end"
+              aria-label="Review link actions"
+            >
+              <Button variant="ghost" class="danger" onclick={revoke}
+                ><Icon name="trash" size={16} />Remove link</Button
+              >
+            </Popover.Content>
+          </Popover.Root>{/if}
+      </div>
+      <div class="secondary-actions">
+        {#if data.aiEnabled}<AIReview draftId={data.draft.id} {content} />{/if}
+        <Popover.Root bind:open={moreOpen}>
+          <Popover.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="outline"
+                class="icon-button"
+                aria-label="More draft actions"
+                title="More draft actions"
+                ><Icon name="more" size={22} /></Button
+              >
+            {/snippet}
+          </Popover.Trigger>
+          <Popover.Content
+            class="share-menu"
+            sideOffset={8}
+            align="end"
+            aria-label="More draft actions"
+          >
+            <Button
+              variant="ghost"
+              class="danger"
+              disabled={uploading || saving || busy || deleting}
+              onclick={() => {
+                moreOpen = false;
+                deleteDialog?.showModal();
+              }}><Icon name="trash" size={16} />Delete draft</Button
+            >
+          </Popover.Content>
+        </Popover.Root>
       </div>
       <span class="sr-only" role="status">{status}</span>
       {#if error}<div class="action-error" role="alert">
@@ -383,46 +453,7 @@
             >{/if}
         </div>{/if}
     </div>
-    <section class="editor-posts">
-      <div class="post-panel">
-        <PostPreview
-          bind:content
-          {media}
-          sourcePost={data.sourcePost}
-          editing
-          onchange={changed}
-          onupload={upload}
-          oncopy={copy}
-        />
-      </div>
-      {#each pending as item}<div class="pending">
-          <div class="row between">
-            <span>{item.file.name}</span><span
-              >{item.active ? `${item.progress}%` : "Not uploaded"}</span
-            >
-          </div>
-          {#if item.active}<progress
-              value={item.progress}
-              max="100"
-              aria-label={`Uploading ${item.file.name}`}
-            ></progress>{:else}<p class="danger" role="alert">{item.error}</p>
-            <div class="row">
-              <Button variant="outline" onclick={() => sendUpload(item.id)}
-                >Retry upload</Button
-              ><Button
-                variant="ghost"
-                onclick={() =>
-                  (pending = pending.filter((p) => p.id !== item.id))}
-                >Dismiss</Button
-              >
-            </div>{/if}
-        </div>{/each}
-    </section>
-    <aside
-      id="feedback"
-      class="feedback-column"
-      aria-label="Feedback and sharing"
-    >
+    <div id="feedback" class="draft-feedback">
       <FeedbackList
         comments={data.comments}
         revision={dirty ? null : sharedRevision}
@@ -433,8 +464,8 @@
         onresolve={resolveComment}
         onapply={apply}
       />
-    </aside>
-  </div>
+    </div>
+  </aside>
 </main>
 <dialog
   bind:this={deleteDialog}
@@ -464,3 +495,152 @@
     >
   </div>
 </dialog>
+
+<style>
+  .draft-page {
+    display: grid;
+    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+    grid-template-areas: "heading sidebar" "posts sidebar";
+    grid-template-rows: 52px 1fr;
+    column-gap: 24px;
+    min-height: 100dvh;
+  }
+  .draft-heading {
+    grid-area: heading;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 12px;
+    border-inline: 1px solid #2f3336;
+  }
+  .draft-heading h1 {
+    margin: 0;
+    font-size: 20px;
+    letter-spacing: 0;
+  }
+  .draft-heading :global(.edit-shortcut) {
+    margin-left: auto;
+    color: var(--muted-foreground);
+  }
+  .draft-heading :global(.edit-shortcut:hover),
+  .draft-heading :global(.edit-shortcut:focus-visible) {
+    color: var(--foreground);
+  }
+  .editor-posts {
+    grid-area: posts;
+    min-width: 0;
+    border-inline: 1px solid #2f3336;
+  }
+  .draft-sidebar {
+    grid-area: sidebar;
+    min-width: 0;
+    padding-top: 12px;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+  }
+  .draft-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 16px;
+  }
+  .share-actions > :global(button:first-child) {
+    flex: 1;
+    min-height: 44px;
+  }
+  .share-actions :global(.share-toggle) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .secondary-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .secondary-actions :global(.icon-button) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .action-error {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  .draft-feedback {
+    border-top: 1px solid var(--border);
+  }
+  .draft-feedback :global(.feedback-card) {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    padding: 20px 0 16px;
+    margin: 0;
+  }
+  .draft-feedback :global(.feedback-card.resolved) {
+    opacity: 1;
+  }
+  .draft-feedback :global(.feedback-card.resolved .comment) {
+    color: var(--muted-foreground);
+  }
+  .draft-feedback :global(.feedback-card.targeted) {
+    box-shadow: inset 2px 0 var(--primary);
+    padding-left: 12px;
+  }
+  .draft-feedback :global(.feedback-empty) {
+    padding: 24px 12px;
+    border: 0;
+    border-radius: 0;
+  }
+  .pending {
+    margin: 12px;
+  }
+  @media (max-width: 1000px) {
+    .draft-page {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "heading" "sidebar" "posts" "feedback";
+      grid-template-rows: 52px auto auto 1fr;
+      min-height: calc(100dvh - 104px);
+      border-inline: 1px solid #2f3336;
+    }
+    .draft-heading,
+    .editor-posts {
+      border-inline: 0;
+    }
+    .draft-sidebar {
+      display: contents;
+    }
+    .draft-actions {
+      grid-area: sidebar;
+      padding: 4px 12px 12px;
+    }
+    .secondary-actions {
+      gap: 4px;
+    }
+    .draft-feedback {
+      grid-area: feedback;
+      margin: 0 12px;
+    }
+  }
+  @media (max-width: 600px) {
+    .draft-page {
+      border-inline: 0;
+    }
+    .draft-heading {
+      gap: 12px;
+      padding-inline: 8px;
+    }
+    .draft-actions {
+      gap: 6px;
+    }
+    .draft-actions :global(button) {
+      padding-inline: 10px;
+      font-size: 13px;
+      gap: 6px;
+    }
+  }
+</style>

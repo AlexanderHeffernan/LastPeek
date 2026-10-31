@@ -44,11 +44,24 @@
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
+  let removeDialog = $state<HTMLDialogElement>();
+  let removingPost = $state<string | null>(null);
   const active = $derived(
     content.posts.some((p) => p.id === activeId)
       ? activeId
       : content.posts.at(-1)?.id,
   );
+  async function removePost(id: string) {
+    const index = content.posts.findIndex((post) => post.id === id);
+    const previous = content.posts[Math.max(index - 1, 0)];
+    content.posts = content.posts.filter((post) => post.id !== id);
+    activeId = (previous.id === id ? content.posts[0] : previous).id;
+    removeDialog?.close();
+    removingPost = null;
+    onchange();
+    await tick();
+    document.getElementById(`post-text-${activeId}`)?.focus();
+  }
   function moveMedia(postIndex: number, index: number, direction: number) {
     const ids = [...content.posts[postIndex].media];
     [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
@@ -161,19 +174,11 @@
                 class="icon-button remove-post"
                 aria-label={`Remove post ${index + 1}`}
                 title="Remove post"
-                onclick={async () => {
-                  if (
-                    !confirm("Remove this post? Existing feedback will stay.")
-                  )
-                    return;
-                  const previous = content.posts[Math.max(index - 1, 0)];
-                  content.posts = content.posts.filter((p) => p.id !== post.id);
-                  onchange();
-                  activeId = (
-                    previous.id === post.id ? content.posts[0] : previous
-                  ).id;
-                  await tick();
-                  document.getElementById(`post-text-${activeId}`)?.focus();
+                onclick={() => {
+                  if (post.text.trim() || post.media.length) {
+                    removingPost = post.id;
+                    removeDialog?.showModal();
+                  } else void removePost(post.id);
                 }}><Icon name="close" size={16} /></Button
               >{/if}{/if}
         </div>
@@ -379,6 +384,30 @@
     </article>
   {/each}
 </section>
+
+{#if editing}
+  <dialog
+    bind:this={removeDialog}
+    class="confirm-dialog"
+    aria-labelledby="remove-post-title"
+    aria-describedby="remove-post-description"
+  >
+    <div class="dialog-icon"><Icon name="trash" size={24} /></div>
+    <h2 id="remove-post-title">Remove this post?</h2>
+    <p id="remove-post-description">
+      Its text and attachments will be removed from this draft. Existing
+      feedback will stay. This can’t be undone.
+    </p>
+    <div class="row dialog-actions">
+      <Button variant="outline" onclick={() => removeDialog?.close()}
+        >Keep post</Button
+      >
+      <Button variant="destructive" onclick={() => removePost(removingPost!)}
+        >Remove post</Button
+      >
+    </div>
+  </dialog>
+{/if}
 
 <style>
   .timeline-author {

@@ -6,7 +6,16 @@
   import Brand from "$lib/components/Brand.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { avatarURL } from "$lib/contracts";
-  let { data, children } = $props();
+  import type { Snippet } from "svelte";
+  let {
+    user,
+    canViewAdmin,
+    children,
+  }: {
+    user: { name: string; avatar_id: string | null };
+    canViewAdmin: boolean;
+    children: Snippet;
+  } = $props();
   const openAdmin = getContext<() => void>("open-siteadmin");
   let shell = $state<HTMLDivElement>();
   let header = $state<HTMLElement>();
@@ -127,7 +136,7 @@
     {@render account()}
     <Brand
       markOnly
-      onlongpress={data.canViewAdmin ? openAdmin : undefined}
+      onlongpress={canViewAdmin ? openAdmin : undefined}
       onactivate={() => {
         navigation.reveal();
         window.scrollTo({
@@ -185,10 +194,10 @@
     aria-label="Account settings"
     title="Account settings"
     ><span class="avatar" aria-hidden="true"
-      >{#if data.user.avatar_id}<img
-          src={avatarURL(data.user.avatar_id)}
+      >{#if user.avatar_id}<img
+          src={avatarURL(user.avatar_id)}
           alt=""
-        />{:else}{data.user.name.slice(0, 1).toUpperCase()}{/if}</span
+        />{:else}{user.name.slice(0, 1).toUpperCase()}{/if}</span
     ></Button
   >
 {/snippet}

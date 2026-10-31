@@ -46,8 +46,14 @@
 </script>
 
 <div class="ai-action">
-  <Button variant="outline" onclick={() => dialog?.showModal()}>
-    <Icon name="sparkle" size={16} />{busy ? "Reviewing…" : "AI Review"}
+  <Button
+    variant="outline"
+    class="icon-button"
+    aria-label={busy ? "Reviewing…" : "AI Review"}
+    title={busy ? "Reviewing…" : "AI Review"}
+    onclick={() => dialog?.showModal()}
+  >
+    <Icon name="sparkle" size={20} />
   </Button>
   <dialog
     bind:this={dialog}

@@ -7,7 +7,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
   import PostPreview from "$lib/components/PostPreview.svelte";
-  import { relativeTime } from "$lib/contracts";
+  import { avatarURL, relativeTime } from "$lib/contracts";
   import type { PageData, ActionData } from "../../routes/(app)/$types";
   let {
     data,
@@ -410,9 +410,10 @@
     href={`/drafts/${comment.draft_id}#feedback-${comment.id}`}
     aria-label={`Open feedback from ${comment.name}: ${comment.body.slice(0, 80)}`}
   >
-    <span class="avatar feedback-avatar" aria-hidden="true"
-      >{comment.name.slice(0, 1).toUpperCase()}</span
-    >
+    <span class="avatar feedback-avatar" aria-hidden="true">
+      {#if comment.avatar_id}<img src={avatarURL(comment.avatar_id)} alt="" />
+      {:else}{comment.name.slice(0, 1).toUpperCase()}{/if}
+    </span>
     <div class="feedback-content">
       <div class="feedback-byline">
         <strong>{comment.name}</strong>

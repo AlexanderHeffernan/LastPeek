@@ -2,11 +2,17 @@
   import { page } from "$app/state";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
-  import { relativeTime, type Feedback, type Content } from "$lib/contracts";
+  import {
+    avatarURL,
+    relativeTime,
+    type Feedback,
+    type Content,
+  } from "$lib/contracts";
   let {
     comments,
     revision,
     content,
+    token,
     onresolve,
     onapply,
     emptyText = "No feedback yet.",
@@ -14,6 +20,7 @@
     comments: Feedback[];
     revision: number | null;
     content: Content;
+    token?: string;
     onresolve?: (comment: Feedback) => void;
     onapply?: (comment: Feedback) => void;
     emptyText?: string;
@@ -32,7 +39,13 @@
     aria-label={`Feedback from ${comment.name}`}
   >
     <div class="feedback-person">
-      <span class="avatar">{comment.name.slice(0, 1).toUpperCase()}</span>
+      <span class="avatar" aria-hidden="true">
+        {#if comment.avatar_id}<img
+            src={avatarURL(comment.avatar_id, token)}
+            alt=""
+          />
+        {:else}{comment.name.slice(0, 1).toUpperCase()}{/if}
+      </span>
       <div>
         <strong>{comment.name}</strong>
         <div><small>{relativeTime(comment.created_at)}</small></div>

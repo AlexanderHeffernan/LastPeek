@@ -2190,6 +2190,12 @@ test(
           .getByRole("button", { name: `Create ${kind}`, exact: true })
           .click();
         await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+        await page
+          .getByRole("heading", {
+            name: kind === "reply" ? "Comment" : "Quote",
+            exact: true,
+          })
+          .waitFor();
         const sourceId = page.url().split("/").at(-1)!;
         lastSourceDraft = sourceId;
         await page
@@ -2284,6 +2290,18 @@ test(
         await page.getByText("Draft options", { exact: true }).count(),
         0,
       );
+      await page.getByRole("heading", { name: "Post", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      assert.equal(
+        await page
+          .getByLabel("Post 1 text", { exact: true })
+          .evaluate((text) => text === document.activeElement),
+        true,
+        "Edit focuses the inline post without switching modes",
+      );
+      await page
+        .getByRole("button", { name: "More draft actions", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
@@ -2505,6 +2523,57 @@ test(
           .evaluate((e) => e === document.activeElement),
         true,
       );
+      // Empty posts disappear directly; removing real content is an in-page decision.
+      await edited(page, () =>
+        page
+          .getByRole("button", { name: "Remove post 2", exact: true })
+          .click(),
+      );
+      assert.equal(
+        await page.getByLabel("Post 2 text", { exact: true }).count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("dialog", { name: "Remove this post?" })
+          .isVisible(),
+        false,
+      );
+      await edited(page, () =>
+        page.getByRole("button", { name: "Add post to thread" }).click(),
+      );
+      await edited(page, () =>
+        page
+          .getByLabel("Post 2 text", { exact: true })
+          .fill("Temporary wording"),
+      );
+      await page
+        .getByRole("button", { name: "Remove post 2", exact: true })
+        .click();
+      const removePostDialog = page.getByRole("dialog", {
+        name: "Remove this post?",
+      });
+      await removePostDialog.waitFor();
+      await removePostDialog.getByRole("button", { name: "Keep post" }).click();
+      assert.equal(
+        await page.getByLabel("Post 2 text", { exact: true }).inputValue(),
+        "Temporary wording",
+      );
+      await page
+        .getByRole("button", { name: "Remove post 2", exact: true })
+        .click();
+      await edited(page, () =>
+        removePostDialog
+          .getByRole("button", { name: "Remove post", exact: true })
+          .click(),
+      );
+      assert.equal(
+        await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
+        initial,
+      );
+      await edited(page, () =>
+        page.getByRole("button", { name: "Add post to thread" }).click(),
+      );
       await edited(page, () =>
         page
           .getByLabel("Post 2 text", { exact: true })
@@ -2523,6 +2592,25 @@ test(
         .setInputFiles("tests/fixtures/video.mp4");
       const videoData = await (await videoUpload).json();
       assert.equal((await savedVideo).status(), 200);
+      const videoText = await page
+        .getByLabel("Post 2 text", { exact: true })
+        .inputValue();
+      await edited(page, () =>
+        page.getByLabel("Post 2 text", { exact: true }).fill(""),
+      );
+      await page
+        .getByRole("button", { name: "Remove post 2", exact: true })
+        .click();
+      await removePostDialog.waitFor();
+      await removePostDialog.getByRole("button", { name: "Keep post" }).click();
+      assert.equal(
+        await page.getByLabel("Video on post 2", { exact: true }).count(),
+        1,
+        "media-only posts require confirmation too",
+      );
+      await edited(page, () =>
+        page.getByLabel("Post 2 text", { exact: true }).fill(videoText),
+      );
       // Like X, only the post being written shows its tools.
       assert.equal(
         await page.getByLabel("Add media to post 1", { exact: true }).count(),
@@ -2936,6 +3024,12 @@ test(
       await page.getByRole("button", { name: "Reopen", exact: true }).waitFor();
       await screenshot(page, "author-shared");
       await page.getByRole("button", { name: "Review link options" }).click();
+      assert.equal(
+        await page
+          .getByRole("link", { name: "Open preview", exact: true })
+          .count(),
+        0,
+      );
       await page
         .getByRole("button", { name: "Remove link", exact: true })
         .click();
@@ -3181,6 +3275,9 @@ test(
       await page.goto(`${baseURL}/drafts/${id}`);
       await page.getByText("All changes saved", { exact: true }).waitFor();
       await page
+        .getByRole("button", { name: "More draft actions", exact: true })
+        .click();
+      await page
         .getByRole("button", { name: "Delete draft", exact: true })
         .click();
       await page
@@ -3363,6 +3460,192 @@ test(
         ).rows[0].name,
         "Alex Updated",
       );
+      // A signed-in reviewer is not the draft owner; identity follows their account.
+      const reviewerPhotoUpload = await other.request.post(
+        `${baseURL}/api/profile/avatar`,
+        {
+          headers: { Origin: origin, "Content-Type": "image/png" },
+          data: image,
+        },
+      );
+      assert.equal(reviewerPhotoUpload.status(), 201);
+      const reviewerAvatar = (await reviewerPhotoUpload.json()).avatar;
+      const feedbackAvatarURL = `${baseURL}/avatars/${reviewerAvatar}`;
+      assert.equal(
+        (
+          await guest.request.get(
+            `${feedbackAvatarURL}?key=${focusShared.token}`,
+          )
+        ).status(),
+        404,
+        "a link cannot read unrelated account photos",
+      );
+      await stranger.goto(focusLink);
+      await stranger
+        .getByRole("link", { name: "Account settings", exact: true })
+        .waitFor();
+      const reviewNavigation = stranger.getByRole("navigation", {
+        name: "Main navigation",
+      });
+      await reviewNavigation
+        .getByRole("link", { name: "Drafts", exact: true })
+        .waitFor();
+      await reviewNavigation
+        .getByRole("link", { name: "Feedback", exact: true })
+        .waitFor();
+      assert.equal(await stranger.locator("footer").count(), 0);
+      for (const width of [390, 320]) {
+        await stranger.setViewportSize({ width, height: 844 });
+        assert.equal(await reviewNavigation.isVisible(), true);
+        assert.equal(
+          await stranger.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+      }
+      await stranger.setViewportSize({ width: 1280, height: 720 });
+      await reviewNavigation
+        .getByRole("link", { name: "Drafts", exact: true })
+        .click();
+      await stranger
+        .getByRole("main", { name: "Drafts", exact: true })
+        .waitFor();
+      await stranger.goBack();
+      await stranger.getByLabel("Your feedback", { exact: true }).waitFor();
+      assert.equal(
+        await reviewer
+          .getByRole("navigation", { name: "Main navigation" })
+          .count(),
+        0,
+      );
+      await reviewer
+        .getByRole("link", { name: "Sign in", exact: true })
+        .waitFor();
+      assert.equal(
+        await stranger
+          .getByRole("link", { name: "Sign in", exact: true })
+          .count(),
+        0,
+      );
+      await stranger
+        .getByLabel("Your feedback", { exact: true })
+        .fill("Feedback from another signed-in account.");
+      await stranger
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await stranger
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      const identityComment = stranger.getByRole("article", {
+        name: "Feedback from Other author",
+        exact: true,
+      });
+      await identityComment.waitFor();
+      assert.equal(
+        await identityComment.locator("img").getAttribute("src"),
+        `/avatars/${reviewerAvatar}?key=${focusShared.token}`,
+      );
+      assert.equal(
+        (
+          await guest.request.get(
+            `${feedbackAvatarURL}?key=${focusShared.token}`,
+          )
+        ).status(),
+        200,
+      );
+      assert.equal((await guest.request.get(feedbackAvatarURL)).status(), 404);
+      assert.equal(
+        (
+          await guest.request.get(`${feedbackAvatarURL}?key=not-a-review-token`)
+        ).status(),
+        404,
+      );
+      // A guest using the same name must never be linked by name matching.
+      const sameNameGuest = await guest.request.post(`${focusLink}?/comment`, {
+        headers: { Origin: origin },
+        form: {
+          name: "Other author",
+          body: "Same-name guest feedback",
+          revision: "2",
+          postId: "",
+        },
+      });
+      assert.equal(sameNameGuest.status(), 200);
+      const renamed = await other.request.post(`${baseURL}/settings?/profile`, {
+        headers: { Origin: origin },
+        form: { name: "Reviewer renamed", handle: "new_handle" },
+      });
+      assert.equal(renamed.status(), 200);
+      await stranger.reload();
+      await stranger
+        .getByRole("article", {
+          name: "Feedback from Reviewer renamed",
+          exact: true,
+        })
+        .waitFor();
+      await reviewer.reload();
+      await reviewer
+        .getByRole("article", {
+          name: "Feedback from Reviewer renamed",
+          exact: true,
+        })
+        .waitFor();
+      const guestIdentity = reviewer.getByRole("article", {
+        name: "Feedback from Other author",
+        exact: true,
+      });
+      assert.equal(await guestIdentity.locator("img").count(), 0);
+      await page.goto(`${baseURL}/drafts/${focusId}`);
+      const authorIdentity = page.getByRole("article", {
+        name: "Feedback from Reviewer renamed",
+        exact: true,
+      });
+      await authorIdentity.waitFor();
+      assert.equal(
+        await authorIdentity.locator("img").getAttribute("src"),
+        `/avatars/${reviewerAvatar}`,
+      );
+      await page.goto(`${baseURL}/feedback`);
+      await page
+        .getByRole("link", { name: /^Open feedback from Reviewer renamed:/ })
+        .waitFor();
+      const newReviewerPhoto = await other.request.post(
+        `${baseURL}/api/profile/avatar`,
+        {
+          headers: { Origin: origin, "Content-Type": "image/png" },
+          data: replacementPhoto,
+        },
+      );
+      const newReviewerAvatar = (await newReviewerPhoto.json()).avatar;
+      await reviewer.reload();
+      assert.equal(
+        await reviewer
+          .getByRole("article", {
+            name: "Feedback from Reviewer renamed",
+            exact: true,
+          })
+          .locator("img")
+          .getAttribute("src"),
+        `/avatars/${newReviewerAvatar}?key=${focusShared.token}`,
+      );
+      assert.equal(
+        (
+          await guest.request.get(
+            `${feedbackAvatarURL}?key=${focusShared.token}`,
+          )
+        ).status(),
+        404,
+        "replaced feedback photos lose capability access",
+      );
+      assert.equal(
+        (
+          await guest.request.get(
+            `${baseURL}/avatars/${newReviewerAvatar}?key=${focusShared.token}`,
+          )
+        ).status(),
+        200,
+      );
       for (const width of [390, 320]) {
         await reviewer.setViewportSize({ width, height: 844 });
         await reviewer
@@ -3385,6 +3668,15 @@ test(
       }
       await action(owner.request, focusId, { action: "revoke" });
       assert.equal((await guest.request.get(focusLink)).status(), 404);
+      assert.equal(
+        (
+          await guest.request.get(
+            `${baseURL}/avatars/${newReviewerAvatar}?key=${focusShared.token}`,
+          )
+        ).status(),
+        404,
+        "revocation also protects reviewer photos",
+      );
       for (const window of [page, reviewer]) {
         const cachedPaths = await window.evaluate(async () => {
           const entries = await Promise.all(

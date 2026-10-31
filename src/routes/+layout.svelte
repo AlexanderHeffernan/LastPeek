@@ -4,8 +4,16 @@
   import { setContext } from "svelte";
   import SiteAdmin from "$lib/components/SiteAdmin.svelte";
   import PortraitOrientation from "$lib/components/PortraitOrientation.svelte";
+  import AppShell from "$lib/components/AppShell.svelte";
   import { appleLaunchImages } from "$lib/pwa";
   let { children } = $props();
+  const shellUser = $derived(
+    page.route.id?.startsWith("/(app)")
+      ? page.data.user
+      : page.route.id === "/r/[token]"
+        ? page.data.reviewer
+        : null,
+  );
   let adminDialog = $state<HTMLDialogElement>();
   let adminOpened = $state(false),
     adminVisible = $state(false);
@@ -73,8 +81,14 @@
     />
   {/each}
 </svelte:head>
-<div class="app-content" class:signed-in={page.route.id?.startsWith("/(app)")}>
-  {@render children()}
+<div class="app-content" class:signed-in={!!shellUser}>
+  {#if shellUser}
+    <AppShell user={shellUser} canViewAdmin={page.data.canViewAdmin}>
+      {@render children()}
+    </AppShell>
+  {:else}
+    {@render children()}
+  {/if}
 </div>
 <PortraitOrientation />
 {#if page.data.canViewAdmin}
@@ -105,7 +119,7 @@
     </div>
   </dialog>
 {/if}
-{#if !page.route.id?.startsWith("/(app)")}
+{#if !shellUser}
   <footer class="footer-note">
     LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
       >Source code</a
