@@ -38,7 +38,9 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     token: string;
     feedback: number;
   }>(
-    `SELECT d.id,r.content,d.updated_at,fr.created_at,fr.completed_at,d.friend_token AS token,
+    `SELECT d.id,r.content,d.updated_at,fr.created_at,d.friend_token AS token,
+      (SELECT max(c.created_at) FROM comments c
+       WHERE c.draft_id=d.id AND c.user_id=fr.recipient_id AND c.revision=d.shared_revision) AS completed_at,
       (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
      FROM friend_reviews fr
      JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL

@@ -7,6 +7,7 @@
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import AIReview from "$lib/components/AIReview.svelte";
   import XPublish from "$lib/components/XPublish.svelte";
+  import PostedOnX from "$lib/components/PostedOnX.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -164,9 +165,8 @@
     busy = true;
     error = "";
     try {
-      const completed = !data.draft.posted_at;
-      await api({ action: "complete", completed, version });
-      await goto(completed ? "/?tab=done" : "/");
+      await api({ action: "complete", completed: true, version });
+      await invalidateAll();
     } catch (cause) {
       error = (cause as Error).message;
     } finally {
@@ -433,29 +433,40 @@
 />
 <svelte:head><title>{postKind} · LastPeek</title></svelte:head>
 {#snippet publishingControls()}
-  {#if content.source}
-    <Button
-      variant="outline"
-      aria-label="Finish in X"
-      onclick={() => {
-        finishCopiedText = null;
-        finishError = "";
-        finishOpen = true;
-      }}>Finish in <Icon name="x" size={16} /></Button
-    >
-  {/if}
-  {#if data.xPublishing.enabled || data.xPublishing.publication}<XPublish
+  {#if data.draft.posted_at}
+    <PostedOnX
       draftId={data.draft.id}
-      {content}
-      {version}
-      connection={data.xPublishing}
-      disabled={dirty ||
-        saving ||
-        uploading ||
-        pending.length > 0 ||
-        busy ||
-        deleting}
-    />{/if}
+      link={data.postedLink}
+      confirmedURL={data.xPublishing.publication?.status === "posted"
+        ? data.xPublishing.publication.url
+        : null}
+      disabled={busy || deleting}
+    />
+  {:else}
+    {#if content.source}
+      <Button
+        variant="outline"
+        aria-label="Finish in X"
+        onclick={() => {
+          finishCopiedText = null;
+          finishError = "";
+          finishOpen = true;
+        }}>Finish in <Icon name="x" size={16} /></Button
+      >
+    {/if}
+    {#if data.xPublishing.enabled || data.xPublishing.publication}<XPublish
+        draftId={data.draft.id}
+        {content}
+        {version}
+        connection={data.xPublishing}
+        disabled={dirty ||
+          saving ||
+          uploading ||
+          pending.length > 0 ||
+          busy ||
+          deleting}
+      />{/if}
+  {/if}
 {/snippet}
 <main class="draft-page">
   <header class="draft-heading">
@@ -483,7 +494,8 @@
       onchange={changed}
       onupload={upload}
       oncopy={copy}
-      publishing={content.source ||
+      publishing={data.draft.posted_at ||
+      content.source ||
       data.xPublishing.enabled ||
       data.xPublishing.publication
         ? publishingControls
@@ -514,17 +526,6 @@
   </section>
   <aside class="draft-sidebar" aria-label="Feedback and sharing">
     <div class="draft-actions">
-      <Button
-        class="completion-action"
-        variant="outline"
-        disabled={busy || saving || uploading || deleting}
-        onclick={completeDraft}
-      >
-        <Icon name={data.draft.posted_at ? "drafts" : "done"} size={18} />{data
-          .draft.posted_at
-          ? "Move to drafts"
-          : "Mark as posted"}
-      </Button>
       <div class="share-actions">
         <Button
           variant={shareToken ? "secondary" : "default"}
@@ -600,6 +601,18 @@
             align="end"
             aria-label="More draft actions"
           >
+            {#if !data.draft.posted_at}
+              <Button
+                variant="ghost"
+                disabled={busy || saving || uploading || deleting}
+                onclick={() => {
+                  moreOpen = false;
+                  void completeDraft();
+                }}
+              >
+                <Icon name="done" size={16} />Mark as posted
+              </Button>
+            {/if}
             <Button
               variant="ghost"
               class="danger"
@@ -708,26 +721,15 @@
                 alt=""
               />{:else}{friend.name.slice(0, 1).toUpperCase()}{/if}</span
           ><strong>{friend.name}</strong>
-          <div class="share-friend-actions">
-            {#if data.completedReviews.includes(friend.user_id)}
-              <Button
-                variant="secondary"
-                disabled={busy || saving || uploading}
-                aria-label={`Request another look from ${friend.name}`}
-                onclick={() => sendToFriend(friend.user_id, false)}
-                >Request another look</Button
-              >
-            {/if}
-            <Button
-              variant={sent ? "ghost" : "secondary"}
-              disabled={busy || saving || uploading}
-              aria-label={sent
-                ? `Remove ${friend.name}’s review access`
-                : `Send to ${friend.name}`}
-              onclick={() => sendToFriend(friend.user_id, sent)}
-              >{sent ? "Remove access" : "Send"}</Button
-            >
-          </div>
+          <Button
+            variant={sent ? "ghost" : "secondary"}
+            disabled={busy || saving || uploading}
+            aria-label={sent
+              ? `Remove ${friend.name}’s review access`
+              : `Send to ${friend.name}`}
+            onclick={() => sendToFriend(friend.user_id, sent)}
+            >{sent ? "Remove access" : "Send"}</Button
+          >
         </div>
       {:else}<Button variant="outline" href="/friends"
           >Add friends<Icon name="users" size={16} /></Button
@@ -753,12 +755,6 @@
 <ConfirmDialog bind:this={confirmation} />
 
 <style>
-  .share-friend-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-  }
   .share-friends {
     max-height: 40dvh;
     overflow-y: auto;
@@ -776,15 +772,6 @@
   }
   .share-friend .avatar {
     flex-shrink: 0;
-  }
-  @media (max-width: 480px) {
-    .share-friend {
-      flex-wrap: wrap;
-    }
-    .share-friend-actions {
-      width: 100%;
-      align-items: stretch;
-    }
   }
   .share-link-option {
     margin-top: 24px;
@@ -805,10 +792,6 @@
     align-items: center;
     gap: 8px;
     padding-bottom: 16px;
-  }
-  .draft-actions :global(.completion-action) {
-    grid-column: 1 / -1;
-    min-height: 44px;
   }
   .share-actions > :global(button:first-child) {
     flex: 1;

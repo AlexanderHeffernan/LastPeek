@@ -491,6 +491,8 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
     );
     // Browser checks only intercept the publication boundary. No real X writes.
     await db.query("DELETE FROM x_publications WHERE draft_id=$1", [draftId]);
+    // Reuse the content as an unposted fixture; posted drafts now only offer their link.
+    await db.query("UPDATE drafts SET posted_at=NULL WHERE id=$1", [draftId]);
     await db.query(
       "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
       [hash(session), userId],

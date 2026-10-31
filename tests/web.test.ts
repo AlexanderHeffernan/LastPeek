@@ -1995,6 +1995,13 @@ test(
     const names = ["Mina", "Jules", "Robin"];
     const emails = ids.map((id) => `friends-${id}@example.test`);
     const headers = { Origin: origin };
+    const feedbackBuckets = [
+      "feedback:127.0.0.1",
+      "feedback:::ffff:127.0.0.1",
+    ].map(tokenHash);
+    await db.query("DELETE FROM rate_limits WHERE key=ANY($1::text[])", [
+      feedbackBuckets,
+    ]);
     const friendAction = async (
       context: typeof author,
       body: object,
@@ -2128,6 +2135,25 @@ test(
         action: "publish",
         version: saved.version,
       });
+      const anonymous = await guest.newPage();
+      await anonymous.goto(`${baseURL}/r/${publicReview.token}`);
+      await anonymous
+        .getByRole("button", { name: "Feedback options", exact: true })
+        .click();
+      await anonymous
+        .getByRole("button", { name: "Looks good!", exact: true })
+        .click();
+      const identity = anonymous.getByRole("dialog", {
+        name: "Who’s giving feedback?",
+      });
+      await identity.getByLabel("Your name", { exact: true }).fill("Jules");
+      await identity
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await anonymous
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      await anonymous.getByText("Looks good!", { exact: true }).waitFor();
       // Profile discovery works through a review, without exposing email addresses.
       await reviewer.goto(`${baseURL}/r/${publicReview.token}`);
       await page.goto(`${baseURL}/drafts/${draftId}`);
@@ -2193,16 +2219,18 @@ test(
           ).status(),
           404,
         );
-        if (context === other)
-          assert.equal(
-            (
-              await context.request.post(`${reviewURL}?/complete`, {
-                headers,
-                form: { completed: "true" },
-              })
-            ).status(),
-            404,
-          );
+        assert.equal(
+          (
+            await context.request.post(`${reviewURL}?/comment`, {
+              headers,
+              form: {
+                intent: "looks-good",
+                currentRevision: privateReview.revision,
+              },
+            })
+          ).status(),
+          404,
+        );
       }
       assert.equal((await friend.request.get(mediaURL)).status(), 200);
       assert.equal((await friend.request.get(avatarURL)).status(), 200);
@@ -2211,6 +2239,24 @@ test(
         404,
         "private reviews never generate crawler previews, even for a recipient",
       );
+      assert.equal(
+        (
+          await author.request.post(`${reviewURL}?/comment`, {
+            headers,
+            form: {
+              name: "Mina",
+              body: "Ready for your thoughts.",
+              revision: privateReview.revision,
+            },
+          })
+        ).status(),
+        200,
+      );
+      await reviewer.goto(`${baseURL}/?tab=review`);
+      await reviewer
+        .getByRole("tab", { name: "To review 1", exact: true })
+        .waitFor();
+      await reviewer.getByRole("link", { name: /^Review post:/ }).waitFor();
       await reviewer.goto(`${baseURL}/notifications`);
       await reviewer
         .getByRole("button", { name: /Mina.*A friend shared a draft/ })
@@ -2225,62 +2271,66 @@ test(
       await reviewer
         .getByText("The Friday timing works.", { exact: true })
         .waitFor();
-      // Commenting is not completion; completing a review never resolves the author's feedback.
+      // Only this recipient's feedback on the current snapshot clears their queue.
+      assert.equal(
+        await reviewer
+          .getByRole("button", { name: "Finish review", exact: true })
+          .count(),
+        0,
+      );
       await reviewer
         .getByRole("link", { name: "Back to drafts", exact: true })
         .click();
-      await reviewer
-        .getByRole("tab", { name: "To review 1", exact: true })
-        .waitFor();
-      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
-      await reviewer
-        .getByRole("button", { name: "Finish review", exact: true })
-        .click();
       await reviewer.getByRole("tab", { name: "Done", exact: true }).waitFor();
       await reviewer.getByText("Reviewed", { exact: true }).waitFor();
-      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
+      const feedback = (
+        await db.query(
+          "SELECT id,resolved FROM comments WHERE draft_id=$1 AND user_id=$2",
+          [draftId, ids[1]],
+        )
+      ).rows[0];
+      assert.equal(feedback.resolved, false);
+      await action(author.request, draftId, {
+        action: "resolve",
+        commentId: feedback.id,
+        resolved: true,
+      });
+      const unchanged = await action(author.request, draftId, {
+        action: "save",
+        version: saved.version,
+        content,
+      });
+      assert.equal(unchanged.revision, privateReview.revision);
+      await reviewer.reload();
+      await reviewer.getByText("Reviewed", { exact: true }).waitFor();
       await reviewer
-        .getByRole("button", { name: "Reopen review", exact: true })
-        .click();
-      await reviewer.getByRole("link", { name: /^Review post:/ }).click();
-      await reviewer
-        .getByRole("button", { name: "Finish review", exact: true })
-        .click();
-      await reviewer.waitForURL(
-        (url) => url.pathname === "/" && url.searchParams.get("tab") === "done",
-      );
+        .getByRole("tab", { name: "To review 0", exact: true })
+        .waitFor();
       content.posts[0].text = "Updated private wording.";
       const updated = await action(author.request, draftId, {
         action: "save",
-        version: saved.version,
+        version: unchanged.version,
         content,
       });
       assert.ok(updated.revision > privateReview.revision);
       await reviewer.reload();
       await reviewer
-        .getByRole("tab", { name: "To review 0", exact: true })
+        .getByRole("tab", { name: "To review 1", exact: true })
         .click();
+      // A late approval still belongs to what was actually seen, not the latest edit.
       assert.equal(
-        await reviewer.getByRole("link", { name: /^Review post:/ }).count(),
-        0,
-        "Autosave does not reopen completed reviews",
+        (
+          await friend.request.post(`${reviewURL}?/comment`, {
+            headers,
+            form: {
+              name: "Jules",
+              intent: "looks-good",
+              currentRevision: privateReview.revision,
+            },
+          })
+        ).status(),
+        200,
       );
-      await page.reload();
-      await page
-        .getByRole("button", { name: "Friends only", exact: true })
-        .click();
-      await page
-        .getByRole("button", {
-          name: "Request another look from Jules",
-          exact: true,
-        })
-        .click();
-      await page
-        .getByRole("button", {
-          name: "Request another look from Jules",
-          exact: true,
-        })
-        .waitFor({ state: "hidden" });
       await reviewer.reload();
       await reviewer
         .getByRole("tab", { name: "To review 1", exact: true })
@@ -2290,7 +2340,49 @@ test(
       await reviewer
         .getByText("Updated private wording.", { exact: true })
         .waitFor();
-      await reviewer.getByText("Earlier feedback", { exact: true }).waitFor();
+      await reviewer
+        .getByText("Earlier feedback", { exact: true })
+        .first()
+        .waitFor();
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .fill("Keep this unsent text.");
+      await reviewer
+        .getByRole("button", { name: "Feedback options", exact: true })
+        .click();
+      assert.equal(
+        await reviewer
+          .getByRole("button", { name: "Looks good!", exact: true })
+          .isDisabled(),
+        true,
+      );
+      await reviewer.keyboard.press("Escape");
+      await reviewer.getByLabel("Your feedback", { exact: true }).fill("");
+      await reviewer
+        .getByRole("button", { name: "Feedback options", exact: true })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Looks good!", exact: true })
+        .click();
+      await reviewer
+        .getByRole("button", { name: "Feedback sent", exact: true })
+        .waitFor();
+      assert.equal(
+        (
+          await db.query(
+            "SELECT body FROM comments WHERE draft_id=$1 AND user_id=$2 AND revision=$3",
+            [draftId, ids[1], updated.revision],
+          )
+        ).rows[0].body,
+        "Looks good!",
+      );
+      await reviewer
+        .getByRole("link", { name: "Back to drafts", exact: true })
+        .click();
+      await reviewer.getByText("Reviewed", { exact: true }).waitFor();
+      await reviewer
+        .getByRole("tab", { name: "To review 0", exact: true })
+        .waitFor();
       await action(author.request, draftId, {
         action: "unshare-friend",
         userId: ids[1],
@@ -2337,9 +2429,13 @@ test(
       await friendAction(author, { action: "remove", id: next });
       await page.getByRole("button", { name: "Close sharing" }).click();
       await page.reload();
-      await page.getByRole("button", { name: "Add Jules as a friend" }).click();
+      await page
+        .getByRole("button", { name: "Add Jules as a friend" })
+        .first()
+        .click();
       await page
         .getByRole("button", { name: "Cancel friend request to Jules" })
+        .first()
         .waitFor();
       await reviewer.goto(`${baseURL}/friends`);
       await reviewer
@@ -2351,15 +2447,19 @@ test(
       await reviewer.goto(`${baseURL}/r/${publicAgain.token}`);
       await reviewer
         .getByRole("button", { name: "Add Mina as a friend" })
+        .first()
         .click();
       await reviewer
         .getByRole("button", { name: "Cancel friend request to Mina" })
+        .first()
         .waitFor();
       await reviewer
         .getByRole("button", { name: "Cancel friend request to Mina" })
+        .first()
         .click();
       await reviewer
         .getByRole("button", { name: "Add Mina as a friend" })
+        .first()
         .waitFor();
       for (const width of [390, 320]) {
         await page.setViewportSize({ width, height: 844 });
@@ -2612,6 +2712,9 @@ test(
       await Promise.all(
         avatars.map((id) => rm(avatarPath(id), { force: true })),
       );
+      await db.query("DELETE FROM rate_limits WHERE key=ANY($1::text[])", [
+        feedbackBuckets,
+      ]);
     }
   },
 );
@@ -3252,8 +3355,77 @@ test(
       await page
         .getByRole("link", { name: /^Open draft: Feed example 1/ })
         .click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Mark as posted", exact: true })
+          .count(),
+        0,
+      );
+      await page.getByRole("button", { name: "More draft actions" }).click();
       await page
         .getByRole("button", { name: "Mark as posted", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Paste post link", exact: true })
+        .waitFor();
+      await action(
+        owner.request,
+        feedIds[1],
+        { action: "complete", completed: false, version: 1 },
+        400,
+      );
+      await page.evaluate(() => {
+        navigator.clipboard.readText = async () =>
+          "https://twitter.com/alex/status/123456789?ref=copy";
+      });
+      await page
+        .getByRole("button", { name: "Paste post link", exact: true })
+        .click();
+      await page
+        .getByRole("link", { name: "View on X", exact: true })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("link", { name: "View on X", exact: true })
+          .getAttribute("href"),
+        "https://x.com/alex/status/123456789",
+      );
+      await db.query(
+        "UPDATE posted_x_links SET status='candidate',url='https://x.com/i/web/status/987654321' WHERE draft_id=$1",
+        [feedIds[1]],
+      );
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Confirm X post", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "No, another post", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Paste post link", exact: true })
+        .waitFor();
+      await db.query(
+        "UPDATE posted_x_links SET status='candidate',url='https://x.com/i/web/status/987654321' WHERE draft_id=$1",
+        [feedIds[1]],
+      );
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Confirm X post", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Yes, that’s it", exact: true })
+        .click();
+      await page
+        .getByRole("link", { name: "View on X", exact: true })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("link", { name: "View on X", exact: true })
+          .getAttribute("href"),
+        "https://x.com/i/web/status/987654321",
+      );
+      await page
+        .getByRole("link", { name: "Back to drafts", exact: true })
         .click();
       await page.getByText("Posted", { exact: true }).waitFor();
       assert.equal(await feedLinks.count(), 1);
@@ -3261,10 +3433,24 @@ test(
       assert.equal(await feedLinks.count(), 2);
       await page.getByRole("tab", { name: "Done", exact: true }).click();
       await feedLinks.first().click();
+      await page.getByRole("button", { name: "More draft actions" }).click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Move to drafts", exact: true })
+          .count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Mark as posted", exact: true })
+          .count(),
+        0,
+      );
+      await page.keyboard.press("Escape");
       await page
-        .getByRole("button", { name: "Move to drafts", exact: true })
+        .getByRole("link", { name: "Back to drafts", exact: true })
         .click();
-      await page.getByRole("tab", { name: /^Drafts 3$/ }).waitFor();
+      await page.getByRole("tab", { name: /^Drafts 2$/ }).waitFor();
       await db.query("DELETE FROM drafts WHERE id=ANY($1::uuid[])", [feedIds]);
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByLabel("X handle", { exact: true }).fill("not valid!");

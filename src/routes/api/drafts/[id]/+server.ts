@@ -10,6 +10,7 @@ import { db, transaction } from "$lib/server/db";
 import { readBody } from "$lib/server/request";
 import { rm } from "node:fs/promises";
 import { mediaPath } from "$lib/server/media";
+import { markPosted, linkPostedX } from "$lib/server/posted-x";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -27,15 +28,13 @@ export const POST: RequestHandler = async (event) => {
   if (!body || typeof body !== "object" || Array.isArray(body))
     error(400, "Send a valid draft action.");
   if (body.action === "complete") {
-    if (typeof body.completed !== "boolean" || !Number.isInteger(body.version))
-      error(400, "Choose a completion state and save your latest edits.");
-    const result = await db.query(
-      `UPDATE drafts SET posted_at=CASE WHEN $1 THEN now() ELSE NULL END
-       WHERE id=$2 AND owner_id=$3 AND edit_version=$4 RETURNING id`,
-      [body.completed, id, user.id, body.version],
-    );
-    if (!result.rowCount)
-      error(409, "This draft changed. Reload before marking it as posted.");
+    if (body.completed !== true || !Number.isInteger(body.version))
+      error(400, "Save your latest edits before marking this as posted.");
+    await markPosted(user.id, id, body.version);
+    return json({ ok: true });
+  }
+  if (body.action === "posted-link") {
+    await linkPostedX(user.id, id, body.choice, body.url);
     return json({ ok: true });
   }
   if (body.action === "save") {

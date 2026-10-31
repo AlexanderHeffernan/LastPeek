@@ -197,8 +197,7 @@ export async function shareWithFriend(
     );
     const added = await client.query(
       `INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)
-      ON CONFLICT(draft_id,recipient_id) DO UPDATE SET completed_at=NULL,created_at=now()
-      WHERE friend_reviews.completed_at IS NOT NULL RETURNING draft_id`,
+      ON CONFLICT DO NOTHING RETURNING draft_id`,
       [id, recipientId, friendship.id],
     );
     if (added.rowCount)

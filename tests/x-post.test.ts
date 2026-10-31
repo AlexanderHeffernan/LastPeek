@@ -292,4 +292,234 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     reserved: spent + 5,
     unpriced_failures: 0,
   });
+
+  // Manual posting reconciliation has its own owner, fixtures and allowance.
+  await db.query(`CREATE TABLE drafts(id uuid PRIMARY KEY,owner_id uuid REFERENCES users,content jsonb,edit_version int DEFAULT 1,posted_at timestamptz);
+    CREATE TABLE x_accounts(user_id uuid PRIMARY KEY,x_id text);
+    CREATE TABLE x_publications(draft_id uuid PRIMARY KEY,status text);`);
+  await db.query(await readFile("migrations/024_posted_x_links.sql", "utf8"));
+  const author = randomUUID(),
+    outsider = randomUUID();
+  await db.query("INSERT INTO users(id,plan)VALUES($1,'pro'),($2,'free')", [
+    author,
+    outsider,
+  ]);
+  await db.query("INSERT INTO x_accounts VALUES($1,'7722')", [author]);
+  process.env.X_API_MONTHLY_BUDGET_USD = "100";
+  const { markPosted, linkPostedX } =
+    await import("../src/lib/server/posted-x");
+  let reads = 0,
+    providerStatus = 200;
+  const wording =
+    "A useful lesson from shipping small things: real feedback beats a perfect plan every time.";
+  const tweet = (id: string, text = wording) => ({
+    id,
+    text,
+    author_id: "7722",
+    created_at: new Date().toISOString(),
+  });
+  let timeline: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (input: URL, init: RequestInit) => {
+    reads++;
+    assert.equal(input.origin, "https://api.x.com");
+    assert.equal(input.pathname, "/2/users/7722/tweets");
+    assert.equal(input.searchParams.get("max_results"), "20");
+    assert.equal(input.searchParams.get("exclude"), "retweets");
+    assert.equal(
+      input.searchParams.has("query"),
+      false,
+      "Private draft wording never goes to X.",
+    );
+    assert.equal(init.body, undefined);
+    assert.equal(init.redirect, "error");
+    assert.ok(init.signal);
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM api_usage WHERE model='post-match' AND outcome='pending'",
+        )
+      ).rows[0].n,
+      1,
+      "The read is reserved before HTTP.",
+    );
+    return Response.json({ data: timeline }, { status: providerStatus });
+  });
+  const draft = async (extra: object = {}) => {
+    const id = randomUUID();
+    await db.query("INSERT INTO drafts(id,owner_id,content)VALUES($1,$2,$3)", [
+      id,
+      author,
+      {
+        title: "",
+        author: { name: "Alex", handle: "alex" },
+        posts: [{ id: randomUUID(), text: wording, media: [] }],
+        ...extra,
+      },
+    ]);
+    return id;
+  };
+  const state = async (id: string) =>
+    (
+      await db.query(
+        "SELECT status,url FROM posted_x_links WHERE draft_id=$1",
+        [id],
+      )
+    ).rows[0];
+  timeline = [tweet("111")];
+  const exact = await draft();
+  await Promise.all([
+    markPosted(author, exact, 1),
+    markPosted(author, exact, 1),
+  ]);
+  assert.deepEqual(await state(exact), {
+    status: "linked",
+    url: "https://x.com/i/web/status/111",
+  });
+  assert.equal(reads, 1);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT estimated_usd::float8 AS usd FROM api_usage WHERE user_id=$1 AND model='post-match'",
+        [author],
+      )
+    ).rows[0].usd,
+    0.005,
+    "Timeline reads charge returned resources, not the ten-cent reservation.",
+  );
+  await markPosted(author, exact, 1);
+  assert.equal(reads, 1, "Revisits and duplicate marks do not spend again.");
+  timeline = [tweet("222", wording.replace("perfect", "detailed"))];
+  const close = await draft();
+  await markPosted(author, close, 1);
+  assert.equal((await state(close)).status, "candidate");
+  await assert.rejects(linkPostedX(outsider, close, "yes", null), {
+    status: 404,
+  });
+  await linkPostedX(author, close, "yes", null);
+  assert.equal((await state(close)).status, "linked");
+  timeline = [tweet("333"), tweet("334")];
+  const repeated = await draft();
+  await markPosted(author, repeated, 1);
+  assert.equal((await state(repeated)).status, "candidate");
+  assert.equal(
+    (
+      await db.query(
+        "SELECT estimated_usd::float8 AS usd FROM api_usage WHERE user_id=$1 AND model='post-match' ORDER BY created_at DESC LIMIT 1",
+        [author],
+      )
+    ).rows[0].usd,
+    0.01,
+    "A two-post response charges two resources.",
+  );
+  await linkPostedX(author, repeated, "no", null);
+  assert.deepEqual(await state(repeated), { status: "unmatched", url: null });
+  await markPosted(author, repeated, 1);
+  assert.equal(
+    (await state(repeated)).status,
+    "unmatched",
+    "Rejected candidates never reappear automatically.",
+  );
+  await assert.rejects(
+    linkPostedX(author, repeated, "url", "https://evil.example/status/123"),
+    { status: 400 },
+  );
+  await linkPostedX(
+    author,
+    repeated,
+    "url",
+    "https://twitter.com/alex/status/444?tracking=yes",
+  );
+  assert.equal((await state(repeated)).url, "https://x.com/alex/status/444");
+  timeline = [{ ...tweet("555"), attachments: { media_keys: ["3_photo"] } }];
+  const media = await draft();
+  await markPosted(author, media, 1);
+  assert.equal(
+    (await state(media)).status,
+    "candidate",
+    "Matching wording does not prove media identity.",
+  );
+  timeline = [tweet("556")];
+  const thread = await draft({
+    posts: [
+      { id: randomUUID(), text: wording, media: [] },
+      { id: randomUUID(), text: "There is more to this story.", media: [] },
+    ],
+  });
+  await markPosted(author, thread, 1);
+  assert.equal((await state(thread)).status, "candidate");
+  timeline = [
+    { ...tweet("666"), author_id: "wrong" },
+    { ...tweet("667"), created_at: "2020-01-01T00:00:00Z" },
+    { ...tweet("668"), referenced_tweets: [{ type: "retweeted", id: "2" }] },
+  ];
+  const irrelevant = await draft();
+  await markPosted(author, irrelevant, 1);
+  assert.deepEqual(await state(irrelevant), { status: "unmatched", url: null });
+  timeline = [
+    { ...tweet("777"), referenced_tweets: [{ type: "replied_to", id: "123" }] },
+  ];
+  const reply = await draft({
+    source: { kind: "reply", url: "https://x.com/alex/status/456" },
+  });
+  await markPosted(author, reply, 1);
+  assert.equal(
+    (await state(reply)).status,
+    "unmatched",
+    "Reply context must match, not just text.",
+  );
+  timeline = [
+    { ...tweet("778"), referenced_tweets: [{ type: "replied_to", id: "456" }] },
+  ];
+  const rightReply = await draft({
+    source: { kind: "reply", url: "https://x.com/alex/status/456" },
+  });
+  await markPosted(author, rightReply, 1);
+  assert.equal((await state(rightReply)).status, "linked");
+  timeline = [
+    {
+      ...tweet("888", wording + " https://t.co/example"),
+      entities: {
+        urls: [
+          {
+            url: "https://t.co/example",
+            expanded_url: "https://example.org/story",
+          },
+        ],
+      },
+    },
+  ];
+  const expanded = await draft({
+    posts: [
+      {
+        id: randomUUID(),
+        text: wording + " https://example.org/story",
+        media: [],
+      },
+    ],
+  });
+  await markPosted(author, expanded, 1);
+  assert.equal((await state(expanded)).status, "linked");
+  providerStatus = 503;
+  const failed = await draft();
+  await markPosted(author, failed, 1);
+  assert.equal((await state(failed)).status, "unmatched");
+  assert.ok(
+    (await db.query("SELECT posted_at FROM drafts WHERE id=$1", [failed]))
+      .rows[0].posted_at,
+    "Provider failure never undoes posting.",
+  );
+  const beforeDenied = reads;
+  process.env.X_API_MONTHLY_BUDGET_USD = "0";
+  const bounded = await draft();
+  await markPosted(author, bounded, 1);
+  assert.equal(reads, beforeDenied);
+  assert.equal((await state(bounded)).status, "unmatched");
+  await assert.rejects(markPosted(outsider, bounded, 1), { status: 404 });
+  const stale = await draft();
+  await assert.rejects(markPosted(author, stale, 0), { status: 409 });
+  assert.equal(
+    (await db.query("SELECT posted_at FROM drafts WHERE id=$1", [stale]))
+      .rows[0].posted_at,
+    null,
+  );
 });

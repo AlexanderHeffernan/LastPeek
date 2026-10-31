@@ -2,6 +2,7 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Popover } from "bits-ui";
   import { enhance } from "$app/forms";
   import { onMount } from "svelte";
   import { beforeNavigate, invalidateAll } from "$app/navigation";
@@ -19,6 +20,9 @@
   let feedbackRevision = $state<number | null>(null);
   let identityDialog = $state<HTMLDialogElement>();
   let feedbackForm = $state<HTMLFormElement>();
+  let approvalSubmit = $state<HTMLButtonElement>();
+  let approvalPending = $state(false);
+  let feedbackOpen = $state(false);
   let sent = $state(false);
   let signingIn = $state(false);
   const postKind = $derived(
@@ -140,38 +144,14 @@
     />
   </section>
   <aside class="draft-sidebar" aria-label="Feedback">
-    {#if data.review}
-      <form
-        class="review-completion"
-        method="POST"
-        action="?/complete"
-        use:enhance={() => {
-          busy = true;
-          return async ({ update }) => {
-            await update();
-            busy = false;
-          };
-        }}
-      >
-        <input
-          type="hidden"
-          name="completed"
-          value={String(!data.review.completed)}
-        />
-        <Button type="submit" variant="outline" disabled={busy || !!body.trim()}
-          ><Icon
-            name={data.review.completed ? "review" : "done"}
-            size={18}
-          />{data.review.completed ? "Reopen review" : "Finish review"}</Button
-        >
-      </form>
-    {/if}
     <form
       bind:this={feedbackForm}
       class="feedback-form"
       method="POST"
       action="?/comment"
-      use:enhance={({ cancel }) => {
+      use:enhance={({ cancel, submitter }) => {
+        approvalPending = submitter === approvalSubmit;
+        feedbackOpen = false;
         if (!data.reviewer && !name.trim() && !signingIn) {
           cancel();
           identityDialog?.showModal();
@@ -187,6 +167,7 @@
             postId = "";
             quote = "";
             feedbackRevision = null;
+            approvalPending = false;
             sent = true;
             identityDialog?.close();
             sessionStorage.setItem("reviewer-name", name);
@@ -202,6 +183,16 @@
       <input type="hidden" name="postId" value={postId} />
       <input type="hidden" name="quote" value={quote} />
       <input type="hidden" name="name" value={name} />
+      <input type="hidden" name="currentRevision" value={data.revision} />
+      <button
+        bind:this={approvalSubmit}
+        hidden
+        type="submit"
+        name="intent"
+        value="looks-good"
+        aria-label="Send looks-good feedback"
+        formnovalidate
+      ></button>
       <label
         >Your feedback<Textarea
           name="body"
@@ -240,12 +231,42 @@
       {#if form?.message && !form.success}<p class="action-error" role="alert">
           {form.message}
         </p>{/if}
-      <Button type="submit" disabled={busy}
-        >{busy ? "Sending…" : sent ? "Feedback sent" : "Send feedback"}<Icon
-          name={sent ? "check" : "arrow"}
-          size={16}
-        /></Button
-      >
+      <div class="share-actions review-submit">
+        <Button type="submit" disabled={busy}
+          >{busy ? "Sending…" : sent ? "Feedback sent" : "Send feedback"}<Icon
+            name={sent ? "check" : "arrow"}
+            size={16}
+          /></Button
+        >
+        <Popover.Root bind:open={feedbackOpen}>
+          <Popover.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                class="share-toggle"
+                disabled={busy}
+                aria-label="Feedback options"
+              >
+                <Icon name="down" size={15} />
+              </Button>
+            {/snippet}
+          </Popover.Trigger>
+          <Popover.Content
+            class="share-menu"
+            sideOffset={8}
+            align="end"
+            aria-label="Feedback options"
+          >
+            <Button
+              variant="ghost"
+              disabled={busy || !!body.trim()}
+              onclick={() => feedbackForm?.requestSubmit(approvalSubmit)}
+            >
+              <Icon name="check" size={16} />Looks good!
+            </Button>
+          </Popover.Content>
+        </Popover.Root>
+      </div>
     </form>
     <div class="draft-feedback">
       <FeedbackList
@@ -268,7 +289,7 @@
     onsubmit={(event) => {
       event.preventDefault();
       identityDialog?.close();
-      feedbackForm?.requestSubmit();
+      feedbackForm?.requestSubmit(approvalPending ? approvalSubmit : undefined);
     }}
     class="stack"
   >
@@ -294,7 +315,9 @@
         variant="outline"
         onclick={() => {
           identityDialog?.close();
-          feedbackForm?.requestSubmit();
+          feedbackForm?.requestSubmit(
+            approvalPending ? approvalSubmit : undefined,
+          );
         }}>Continue signed in</Button
       >{/if}
     <Button
@@ -306,8 +329,8 @@
 </dialog>
 
 <style>
-  .review-completion {
-    padding-bottom: 12px;
+  .review-submit > :global(button:first-child) {
+    flex: 1;
   }
   .review-page {
     width: 100%;
@@ -325,12 +348,8 @@
   @media (max-width: 1000px) {
     .review-page {
       max-width: 600px;
-      grid-template-areas: "heading" "posts" "completion" "form" "feedback";
-      grid-template-rows: 52px auto auto auto 1fr;
-    }
-    .review-completion {
-      grid-area: completion;
-      padding: 20px 12px 0;
+      grid-template-areas: "heading" "posts" "form" "feedback";
+      grid-template-rows: 52px auto auto 1fr;
     }
     .feedback-form {
       grid-area: form;

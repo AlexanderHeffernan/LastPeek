@@ -32,7 +32,7 @@ export function xReadRates(date = new Date()) {
 
 const resource = z.object({ id: z.string().regex(/^[0-9]{1,30}$/) });
 const readResponse = z.object({
-  data: resource,
+  data: z.union([resource, z.array(resource).max(100)]),
   includes: z
     .object({
       users: z.array(resource).optional(),
@@ -68,9 +68,9 @@ export async function finishXRead(
     if (status !== null && status >= 200 && status < 300 && parsed.success) {
       const { data, includes } = parsed.data;
       const rates = event.x_read_rates as ReturnType<typeof xReadRates>;
-      const resources: [string, string, number][] = [
-        [kind, data.id, Number(event.x_unit_usd)],
-      ];
+      const resources: [string, string, number][] = (
+        Array.isArray(data) ? data : [data]
+      ).map((item) => [kind, item.id, Number(event.x_unit_usd)]);
       if (rates.expansions) {
         for (const user of includes?.users ?? [])
           resources.push(["User", user.id, rates.User]);

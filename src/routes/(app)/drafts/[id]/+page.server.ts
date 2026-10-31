@@ -13,6 +13,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     draftComments(draft.id),
   ]);
   return {
+    postedLink:
+      (
+        await db.query<{ status: string; url: string | null }>(
+          "SELECT status,url FROM posted_x_links WHERE draft_id=$1",
+          [draft.id],
+        )
+      ).rows[0] ?? null,
     xPublishing: await xPublishing(draft.owner_id, draft.id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
@@ -26,12 +33,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     recipients: (
       await db.query<{ recipient_id: string }>(
         "SELECT recipient_id FROM friend_reviews WHERE draft_id=$1",
-        [draft.id],
-      )
-    ).rows.map((r) => r.recipient_id),
-    completedReviews: (
-      await db.query<{ recipient_id: string }>(
-        "SELECT recipient_id FROM friend_reviews WHERE draft_id=$1 AND completed_at IS NOT NULL",
         [draft.id],
       )
     ).rows.map((r) => r.recipient_id),
