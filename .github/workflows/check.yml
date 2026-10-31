@@ -73,6 +73,8 @@ jobs:
           persist-credentials: false
       - name: Trust the container-mounted checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install link-preview media and fonts
+        run: apt-get update && apt-get install -y --no-install-recommends ffmpeg fontconfig-config fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22

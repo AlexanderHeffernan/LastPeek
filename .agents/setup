@@ -10,6 +10,10 @@ if ! command -v pg_config >/dev/null || [[ ! -x "$(pg_config --bindir)/initdb" ]
   sudo apt-get update -qq
   sudo apt-get install -y -qq postgresql libpq-dev
 fi
+if ! command -v ffmpeg >/dev/null || [[ ! -f /etc/fonts/conf.d/10-scale-bitmap-fonts.conf ]] || ! fc-match 'Noto Color Emoji' | grep -q NotoColorEmoji; then
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk
+fi
 # Install only; enrollment uses thread secrets during resume, never in a snapshot.
 if ! command -v tailscale >/dev/null; then
   curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null

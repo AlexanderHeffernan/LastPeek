@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFile, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import {
   chromium,
   webkit,
@@ -103,6 +103,152 @@ async function screenshot(page: Page, name: string) {
     fullPage: true,
   });
 }
+
+test(
+  "review cards keep emoji inline and show MP4/WebM thumbnails",
+  { timeout: 60000 },
+  async () => {
+    const browser = await engine.launch();
+    const owner = await browser.newContext();
+    const guest = await browser.newContext();
+    const author = randomUUID();
+    const draft = randomUUID();
+    const account = `preview-${author}@example.test`;
+    const files: string[] = [];
+    try {
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Preview author',$3)",
+        [author, account, await passwordHash(password)],
+      );
+      const content: Content = {
+        title: "",
+        author: { name: "Preview author", handle: "preview" },
+        posts: [
+          { id: randomUUID(), text: "Hello world from LastPeek 👋", media: [] },
+        ],
+      };
+      await db.query(
+        "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+        [draft, author, JSON.stringify(content)],
+      );
+      await login(await owner.newPage(), account);
+      const webm = spawnSync("ffmpeg", [
+        "-v",
+        "error",
+        "-i",
+        "tests/fixtures/video.mp4",
+        "-frames:v",
+        "1",
+        "-threads",
+        "1",
+        "-c:v",
+        "libvpx-vp9",
+        "-f",
+        "webm",
+        "pipe:1",
+      ]);
+      assert.equal(webm.status, 0, webm.stderr.toString());
+      let version = 1;
+      for (const [mime, buffer] of [
+        ["video/mp4", await readFile("tests/fixtures/video.mp4")],
+        ["video/webm", webm.stdout],
+      ] as const) {
+        const upload = await owner.request.post(
+          `${baseURL}/api/drafts/${draft}/media`,
+          {
+            headers: { Origin: origin },
+            multipart: {
+              file: { name: "preview-video", mimeType: mime, buffer },
+            },
+          },
+        );
+        assert.equal(upload.status(), 201, await upload.text());
+        const media = await upload.json();
+        files.push(media.id);
+        content.posts[0].media = [media.id];
+        version = (
+          await action(owner.request, draft, {
+            action: "save",
+            version,
+            content,
+          })
+        ).version;
+        const shared = await action(owner.request, draft, {
+          action: "publish",
+          version,
+        });
+        const url = `${baseURL}/r/${shared.token}/preview.png`;
+        const response = await guest.request.get(url);
+        assert.equal(response.status(), 200);
+        const bytes = await response.body();
+        // The fixture's centre is navy. Text-only fallback would leave this black.
+        const pixel = await sharp(bytes)
+          .extract({ left: 1000, top: 350, width: 1, height: 1 })
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+        assert.ok(
+          pixel[2] > 70 && pixel[2] < 110 && pixel[0] < 40,
+          `missing ${mime} thumbnail: ${[...pixel]}`,
+        );
+        // The yellow wave must be inline, not the font's native 128px bitmap.
+        const body = await sharp(bytes)
+          .extract({ left: 56, top: 162, width: 680, height: 380 })
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+        const rows: number[] = [];
+        for (let y = 0; y < 380; y++)
+          for (let x = 0; x < 680; x++) {
+            const i = (y * 680 + x) * 3;
+            if (body[i] > 180 && body[i + 1] > 100 && body[i + 2] < 100)
+              rows.push(y);
+          }
+        assert.ok(rows.length > 0, "the wave must render in color");
+        assert.ok(
+          Math.max(...rows) - Math.min(...rows) < 52,
+          "emoji must scale with the 38px text",
+        );
+        content.posts[0].text = "";
+        version = (
+          await action(owner.request, draft, {
+            action: "save",
+            version,
+            content,
+          })
+        ).version;
+        const videoOnly = await guest.request.get(`${url}?v=1`);
+        assert.equal(videoOnly.status(), 200);
+        const widePixel = await sharp(await videoOnly.body())
+          .extract({ left: 700, top: 350, width: 1, height: 1 })
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+        assert.ok(
+          widePixel[2] > 70 && widePixel[0] < 40,
+          "video-only cards use the wide media layout, even with an old revision hint",
+        );
+        await writeFile(mediaPath(media.id), "damaged video");
+        const fallback = await guest.request.get(url);
+        assert.equal(
+          fallback.status(),
+          200,
+          "a broken video must not break the card",
+        );
+        assert.notDeepEqual(await fallback.body(), await videoOnly.body());
+        await action(owner.request, draft, { action: "revoke" });
+        assert.equal((await guest.request.get(url)).status(), 404);
+        assert.equal((await owner.request.get(url)).status(), 404);
+        content.posts[0].text = "Hello world from LastPeek 👋";
+      }
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM drafts WHERE id=$1", [draft]);
+      await db.query("DELETE FROM users WHERE id=$1", [author]);
+      for (const id of files) await rm(mediaPath(id), { force: true });
+    }
+  },
+);
 
 test(
   "installed app assets and private, network-only offline recovery",

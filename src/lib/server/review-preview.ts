@@ -1,10 +1,14 @@
 import sharp, { type OverlayOptions } from "sharp";
 import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { render } from "svelte/server";
 import Brand from "../components/Brand.svelte";
 import type { Content, Media } from "../contracts";
 import { mediaPath } from "./media";
 import { avatarPath } from "./avatars";
+
+const extractFrame = promisify(execFile);
 
 // Use the app's outlined wordmark and resting eyes, not a font approximation.
 const brand = render(Brand)
@@ -70,14 +74,56 @@ async function text(
 export async function reviewPreview(content: Content, media: Media[]) {
   const post = content.posts[0];
   const hasText = !!post.text.trim();
-  const image = post.media
+  const attachment = post.media
     .map((id) => media.find((item) => item.id === id))
-    .find((item) => item?.mime.startsWith("image/"));
+    .find((item) => item);
   let photo: Buffer | undefined;
-  if (image) {
+  if (attachment) {
     // A missing old attachment must not prevent the rest of the card from rendering.
     try {
-      photo = await sharp(mediaPath(image.id), { limitInputPixels: 40_000_000 })
+      let input: string | Buffer = mediaPath(attachment.id);
+      if (attachment.mime.startsWith("video/")) {
+        // Decode only one local frame, with bounded work/output and no network protocols.
+        const { stdout } = await extractFrame(
+          "ffmpeg",
+          [
+            "-v",
+            "error",
+            "-nostdin",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-f",
+            attachment.mime === "video/mp4" ? "mov" : "matroska",
+            "-threads",
+            "1",
+            "-i",
+            input,
+            "-map",
+            "0:v:0",
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=1088:380:force_original_aspect_ratio=decrease",
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
+            "-f",
+            "image2pipe",
+            "-c:v",
+            "png",
+            "pipe:1",
+          ],
+          {
+            encoding: "buffer",
+            timeout: 5000,
+            killSignal: "SIGKILL",
+            maxBuffer: 2 * 1024 * 1024,
+          },
+        );
+        input = stdout;
+      }
+      photo = await sharp(input, { limitInputPixels: 40_000_000 })
         .rotate()
         .resize(hasText ? 352 : 1088, 380, {
           fit: "contain",
@@ -148,7 +194,7 @@ export async function reviewPreview(content: Content, media: Media[]) {
     });
   const body =
     post.text.trim() ||
-    (post.media.length ? (image ? "" : "Video attachment") : "");
+    (attachment?.mime.startsWith("video/") && !photo ? "Video attachment" : "");
   if (body.trim())
     layers.push({
       input: await text(body, photo ? 680 : 1088, 38, "#e7e9ea", 380),

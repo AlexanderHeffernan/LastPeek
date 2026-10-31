@@ -18,7 +18,7 @@ Run `amp orb services ensure --json` inside an orb and use its exact portal URL.
 
 ## Local development
 
-Requires Node 22.17+ and PostgreSQL 14+. Create a **dedicated development database**, not a database used by another application.
+Requires Node 22.17+, PostgreSQL 14+ and FFmpeg for video link-preview thumbnails. On Debian, install `ffmpeg fontconfig-config fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk` for the same preview rendering as the container. Create a **dedicated development database**, not a database used by another application.
 
 ```sh
 npm ci
