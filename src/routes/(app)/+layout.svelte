@@ -1,14 +1,35 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
   import { page } from "$app/state";
+  import { getContext } from "svelte";
   import Brand from "$lib/components/Brand.svelte";
   import { avatarURL } from "$lib/contracts";
   let { data, children } = $props();
+  const openAdmin = getContext<() => void>("open-siteadmin");
 </script>
 
 <header class="topbar">
   <Brand />
   <nav class="row" aria-label="Account">
+    {#if data.canViewAdmin}
+      <Button
+        variant="ghost"
+        href="/siteadmin"
+        onclick={(event) => {
+          if (
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey &&
+            !event.altKey
+          ) {
+            event.preventDefault();
+            openAdmin();
+          }
+        }}
+        aria-current={page.url.pathname === "/siteadmin" ? "page" : undefined}
+        aria-keyshortcuts="~">Admin</Button
+      >
+    {/if}
     <Button
       variant="ghost"
       class="icon-button account-link"

@@ -34,6 +34,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   });
   await db.query(await readFile("migrations/011_x_source_posts.sql", "utf8"));
   await db.query("CREATE TABLE users(id uuid PRIMARY KEY)");
+  await db.query(await readFile("migrations/013_api_usage.sql", "utf8"));
   await db.query(await readFile("migrations/004_feature_access.sql", "utf8"));
   await db.query("INSERT INTO users(id) VALUES($1)", [ownerId]);
   let calls = 0;
@@ -191,6 +192,14 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     1,
     "aliases and different handles reuse the post-ID cache",
   );
+  assert.deepEqual(
+    (
+      await db.query(
+        "SELECT user_id,outcome,estimated_usd::float8 AS cost,reserved_cents FROM api_usage",
+      )
+    ).rows,
+    [{ user_id: ownerId, outcome: "success", cost: 0.005, reserved_cents: 5 }],
+  );
   await db.query("DELETE FROM feature_grants WHERE user_id=$1", [ownerId]);
   assert.equal(
     await sourcePost(url(1)),
@@ -263,4 +272,12 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     text,
     "fresh cached cards remain usable at the budget",
   );
+  const usage = await db.query(
+    "SELECT count(*)::int AS requests, sum(reserved_cents)::int AS reserved, count(*) FILTER(WHERE outcome='error' AND estimated_usd IS NULL)::int AS unpriced_failures FROM api_usage",
+  );
+  assert.deepEqual(usage.rows[0], {
+    requests: calls,
+    reserved: spent + 5,
+    unpriced_failures: 1,
+  });
 });

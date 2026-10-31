@@ -1,5 +1,5 @@
 import { db, transaction } from "./db";
-import { featureSchema, type Feature } from "../features";
+import { featureSchema, featureChangeSchema, type Feature } from "../features";
 
 export async function hasFeature(userId: string, feature: Feature) {
   const result = await db.query(
@@ -44,44 +44,54 @@ export async function featureAccess(email: string) {
 }
 
 export async function setFeatureAccess(
-  email: string,
+  email: string | null,
   feature: Feature,
   enabled: boolean,
   actor: string,
-  reason: string,
+  reason = "",
   thread?: string,
 ) {
-  featureSchema.parse(feature);
-  if (
-    !actor.trim() ||
-    actor.length > 200 ||
-    !reason.trim() ||
-    reason.length > 500
-  )
+  ({ reason } = featureChangeSchema.parse({ feature, enabled, reason }));
+  if (!actor.trim() || actor.length > 200)
     throw new Error("An operator identity and bounded reason are required.");
   return transaction(async (client) => {
-    // Serialize grants for this account, including concurrent enable/disable requests.
+    // Bulk changes affect existing accounts only. Lock in UUID order to serialize
+    // with individual writes and avoid deadlocks between concurrent bulk changes.
     const user = await client.query(
-      "SELECT id FROM users WHERE lower(email)=$1 FOR UPDATE",
+      "SELECT id FROM users WHERE ($1::text IS NULL OR lower(email)=$1) ORDER BY id FOR UPDATE",
       [email],
     );
-    if (user.rowCount !== 1) throw new Error("Account not found or ambiguous.");
-    const id = user.rows[0].id as string;
+    if (email !== null && user.rowCount !== 1)
+      throw new Error("Account not found or ambiguous.");
+    const ids = user.rows.map((row) => row.id as string);
     const changed = enabled
       ? await client.query(
-          "INSERT INTO feature_grants(user_id,feature) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING user_id",
-          [id, feature],
+          "INSERT INTO feature_grants(user_id,feature) SELECT unnest($1::uuid[]),$2 ON CONFLICT DO NOTHING RETURNING user_id",
+          [ids, feature],
         )
       : await client.query(
-          "DELETE FROM feature_grants WHERE user_id=$1 AND feature=$2 RETURNING user_id",
-          [id, feature],
+          "DELETE FROM feature_grants WHERE user_id=ANY($1::uuid[]) AND feature=$2 RETURNING user_id",
+          [ids, feature],
         );
     if (changed.rowCount) {
       await client.query(
-        "INSERT INTO feature_audit(user_id,feature,enabled,actor,reason,thread) VALUES($1,$2,$3,$4,$5,$6)",
-        [id, feature, enabled, actor, reason, thread || null],
+        "INSERT INTO feature_audit(user_id,feature,enabled,actor,reason,thread) SELECT unnest($1::uuid[]),$2,$3,$4,$5,$6",
+        [
+          changed.rows.map((row) => row.user_id),
+          feature,
+          enabled,
+          actor,
+          reason,
+          thread || null,
+        ],
       );
     }
-    return { userId: id, feature, enabled, changed: Boolean(changed.rowCount) };
+    return {
+      userId: email === null ? null : ids[0],
+      feature,
+      enabled,
+      changed: Boolean(changed.rowCount),
+      changedCount: changed.rowCount || 0,
+    };
   });
 }

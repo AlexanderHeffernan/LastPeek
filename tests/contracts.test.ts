@@ -110,6 +110,14 @@ test("operator commands accept explicit grants and reject expanded authority", (
     reason: "End trial",
   };
   assert.equal(operatorCommand.parse(grant).action, "set_feature_access");
+  const { reason, ...withoutReason } = grant;
+  assert.deepEqual(operatorCommand.parse({ ...withoutReason, enabled: true }), {
+    ...withoutReason,
+    email: "owner@example.test",
+    enabled: true,
+    reason: "",
+  });
+  assert.equal(operatorCommand.safeParse(withoutReason).success, false);
   assert.equal(
     operatorCommand.parse({ ...grant, feature: "x-source-posts" }).action,
     "set_feature_access",
@@ -123,6 +131,16 @@ test("operator commands accept explicit grants and reject expanded authority", (
     { action: "recent_logs", minutes: 61, lines: 200 },
     { action: "recent_logs", minutes: 60, lines: 201 },
     { action: "recent_logs", minutes: 0, lines: 1 },
+    { action: "admin_overview", sql: "SELECT * FROM users" },
+    { action: "admin_users", search: "x".repeat(201) },
+    { action: "admin_users", page: 0 },
+    { action: "admin_users", page: 1.5 },
+    { action: "admin_users", page: 100001 },
+    { action: "admin_users", includePasswords: true },
+    { action: "admin_usage", userId: "not-an-account-id" },
+    { action: "admin_usage", period: "day" },
+    { action: "admin_usage", email: "author@example.test" },
+    { action: "admin_history", limit: 10000 },
   ])
     assert.equal(operatorCommand.safeParse(input).success, false);
   assert.ok(
@@ -132,4 +150,15 @@ test("operator commands accept explicit grants and reject expanded authority", (
       lines: 200,
     }).success,
   );
+  assert.deepEqual(operatorCommand.parse({ action: "admin_users" }), {
+    action: "admin_users",
+    search: "",
+    page: 1,
+  });
+  assert.ok(operatorCommand.safeParse({ action: "admin_overview" }).success);
+  assert.deepEqual(operatorCommand.parse({ action: "admin_usage" }), {
+    action: "admin_usage",
+    period: "month",
+  });
+  assert.ok(operatorCommand.safeParse({ action: "admin_history" }).success);
 });

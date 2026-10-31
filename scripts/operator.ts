@@ -1,6 +1,13 @@
 import { db } from "../src/lib/server/db";
 import { featureAccess, setFeatureAccess } from "../src/lib/server/features";
 import { operatorCommand } from "../src/lib/operator";
+import {
+  adminOverview,
+  adminUsers,
+  adminUsage,
+  adminHistory,
+  adminFlags,
+} from "../src/lib/server/admin";
 
 try {
   let input = "";
@@ -10,7 +17,18 @@ try {
   }
   const command = operatorCommand.parse(JSON.parse(input));
   let result;
-  if (command.action === "feature_access")
+  if (command.action === "admin_overview") result = await adminOverview();
+  else if (command.action === "admin_history") result = await adminHistory();
+  else if (command.action === "admin_flags")
+    result = await adminFlags({ userId: command.userId });
+  else if (command.action === "admin_usage")
+    result = await adminUsage({
+      userId: command.userId,
+      period: command.period,
+    });
+  else if (command.action === "admin_users")
+    result = await adminUsers({ search: command.search, page: command.page });
+  else if (command.action === "feature_access")
     result = await featureAccess(command.email);
   else if (command.action === "set_feature_access") {
     if (process.env.LASTPEEK_OPERATOR_ROLE !== "flags")
@@ -35,6 +53,7 @@ try {
       "Account not found or ambiguous.",
       "Flag-write role required.",
       "Missing operator identity.",
+      "Owner admin access is not configured.",
     ].includes(e.message)
       ? e.message
       : "Operator request failed. Check command, migration and service availability.";

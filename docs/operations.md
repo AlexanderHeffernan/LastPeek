@@ -21,6 +21,103 @@ is not cancelled; its result may finish after revocation. The X token and instan
 budget remain independent requirements. Grant this feature using the same audited
 operator command below with `"feature": "x-source-posts"`.
 
+## Site administration
+
+Set `LASTPEEK_OWNER_ID` to the existing owner's stable account UUID in the web
+container environment. Missing or invalid configuration disables `/siteadmin`
+and its operator reads; never infer ownership from an email address or the first
+account. The owner can always access administration. Existing `is_admin`
+accounts form the admin team: they can read administration and manage their
+invitations, but only the owner can grant or revoke admin membership. This is
+authorization, not a feature flag. AI review grants never confer admin access.
+
+The Admin link and `~` toggle a modal overlay without navigating away from the
+current page. Closing with `~`, Escape, the backdrop or the close button preserves the page,
+form state and scroll position underneath. Typing `~` in an input or editor
+does not open it. `/siteadmin` remains available as a full page, including on
+mobile. Overview contains key figures, global monthly API costs/requests and service health. Accounts, Feature flags, API usage
+and Access history have their own sidebar sections and full-page URLs under
+`/siteadmin/accounts`, `/siteadmin/features`, `/siteadmin/usage` and `/siteadmin/history`. The overlay and page use the same component and authenticated snapshot
+endpoint. Reads are private/no-store; role writes require same-origin owner
+authentication and a confirmation, and are transactionally audited in migration
+`012_admin_access_audit.sql`. Owner access cannot be revoked in this interface.
+
+`admin_overview` and `admin_users` use the same server queries as the website.
+They expose aggregate account/invitation/draft/review/feedback counts, media bytes,
+database health, image revision, the latest 20 admin access changes, and paginated
+account identity/current avatar/role/registration/storage/feature grants. Admins
+can read current profile avatars, but gain no access to historical avatars or draft media. Directory search is a
+literal, case-insensitive name/email substring (200 characters maximum); pages
+contain at most 25 accounts. No passwords, session tokens, draft contents, review
+capabilities or raw request logs are returned. Media bytes count database-tracked
+uploads and avatars, not filesystem, database or backup disk usage. Registered
+accounts and seven-day registrations are not live-user or recent-activity counts;
+no activity tracking is added by this version.
+
+```json
+{ "action": "admin_overview" }
+```
+
+```json
+{ "action": "admin_users", "search": "", "page": 1 }
+```
+
+`admin_usage` accepts optional `userId` and `period` (`month` or `all`) and reads
+the same global/per-account usage as the website. `admin_flags` accepts an optional
+`userId` and returns every registered flag, activation counts and the selected
+account's enabled/disabled status. `admin_history`
+reads the latest 50 combined membership and feature-grant changes. The owner can
+manage feature grants from Feature flags, with user search and confirmation; a
+reason is optional when enabling and required when disabling. Team members
+can inspect them but cannot change them. The existing agent flag-write role still
+permits confirmed feature changes.
+
+Bulk grants/revocations affect existing accounts only, lock accounts in UUID order,
+and audit each actual change in the same transaction. Future accounts still default
+to off. Individual and bulk writes serialize against the same user-row locks.
+
+The operator credentials can read these views, but cannot change admin membership or perform bulk writes.
+The existing flag-write credential remains limited to feature grants.
+
+### API accounting
+
+Migration `013_api_usage.sql` records content-free usage metadata attributed to the
+draft owner. OpenAI returns token usage, not the dollar charge. The app automatically
+snapshots published Standard rates for its default `gpt-6-luna` model: $0.10 input,
+$0.01 cached input and $0.50 output per million tokens, with cache writes at 1.25× input.
+Requests explicitly select the default service tier. Inputs above 272K tokens use
+2× input/cache and 1.5× output rates. Source, verified 31 October 2026:
+https://developers.openai.com/api/docs/models/gpt-6-luna . Rates live in server code;
+changing models requires adding its verified rates, not an admin form. Missing rates or missing
+token counts stay explicitly unpriced, including failed/interrupted requests.
+Historical OpenAI usage cannot be reconstructed from this ledger.
+
+X records each paid attempt transactionally with its budget reservation. Cache
+hits, denied requests and exhausted budgets create no new event. Gross cost
+estimates use the public post-read price ($0.005) and expansion pricing effective
+22 November 2026 ($0.010 per user, $0.005 per media/poll/place/post expansion).
+These estimates do not apply daily provider deduplication, credits or discounts
+and are not invoices. The existing five-cent-per-attempt safety reservation is
+reported separately. Earlier X reservations remain globally unattributed, not
+invented per-user costs. Month filters use UTC; all-time covers tracked events.
+
+### Production activation
+
+An image update alone cannot enable the new host-gateway commands. With explicit
+approval, add the owner UUID to the Pi deployment environment **and** map
+`LASTPEEK_OWNER_ID` into the web container's Compose environment, then apply that
+container configuration with the deployment lock held. The operator CLI runs in
+web and inherits this setting. The checked-in `compose.yaml` includes the mapping;
+the Pi's operator-local Compose file must be updated separately. Do not print the
+full rendered Compose configuration or its environment.
+
+Install the reviewed `scripts/operator-gateway.py` as root-owned mode 0755 at
+`/usr/local/sbin/lastpeek-operator` to allow the five new read commands. A gateway
+replacement does not require reinstalling keys or restarting SSH. Do not rerun
+the full installation script for this update. Verify all five reads after the
+compatible image and migrations are deployed; no arbitrary SQL or shell access
+is needed.
+
 ## Local operator CLI
 
 From a trusted checkout or inside web, send JSON on stdin to `npm run --silent
@@ -59,8 +156,13 @@ operator service deliberately after configuration updates.
 Root-owned authorized keys force each key into its read or flag-write role.
 Forwarding, TTY, passwords and user-supplied commands are disabled. The account
 has no Docker-group access; sudo allows only the fixed gateway commands. The
-gateway has a fixed Compose directory/project and four JSON commands:
+gateway has a fixed Compose directory/project and nine JSON commands:
 
+- `admin_overview`: the same aggregate overview and access history as `/siteadmin`.
+- `admin_users`: the same bounded, searchable account directory as `/siteadmin`.
+- `admin_usage`: global or per-account OpenAI/X usage and estimates.
+- `admin_flags`: registered flags, activation counts and optional account status.
+- `admin_history`: the combined membership and feature-grant change history.
 - `feature_access`: one account's grants and audit history.
 - `set_feature_access`: grant/revoke one known flag, flag-write key only.
 - `service_status`: selected container state/health fields only.
@@ -102,7 +204,7 @@ existing orb, refresh processes and run `.agents/resume`.
 
 ## Amp tools and credentials
 
-The project plugin `.amp/plugins/lastpeek-ops.ts` registers the four commands above.
+The project plugin `.amp/plugins/lastpeek-ops.ts` registers the nine commands above.
 Flag changes require human confirmation before a write is sent. This is a workflow
 safeguard: possession of the flag-write SSH key itself authorizes writes; the Pi
 cannot independently verify the dialog or thread ID. The audit actor identifies

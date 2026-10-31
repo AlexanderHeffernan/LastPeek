@@ -23,6 +23,7 @@ services:
     environment: &app-env
       DATABASE_URL: postgres://lastpeek:${POSTGRES_PASSWORD}@db:5432/lastpeek
       ORIGIN: ${ORIGIN:-http://localhost:3000}
+      LASTPEEK_OWNER_ID: ${LASTPEEK_OWNER_ID:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
       MAX_STORAGE_MB: ${MAX_STORAGE_MB:-500}
       BODY_SIZE_LIMIT: 55M

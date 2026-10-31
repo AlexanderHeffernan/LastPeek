@@ -179,6 +179,622 @@ test(
 );
 
 test(
+  "site admin permissions, shared operator data and owner-managed team",
+  { timeout: 90000 },
+  async () => {
+    const ownerId = process.env.LASTPEEK_OWNER_ID;
+    assert.ok(
+      ownerId,
+      "Set LASTPEEK_OWNER_ID to an unused test UUID on both the server and test process.",
+    );
+    assert.equal(
+      (await db.query("SELECT 1 FROM users WHERE id=$1", [ownerId])).rowCount,
+      0,
+      "Never reuse a real owner account for the test.",
+    );
+    const prefix = `monitor-${randomUUID().slice(0, 8)}`;
+    const ids = [ownerId, ...Array.from({ length: 26 }, randomUUID)];
+    const emails = ids.map((_, i) => `${prefix}-${i}@example.test`);
+    const existingAccounts = (await db.query("SELECT created_at FROM users"))
+      .rows;
+    const hash = await passwordHash(password);
+    const browser = await engine.launch();
+    const owner = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      deviceScaleFactor: 2,
+    });
+    const member = await browser.newContext();
+    const author = await browser.newContext();
+    const page = await owner.newPage();
+    const memberPage = await member.newPage();
+    const authorPage = await author.newPage();
+    // This extra sign-in scenario must not exhaust the shared localhost throttle
+    // before the existing auth regression suite (or the next browser engine).
+    const loginBuckets = ["login:127.0.0.1", "login:::ffff:127.0.0.1"].map(
+      tokenHash,
+    );
+    await db.query("DELETE FROM rate_limits WHERE key=ANY($1::text[])", [
+      loginBuckets,
+    ]);
+    const operator = (command: object) => {
+      const result = spawnSync(
+        process.execPath,
+        ["--env-file-if-exists=.env", "--import", "tsx", "scripts/operator.ts"],
+        { input: JSON.stringify(command), encoding: "utf8" },
+      );
+      assert.equal(result.status, 0, result.stdout || result.stderr);
+      return JSON.parse(result.stdout).result;
+    };
+    try {
+      for (const [i, id] of ids.entries())
+        await db.query(
+          "INSERT INTO users(id,email,name,password_hash,is_admin,created_at) VALUES($1,$2,$3,$4,$5,now()-($6::int * interval '1 day'))",
+          [
+            id,
+            emails[i],
+            i === 0 ? "Monitor owner" : `Monitor account ${i}`,
+            hash,
+            i === 0,
+            i === 0 ? 14 : 0,
+          ],
+        );
+      await db.query(
+        "INSERT INTO feature_grants(user_id,feature) VALUES($1,'ai-review')",
+        [ids[2]],
+      );
+      await login(authorPage, emails[2]);
+      const photo = await sharp({
+        create: { width: 32, height: 32, channels: 3, background: "#ff6b5b" },
+      })
+        .png()
+        .toBuffer();
+      const avatar = await author.request.post(
+        `${baseURL}/api/profile/avatar`,
+        {
+          data: photo,
+          headers: { Origin: origin, "Content-Type": "image/png" },
+        },
+      );
+      assert.equal(avatar.status(), 201);
+      const retiredAvatarId = (await avatar.json()).avatar;
+      const currentAvatar = await author.request.post(
+        `${baseURL}/api/profile/avatar`,
+        {
+          data: photo,
+          headers: { Origin: origin, "Content-Type": "image/png" },
+        },
+      );
+      assert.equal(currentAvatar.status(), 201);
+      const avatarId = (await currentAvatar.json()).avatar;
+      await login(memberPage, emails[1]);
+      assert.equal(
+        (await member.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
+        404,
+      );
+      assert.equal(
+        await authorPage
+          .getByRole("link", { name: "Admin", exact: true })
+          .count(),
+        0,
+      );
+      assert.equal(
+        (await author.request.get(`${baseURL}/siteadmin`)).status(),
+        404,
+      );
+      assert.equal(
+        (
+          await author.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: { action: "admin-access", userId: ids[2], enabled: true },
+            headers: { Origin: origin },
+          })
+        ).status(),
+        404,
+      );
+      await authorPage.locator("body").click({ position: { x: 2, y: 2 } });
+      await authorPage.keyboard.press("~");
+      assert.equal(new URL(authorPage.url()).pathname, "/");
+
+      await login(page, emails[0]);
+      assert.equal(
+        (
+          await owner.request.get(`${baseURL}/avatars/${retiredAvatarId}`)
+        ).status(),
+        404,
+        "Admins cannot read non-current avatars.",
+      );
+      assert.equal(
+        (await owner.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
+        200,
+      );
+      await page.getByRole("link", { name: "Account settings" }).click();
+      await page.getByLabel("X handle", { exact: true }).fill("test");
+      await page.getByLabel("X handle", { exact: true }).press("~");
+      assert.equal(
+        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        "test~",
+      );
+      assert.equal(new URL(page.url()).pathname, "/settings");
+      await page
+        .getByRole("heading", { name: "Account.", exact: true })
+        .click();
+      await page.keyboard.press("~");
+      await page
+        .getByRole("heading", { name: "Site admin.", exact: true })
+        .waitFor();
+      assert.equal(
+        new URL(page.url()).pathname,
+        "/settings",
+        "Overlay must not navigate away from the current page.",
+      );
+      await page
+        .getByRole("button", { name: "Close site admin", exact: true })
+        .click();
+      assert.equal(
+        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        "test~",
+        "Opening and closing admin preserves the underlying form.",
+      );
+      await page
+        .getByRole("heading", { name: "Account.", exact: true })
+        .click();
+      await page.keyboard.press("~");
+      await page
+        .getByRole("dialog", { name: "Site admin overlay", exact: true })
+        .waitFor();
+      const overview = operator({ action: "admin_overview" });
+      assert.equal(overview.accounts, existingAccounts.length + 27);
+      assert.equal(
+        overview.new_accounts,
+        existingAccounts.filter(
+          (account) =>
+            Date.now() - new Date(account.created_at).getTime() <= 7 * 86400000,
+        ).length + 26,
+        "The owner fixture joined fourteen days ago; only the other 26 are new.",
+      );
+      await screenshot(page, "siteadmin-overlay-desktop");
+      await page.keyboard.press("~");
+      assert.equal(await page.getByRole("dialog").isVisible(), false);
+      await page.keyboard.press("~");
+      await page
+        .getByRole("dialog", { name: "Site admin overlay", exact: true })
+        .waitFor();
+      await page.keyboard.press("Escape");
+      assert.equal(await page.getByRole("dialog").isVisible(), false);
+      await page.getByRole("link", { name: "Admin", exact: true }).click();
+      assert.equal(new URL(page.url()).pathname, "/settings");
+      await page.setViewportSize({ width: 390, height: 844 });
+      await screenshot(page, "siteadmin-overlay-mobile");
+      await page
+        .getByRole("heading", { name: "Site admin.", exact: true })
+        .click();
+      assert.equal(
+        await page
+          .getByRole("dialog", { name: "Site admin overlay", exact: true })
+          .isVisible(),
+        true,
+        "Tapping inside admin keeps it open.",
+      );
+      await page.mouse.click(2, 400);
+      assert.equal(
+        await page
+          .getByRole("dialog", { name: "Site admin overlay", exact: true })
+          .isVisible(),
+        false,
+        "Tapping the backdrop closes admin.",
+      );
+      assert.equal(
+        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        "test~",
+        "Backdrop dismissal preserves the underlying form.",
+      );
+      await page.getByRole("link", { name: "Admin", exact: true }).click();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.route("**/siteadmin/snapshot?**", (route) => route.abort());
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await page.getByRole("alert").waitFor();
+      await screenshot(page, "siteadmin-refresh-error");
+      await page.unroute("**/siteadmin/snapshot?**");
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Refresh", exact: true })
+        .waitFor();
+      for (const [label, expected] of [
+        ["Registered accounts", overview.accounts],
+        ["Joined in the last 7 days", overview.new_accounts],
+        ["Pending invitations", overview.pending_invites],
+        ["Drafts", overview.drafts],
+        ["Feedback", overview.feedback],
+      ] as const)
+        assert.equal(
+          await page
+            .getByText(label, { exact: true })
+            .locator("..")
+            .locator("dd")
+            .innerText(),
+          String(expected),
+        );
+      const safe = JSON.stringify(overview);
+      for (const forbidden of [
+        "password_hash",
+        "share_token",
+        "content",
+        "session",
+      ])
+        assert.equal(safe.includes(forbidden), false);
+
+      await page.getByRole("link", { name: "Accounts", exact: true }).click();
+      assert.equal(
+        new URL(page.url()).pathname,
+        "/settings",
+        "Sidebar navigation stays inside the overlay.",
+      );
+      await page.getByRole("textbox", { name: "Search accounts" }).fill(prefix);
+      await page.getByRole("button", { name: "Search", exact: true }).click();
+      await page
+        .getByRole("status")
+        .filter({ hasText: "27 accounts" })
+        .waitFor();
+      const directory = operator({ action: "admin_users", search: prefix });
+      assert.equal(directory.total, 27);
+      assert.equal(directory.users.length, 25);
+      assert.equal(
+        directory.users.find((u: { id: string }) => u.id === ids[2]).avatar_id,
+        avatarId,
+      );
+      assert.equal(
+        directory.users.find((u: { id: string }) => u.id === ids[2])
+          .features[0],
+        "ai-review",
+      );
+      await page.getByRole("button", { name: "Next", exact: true }).click();
+      await page.getByText("Page 2 of 2", { exact: true }).waitFor();
+      const secondPage = operator({
+        action: "admin_users",
+        search: prefix,
+        page: 2,
+      });
+      for (const account of secondPage.users)
+        await page.getByText(account.email, { exact: true }).waitFor();
+      assert.equal(
+        operator({ action: "admin_users", search: "%" }).total,
+        0,
+        "Search wildcards are literal.",
+      );
+      await page.goto(
+        `${baseURL}/siteadmin?search=${encodeURIComponent(emails[1])}`,
+      );
+      await page
+        .getByRole("button", { name: `Actions for ${emails[1]}`, exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: `Grant admin access to ${emails[1]}`,
+          exact: true,
+        })
+        .click();
+      await screenshot(page, "siteadmin-confirm-access");
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      assert.equal(
+        (await db.query("SELECT is_admin FROM users WHERE id=$1", [ids[1]]))
+          .rows[0].is_admin,
+        false,
+      );
+      await page
+        .getByRole("button", { name: `Actions for ${emails[1]}`, exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: `Grant admin access to ${emails[1]}`,
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", { name: "Grant access", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Grant admin access?", exact: true })
+        .waitFor({ state: "hidden" });
+      await memberPage.goto(`${baseURL}/`);
+      for (const command of [
+        {
+          action: "feature-access",
+          userId: ids[2],
+          feature: "ai-review",
+          enabled: true,
+          reason: "Denied",
+        },
+        {
+          action: "all-feature-access",
+          feature: "ai-review",
+          enabled: true,
+          reason: "Denied",
+        },
+      ])
+        assert.equal(
+          (
+            await member.request.post(`${baseURL}/siteadmin/snapshot`, {
+              data: command,
+              headers: { Origin: origin },
+            })
+          ).status(),
+          403,
+        );
+      assert.equal(
+        (await member.request.get(`${baseURL}/siteadmin`)).status(),
+        200,
+      );
+      assert.equal(
+        (await member.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
+        200,
+      );
+      assert.equal(
+        (
+          await member.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: { action: "admin-access", userId: ids[2], enabled: true },
+            headers: { Origin: origin },
+          })
+        ).status(),
+        403,
+      );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: { action: "admin-access", userId: ownerId, enabled: false },
+            headers: { Origin: origin },
+          })
+        ).status(),
+        400,
+      );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: { action: "admin-access", userId: ids[2], enabled: true },
+            headers: { Origin: "https://evil.example" },
+          })
+        ).status(),
+        403,
+      );
+      await page
+        .getByRole("button", { name: `Actions for ${emails[1]}`, exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: `Remove admin access from ${emails[1]}`,
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", { name: "Remove access", exact: true })
+        .click();
+      await page
+        .getByRole("heading", { name: "Remove admin access?", exact: true })
+        .waitFor({ state: "hidden" });
+      assert.equal(
+        (await member.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
+        404,
+      );
+      assert.equal(
+        (await member.request.get(`${baseURL}/siteadmin`)).status(),
+        404,
+        "Revocation applies to an existing session.",
+      );
+      const history = operator({
+        action: "admin_overview",
+      }).accessHistory.filter(
+        (item: { account: string }) => item.account === emails[1],
+      );
+      assert.deepEqual(
+        history.map((item: { enabled: boolean }) => item.enabled),
+        [false, true],
+      );
+
+      await page
+        .getByRole("link", { name: "Feature flags", exact: true })
+        .click();
+      const flags = operator({ action: "admin_flags" });
+      assert.equal(flags.flags.length, 2);
+      assert.equal(flags.total, overview.accounts);
+      await page
+        .getByRole("button", {
+          name: "Enable x-source-posts for all users",
+          exact: true,
+        })
+        .click();
+      await page.getByText("All existing accounts", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page
+        .getByRole("textbox", { name: "Search users for feature flags" })
+        .fill(emails[1]);
+      await page.getByRole("button", { name: "Search", exact: true }).click();
+      await page
+        .getByRole("button", { name: `Select ${emails[1]}`, exact: true })
+        .click();
+      await page
+        .getByRole("table", {
+          name: `Feature flags for ${emails[1]}`,
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        operator({ action: "admin_flags", userId: ids[1] }).flags.find(
+          (flag: { feature: string }) => flag.feature === "x-source-posts",
+        ).enabled,
+        false,
+      );
+      await page
+        .getByRole("button", {
+          name: `Enable x-source-posts for ${emails[1]}`,
+          exact: true,
+        })
+        .click();
+      assert.equal(
+        await page
+          .getByLabel("Reason", { exact: true })
+          .getAttribute("required"),
+        null,
+      );
+      await page
+        .getByRole("button", { name: "Confirm change", exact: true })
+        .click();
+      await page
+        .getByRole("button", {
+          name: `Disable x-source-posts for ${emails[1]}`,
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        await page.getByRole("status").count(),
+        0,
+        "Successful flag changes do not show notices.",
+      );
+      assert.equal(
+        (await featureAccess(emails[1])).features["x-source-posts"],
+        true,
+      );
+      assert.equal(
+        operator({ action: "admin_flags", userId: ids[1] }).flags.find(
+          (flag: { feature: string }) => flag.feature === "x-source-posts",
+        ).enabled,
+        true,
+      );
+      for (const action of ["feature-access", "all-feature-access"]) {
+        assert.equal(
+          (
+            await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+              data: {
+                action,
+                ...(action === "feature-access" ? { userId: ids[1] } : {}),
+                feature: "x-source-posts",
+                enabled: false,
+              },
+              headers: { Origin: origin },
+            })
+          ).status(),
+          400,
+          "Revocations still require a reason.",
+        );
+      }
+      await page
+        .getByRole("link", { name: "Access history", exact: true })
+        .click();
+      await page
+        .getByText("x-source-posts · Granted", { exact: true })
+        .first()
+        .waitFor();
+      assert.ok(
+        operator({ action: "admin_history" }).some(
+          (change: { account: string; feature: string; reason: string }) =>
+            change.account === emails[1] &&
+            change.feature === "x-source-posts" &&
+            change.reason === "",
+        ),
+      );
+      await page.getByRole("link", { name: "API usage", exact: true }).click();
+      await page
+        .getByRole("region", { name: "OpenAI usage", exact: true })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("heading", { name: "API usage", exact: true })
+          .count(),
+        0,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: "Save model pricing" }).count(),
+        0,
+      );
+      assert.deepEqual(
+        operator({ action: "admin_usage", userId: ids[1] }).providers.map(
+          (usage: { requests: number }) => usage.requests,
+        ),
+        [0, 0],
+      );
+      await page.getByRole("link", { name: "Accounts", exact: true }).click();
+      await page
+        .getByRole("textbox", { name: "Search accounts" })
+        .fill(emails[1]);
+      await page.getByRole("button", { name: "Search", exact: true }).click();
+      await page.getByRole("status").filter({ hasText: "1 account" }).waitFor();
+      await page
+        .getByRole("button", {
+          name: `API usage for ${emails[1]}`,
+          exact: true,
+        })
+        .click();
+      await page.getByText(emails[1], { exact: true }).waitFor();
+      await page.getByRole("button", { name: "All time", exact: true }).click();
+      await page
+        .getByRole("button", { name: "All accounts", exact: true })
+        .click();
+      for (const command of [
+        {
+          action: "feature-access",
+          userId: ids[2],
+          feature: "ai-review",
+          enabled: true,
+          reason: "Denied",
+        },
+        {
+          action: "all-feature-access",
+          feature: "ai-review",
+          enabled: true,
+          reason: "Denied",
+        },
+      ])
+        assert.equal(
+          (
+            await author.request.post(`${baseURL}/siteadmin/snapshot`, {
+              data: command,
+              headers: { Origin: origin },
+            })
+          ).status(),
+          404,
+        );
+      await page.goto(`${baseURL}/siteadmin`);
+
+      for (const width of [1280, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          true,
+        );
+        await screenshot(page, `siteadmin-${width}`);
+      }
+      await page.goto(`${baseURL}/siteadmin?search=not-an-account`);
+      await page
+        .getByText("No accounts match this search.", { exact: true })
+        .waitFor();
+      await screenshot(page, "siteadmin-empty");
+      await page.goto(`${baseURL}/siteadmin?page=-1`);
+      await page.getByRole("alert").waitFor();
+      await screenshot(page, "siteadmin-invalid");
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM admin_access_audit WHERE actor_id=$1", [
+        ownerId,
+      ]);
+      await db.query(
+        "DELETE FROM feature_audit WHERE user_id=ANY($1::uuid[])",
+        [ids],
+      );
+      const avatars = await db.query(
+        "DELETE FROM avatars WHERE owner_id=ANY($1::uuid[]) RETURNING id",
+        [ids],
+      );
+      await Promise.all(
+        avatars.rows.map((row) => rm(avatarPath(row.id), { force: true })),
+      );
+      await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
+      await db.query("DELETE FROM rate_limits WHERE key=ANY($1::text[])", [
+        loginBuckets,
+      ]);
+    }
+  },
+);
+
+test(
   "author → private draft → media → live guest review → revoke",
   { timeout: 150000 },
   async () => {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { aiReviewSchema, reviewInputSchema } from "../src/lib/ai";
 import { generateStructured } from "../src/lib/server/openai";
+import type { AIUsageReport } from "../src/lib/server/usage";
 
 test("AI review bounds the whole thread and strips unrelated private fields", () => {
   const a = { id: randomUUID(), text: "a".repeat(12000) };
@@ -47,6 +48,7 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
   let result: unknown = expected;
   let status = "completed";
   let calls = 0;
+  const reports: AIUsageReport[] = [];
   const fetchMock = t.mock.method(
     globalThis,
     "fetch",
@@ -54,6 +56,7 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
       calls++;
       const body = JSON.parse(init.body as string);
       assert.equal(body.store, false);
+      assert.equal(body.service_tier, "default");
       assert.equal(body.max_output_tokens, 4000);
       assert.equal(body.text.format.type, "json_schema");
       assert.equal(body.text.format.strict, true);
@@ -62,6 +65,14 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
           id: "resp_test",
           object: "response",
           status,
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 70,
+            input_tokens_details: {
+              cached_tokens: 250,
+              cache_write_tokens: 100,
+            },
+          },
           output: [
             {
               type: "message",
@@ -88,8 +99,19 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
       "review",
       "Review only.",
       "untrusted post text",
+      async (usage) => {
+        reports.push(usage);
+      },
     );
   assert.deepEqual(await run(), expected);
+  assert.deepEqual(reports[0], {
+    outcome: "success",
+    inputTokens: 1000,
+    cachedInputTokens: 250,
+    cacheWriteTokens: 100,
+    outputTokens: 70,
+    httpStatus: undefined,
+  });
   result = {
     summary: "Invalid",
     findings: [{ ...expected.findings[0], category: "Invented" }],
@@ -98,6 +120,8 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
   result = expected;
   status = "incomplete";
   await assert.rejects(run, { status: 502 });
+  assert.equal(reports.at(-1)?.outcome, "incomplete");
+  assert.equal(reports.at(-1)?.inputTokens, 1000);
   fetchMock.mock.mockImplementation(async () => {
     calls++;
     return new Response(
@@ -119,6 +143,8 @@ test("structured AI requests are bounded, non-stored, validated and fail safely"
     "failed requests must not automatically retry",
   );
   delete process.env.OPENAI_API_KEY;
+  assert.equal(reports.at(-1)?.httpStatus, 429);
+  assert.equal(reports.at(-1)?.inputTokens, undefined);
   await assert.rejects(run, { status: 503 });
   assert.equal(calls, before + 1, "disabled AI never contacts OpenAI");
 });

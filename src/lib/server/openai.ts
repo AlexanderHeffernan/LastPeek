@@ -2,10 +2,13 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { error } from "@sveltejs/kit";
+import type { AIUsageReport } from "./usage";
 
 export function aiEnabled() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
+
+export const aiModel = () => process.env.OPENAI_MODEL || "gpt-6-luna";
 
 /** Shared transport for opt-in, structured AI features. Never log input or provider errors. */
 export async function generateStructured<T extends z.ZodType>(
@@ -13,12 +16,22 @@ export async function generateStructured<T extends z.ZodType>(
   name: string,
   instructions: string,
   input: string,
+  reportUsage: (usage: AIUsageReport) => Promise<void>,
 ): Promise<z.infer<T>> {
   if (!aiEnabled()) error(503, "AI review is not configured on this instance.");
   const started = Date.now();
-  const model = process.env.OPENAI_MODEL || "gpt-6-luna";
-  let outcome = "error";
-  let usage: { input_tokens: number; output_tokens: number } | undefined;
+  const model = aiModel();
+  let outcome: AIUsageReport["outcome"] = "error";
+  let usage:
+    | {
+        input_tokens: number;
+        output_tokens: number;
+        input_tokens_details?: {
+          cached_tokens: number;
+          cache_write_tokens?: number;
+        };
+      }
+    | undefined;
   let httpStatus: number | undefined;
   try {
     const client = new OpenAI({
@@ -29,6 +42,7 @@ export async function generateStructured<T extends z.ZodType>(
     const response = await client.responses.parse({
       model,
       store: false,
+      service_tier: "default",
       reasoning: { effort: "low" },
       max_output_tokens: 4000,
       instructions,
@@ -53,6 +67,14 @@ export async function generateStructured<T extends z.ZodType>(
       "AI review is unavailable right now. Please try again later.",
     );
   } finally {
+    await reportUsage({
+      outcome,
+      inputTokens: usage?.input_tokens,
+      cachedInputTokens: usage?.input_tokens_details?.cached_tokens,
+      cacheWriteTokens: usage?.input_tokens_details?.cache_write_tokens,
+      outputTokens: usage?.output_tokens,
+      httpStatus,
+    });
     console.log(
       JSON.stringify({
         event: "ai_request",

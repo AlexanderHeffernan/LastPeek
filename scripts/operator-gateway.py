@@ -22,6 +22,11 @@ def run(args, stdin=None):
 def dispatch(command, role):
     action = command.get("action")
     fields = {
+        "admin_overview": {"action"},
+        "admin_history": {"action"},
+        "admin_flags": {"action", "userId"},
+        "admin_usage": {"action", "userId", "period"},
+        "admin_users": {"action", "search", "page"},
         "service_status": {"action"},
         "recent_logs": {"action", "minutes", "lines"},
         "feature_access": {"action", "email"},
@@ -31,7 +36,7 @@ def dispatch(command, role):
         raise ValueError("Unknown command or fields.")
     if action == "set_feature_access" and role != "flags":
         raise ValueError("Flag-write credential required.")
-    if action in ("feature_access", "set_feature_access"):
+    if action in ("admin_overview", "admin_users", "admin_usage", "admin_history", "admin_flags", "feature_access", "set_feature_access"):
         # Full field validation is repeated inside the application CLI.
         return json.loads(run(COMPOSE + ["exec", "-T", "-e", "LASTPEEK_OPERATOR_ROLE=" + role,
             "-e", "LASTPEEK_OPERATOR_ACTOR=ssh:lastpeek-" + role,

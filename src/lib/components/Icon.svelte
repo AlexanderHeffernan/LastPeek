@@ -19,8 +19,22 @@
   import Quotes from "phosphor-svelte/lib/Quotes";
   import ArrowBendUpLeft from "phosphor-svelte/lib/ArrowBendUpLeft";
   import XLogo from "phosphor-svelte/lib/XLogo";
+  import ArrowsClockwise from "phosphor-svelte/lib/ArrowsClockwise";
+  import SquaresFour from "phosphor-svelte/lib/SquaresFour";
+  import Users from "phosphor-svelte/lib/Users";
+  import Flag from "phosphor-svelte/lib/Flag";
+  import DotsThree from "phosphor-svelte/lib/DotsThree";
+  import ChartBar from "phosphor-svelte/lib/ChartBar";
+  import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const icons = {
+    refresh: ArrowsClockwise,
+    overview: SquaresFour,
+    users: Users,
+    flags: Flag,
+    more: DotsThree,
+    chart: ChartBar,
+    history: ClockCounterClockwise,
     eye: Eye,
     plus: Plus,
     arrow: ArrowRight,

@@ -1,19 +1,27 @@
 import { z } from "zod";
-import { featureSchema } from "./features";
+import { featureChangeSchema } from "./features";
+import { adminUsersQuery, adminFlagsQuery } from "./admin";
+import { usageQuery } from "./usage";
 
 const email = z
   .email()
   .max(254)
   .transform((value) => value.toLowerCase());
 export const operatorCommand = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("feature_access"), email }).strict(),
+  z.object({ action: z.literal("admin_overview") }).strict(),
+  z.object({ action: z.literal("admin_history") }).strict(),
   z
-    .object({
+    .object({ action: z.literal("admin_flags"), ...adminFlagsQuery.shape })
+    .strict(),
+  z.object({ action: z.literal("admin_usage"), ...usageQuery.shape }).strict(),
+  z
+    .object({ action: z.literal("admin_users"), ...adminUsersQuery.shape })
+    .strict(),
+  z.object({ action: z.literal("feature_access"), email }).strict(),
+  featureChangeSchema
+    .safeExtend({
       action: z.literal("set_feature_access"),
       email,
-      feature: featureSchema,
-      enabled: z.boolean(),
-      reason: z.string().trim().min(1).max(500),
       thread: z
         .string()
         .regex(/^T-[0-9a-f-]{36}$/)
