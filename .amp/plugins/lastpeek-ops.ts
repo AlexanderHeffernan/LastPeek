@@ -122,4 +122,69 @@ export default function (amp) {
       },
     });
   }
+  for (const checkpoint of [false, true]) {
+    amp.registerTool({
+      name: checkpoint ? "reconcile_x_balance" : "reconcile_usage",
+      description: checkpoint
+        ? "Accept one exact fresh payer-balance snapshot as a new audited baseline after reviewing discrepancies. Requires a write credential and human confirmation; never allocates costs or clears unresolved calls."
+        : "Resolve 1–50 exact unresolved usage IDs from admin_usage as evidence-backed USD per request or non-billable exceptions. Preserves original costs, requires reason, write credential and human confirmation. Never bill from reservations or an aggregate wallet delta.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...(checkpoint
+            ? { snapshotId: { type: "string", pattern: "^[1-9][0-9]*$" } }
+            : {
+                ids: {
+                  type: "array",
+                  items: { type: "string", format: "uuid" },
+                  minItems: 1,
+                  maxItems: 50,
+                  uniqueItems: true,
+                },
+                decision: {
+                  type: "string",
+                  enum: ["confirmed", "non_billable"],
+                },
+                usd: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 1000,
+                  description:
+                    "Verified USD for EACH selected request, not the batch total. Omit for non_billable.",
+                },
+              }),
+          reason: { type: "string", minLength: 5, maxLength: 500 },
+          evidence: {
+            type: "string",
+            maxLength: 1000,
+            description:
+              "Content-free provider evidence/reference or explanation of the accepted historical gap; required for confirmed costs and balance checkpoints. Never include keys, tokens or draft text.",
+          },
+        },
+        required: checkpoint
+          ? ["snapshotId", "reason", "evidence"]
+          : ["ids", "decision", "reason"],
+        additionalProperties: false,
+      },
+      async execute(input, ctx) {
+        const command = operatorCommand.parse({
+          ...input,
+          action: checkpoint ? "reconcile-x-balance" : "reconcile-usage",
+          thread: ctx.thread.id,
+        });
+        const details =
+          command.action === "reconcile-usage"
+            ? `${command.ids.length} requests: ${command.ids.join(", ")}\n${command.decision === "non_billable" ? "Exclude from billing; actual provider costs remain unknown" : `Record USD ${command.usd} for EACH request`}`
+            : `Accept X snapshot ${input.snapshotId} as the new baseline; historical discrepancies remain in the audit`;
+        const approved = await ctx.ui.confirm({
+          title: "Reconcile API accounting",
+          message: `${details}\nReason: ${input.reason}\nEvidence: ${input.evidence || "Not available"}`,
+          requireHuman: true,
+        });
+        if (!approved || ctx.signal.aborted)
+          return "Cancelled; no change sent.";
+        return JSON.stringify(await remoteOperator(command));
+      },
+    });
+  }
 }

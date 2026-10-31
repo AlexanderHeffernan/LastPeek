@@ -2,6 +2,10 @@ import { db } from "../src/lib/server/db";
 import { featureAccess, setFeatureAccess } from "../src/lib/server/features";
 import { operatorCommand } from "../src/lib/operator";
 import {
+  reconcileUsage,
+  reconcileXBalance,
+} from "../src/lib/server/usage-reconciliation";
+import {
   adminOverview,
   adminUsers,
   adminUsage,
@@ -17,7 +21,21 @@ try {
   }
   const command = operatorCommand.parse(JSON.parse(input));
   let result;
-  if (command.action === "admin_overview") result = await adminOverview();
+  if (
+    command.action === "reconcile-usage" ||
+    command.action === "reconcile-x-balance"
+  ) {
+    if (process.env.LASTPEEK_OPERATOR_ROLE !== "flags")
+      throw new Error("Flag-write role required.");
+    const actor = process.env.LASTPEEK_OPERATOR_ACTOR;
+    if (!actor) throw new Error("Missing operator identity.");
+    const { thread, ...input } = command;
+    result =
+      input.action === "reconcile-usage"
+        ? await reconcileUsage(input, actor, thread)
+        : await reconcileXBalance(input, actor, thread);
+  } else if (command.action === "admin_overview")
+    result = await adminOverview();
   else if (command.action === "admin_history") result = await adminHistory();
   else if (command.action === "admin_flags")
     result = await adminFlags({ userId: command.userId });

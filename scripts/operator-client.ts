@@ -6,7 +6,10 @@ import { operatorCommand, type OperatorCommand } from "../src/lib/operator";
 
 export async function remoteOperator(input: OperatorCommand) {
   const command = operatorCommand.parse(input);
-  const write = command.action === "set_feature_access";
+  const write =
+    command.action === "set_feature_access" ||
+    command.action === "reconcile-usage" ||
+    command.action === "reconcile-x-balance";
   const key =
     process.env[write ? "LASTPEEK_OPS_FLAGS_KEY" : "LASTPEEK_OPS_READ_KEY"];
   const hostKey = process.env.LASTPEEK_OPS_HOST_KEY;

@@ -52,13 +52,15 @@ def dispatch(command, role):
         "recent_logs": {"action", "minutes", "lines"},
         "feature_access": {"action", "email"},
         "set_feature_access": {"action", "email", "feature", "enabled", "reason", "thread"},
+        "reconcile-usage": {"action", "ids", "decision", "usd", "reason", "evidence", "thread"},
+        "reconcile-x-balance": {"action", "snapshotId", "reason", "evidence", "thread"},
     }
     if action not in fields or set(command) - fields[action]:
         raise ValueError("Unknown command or fields.")
-    if action == "set_feature_access" and role != "flags":
+    if action in ("set_feature_access", "reconcile-usage", "reconcile-x-balance") and role != "flags":
         raise ValueError("Flag-write credential required.")
     compose, web = deployment()
-    if action in ("admin_overview", "admin_users", "admin_usage", "admin_history", "admin_flags", "feature_access", "set_feature_access"):
+    if action in ("admin_overview", "admin_users", "admin_usage", "admin_history", "admin_flags", "feature_access", "set_feature_access", "reconcile-usage", "reconcile-x-balance"):
         # Full field validation is repeated inside the application CLI.
         return json.loads(run(compose + ["exec", "-T", "-e", "LASTPEEK_OPERATOR_ROLE=" + role,
             "-e", "LASTPEEK_OPERATOR_ACTOR=ssh:lastpeek-" + role,

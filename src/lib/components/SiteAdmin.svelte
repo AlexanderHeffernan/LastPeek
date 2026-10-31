@@ -12,6 +12,7 @@
   import { avatarURL } from "$lib/contracts";
   import PlanAdmin from "$lib/components/PlanAdmin.svelte";
   import AdminInvitations from "$lib/components/AdminInvitations.svelte";
+  import UsageReconciliation from "$lib/components/UsageReconciliation.svelte";
 
   let {
     initialData,
@@ -305,7 +306,7 @@
                     ? "Needs reconciliation"
                     : money(usage.cost_usd)}
                 </p>
-                <p class="small muted">Estimated spend · USD this month</p>
+                <p class="small muted">Billable estimate · USD this month</p>
                 <div class="row between">
                   <span class="small muted"
                     >{usage.requests.toLocaleString()} requests{#if usage.unpriced}
@@ -726,9 +727,13 @@
                     : money(usage.cost_usd)}
                 </p>
                 <p class="small muted">
-                  Estimated spend · USD{#if usage.unpriced}
+                  Billable estimate · USD{#if usage.unpriced}
                     · {usage.unpriced} requests awaiting reconciliation{/if}
                 </p>
+                {#if usage.excluded}<p class="small muted">
+                    {usage.excluded} non-billable exceptions · actual provider cost
+                    unknown
+                  </p>{/if}
                 <dl class="usage-stats">
                   <div>
                     <dt>Requests</dt>
@@ -795,6 +800,13 @@
               </section>
             {/each}
           </div>
+          {#key `${data.usage.userId || ""}:${data.usage.period}`}
+            <UsageReconciliation
+              usage={data.usage}
+              owner={data.isOwner}
+              {send}
+            />
+          {/key}
           {#if data.usage.legacyXReservedUsd}<p class="small muted">
               Earlier X activity has no per-user attribution and needs
               reconciliation before billing.

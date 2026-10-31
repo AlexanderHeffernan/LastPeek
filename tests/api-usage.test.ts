@@ -34,6 +34,9 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
   await db.query(
     await readFile("migrations/023_x_cost_accounting.sql", "utf8"),
   );
+  await db.query(
+    await readFile("migrations/025_usage_reconciliation.sql", "utf8"),
+  );
   const a = randomUUID(),
     b = randomUUID();
   await db.query(
@@ -98,6 +101,7 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
     failed: 1,
     pending: 1,
     unpriced: 3,
+    excluded: 0,
     input_tokens: 1020,
     cached_input_tokens: 250,
     cache_write_tokens: 100,
@@ -287,7 +291,7 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
     );
     // Clean, stable control interval including negative prepaid balances.
     await db.query(
-      "DELETE FROM x_credit_snapshots; UPDATE api_usage SET estimated_usd=0 WHERE provider='x'",
+      "DELETE FROM x_credit_snapshots; UPDATE api_usage SET estimated_usd=0,outcome='success' WHERE provider='x'",
     );
     fetchMock.mock.mockImplementation(async () =>
       Response.json({
@@ -334,6 +338,183 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
       (await apiUsage({ period: "all" })).xBalance?.state,
       "review",
       "A quiet interval must not erase an earlier discrepancy",
+    );
+    // Billing decisions must preserve provider evidence, isolate accounts and
+    // prevent duplicate/stale writes. A payer checkpoint cannot hide new calls.
+    const { reconcileUsage, reconcileXBalance } =
+      await import("../src/lib/server/usage-reconciliation");
+    const excluded = randomUUID(),
+      confirmed = randomUUID(),
+      active = randomUUID();
+    await db.query(
+      `INSERT INTO api_usage(id,user_id,provider,model,outcome) VALUES
+      ($1,$4,'x','media-upload','success'),($2,$4,'x','post-create','incomplete'),($3,$5,'x','post-create','pending')`,
+      [excluded, confirmed, active, a, b],
+    );
+    const beforeCost = (await apiUsage({ period: "all", userId: a }))
+      .providers[1].estimated_usd;
+    const exclusion = {
+      action: "reconcile-usage" as const,
+      ids: [excluded],
+      decision: "non_billable" as const,
+      reason: "Absorb historical gap",
+      evidence: "Provider console only shows a rounded aggregate",
+    };
+    await assert.rejects(
+      reconcileUsage({ ...exclusion, ids: [active] }, "owner"),
+    );
+    const competing = await Promise.allSettled([
+      reconcileUsage(
+        exclusion,
+        "owner",
+        "T-01a191a3-c6f8-771a-9aa1-204e941c43d9",
+      ),
+      reconcileUsage(
+        exclusion,
+        "owner",
+        "T-01a191a3-c6f8-771a-9aa1-204e941c43d9",
+      ),
+    ]);
+    assert.equal(
+      competing.filter((result) => result.status === "fulfilled").length,
+      1,
+    );
+    await assert.rejects(
+      reconcileUsage({ ...exclusion, ids: [confirmed, excluded] }, "owner"),
+    );
+    assert.equal(
+      (await apiUsage({ period: "all", userId: a })).providers[1].unpriced,
+      1,
+      "Stale batches must be atomic",
+    );
+    await assert.rejects(
+      reconcileUsage(
+        {
+          ...exclusion,
+          ids: [confirmed],
+          decision: "confirmed",
+          usd: 0.017,
+          evidence: "",
+        },
+        "owner",
+      ),
+    );
+    await reconcileUsage(
+      {
+        ...exclusion,
+        ids: [confirmed],
+        decision: "confirmed",
+        usd: 0.017,
+        evidence: "Itemized provider charge for this request",
+      },
+      "owner",
+    );
+    const settled = await apiUsage({ period: "all", userId: a });
+    assert.equal(
+      settled.providers[1].cost_usd,
+      Number((beforeCost + 0.017).toFixed(10)),
+    );
+    assert.equal(settled.providers[1].excluded, 1);
+    assert.equal(settled.providers[1].unpriced, 0);
+    assert.equal(
+      (await apiUsage({ period: "all", userId: b })).providers[1].unpriced,
+      1,
+    );
+    assert.deepEqual(
+      (
+        await db.query(
+          "SELECT estimated_usd FROM api_usage WHERE id=ANY($1::uuid[])",
+          [[excluded, confirmed]],
+        )
+      ).rows.map((row) => row.estimated_usd),
+      [null, null],
+    );
+    assert.ok(
+      settled.reconciliations.some(
+        (row) =>
+          row.reason === exclusion.reason &&
+          row.actor === "owner" &&
+          row.thread,
+      ),
+    );
+    const checkpoint = {
+      action: "reconcile-x-balance" as const,
+      snapshotId: (await apiUsage({ period: "all" })).xBalance!.id,
+      reason: "Accept reviewed historical gap",
+      evidence:
+        "X console shows aggregate charges, historical allocation unavailable",
+    };
+    await assert.rejects(
+      reconcileXBalance(checkpoint, "owner"),
+      "Other accounts' unresolved calls block payer checkpoints",
+    );
+    await db.query(
+      "UPDATE api_usage SET created_at=now()-interval '11 minutes' WHERE id=$1",
+      [active],
+    );
+    await reconcileUsage({ ...exclusion, ids: [active] }, "owner");
+    await assert.rejects(
+      reconcileXBalance(checkpoint, "owner"),
+      "A pre-decision balance snapshot is stale",
+    );
+    await db.query(
+      "UPDATE x_credit_snapshots SET observed_at=now()-interval '6 minutes'",
+    );
+    await syncXCredits();
+    checkpoint.snapshotId = (await apiUsage({ period: "all" })).xBalance!.id;
+    await assert.rejects(
+      reconcileXBalance({ ...checkpoint, snapshotId: "999999" }, "owner"),
+    );
+    await reconcileXBalance(checkpoint, "owner");
+    assert.equal(
+      (await apiUsage({ period: "all" })).xBalance?.state,
+      "baseline",
+    );
+    await assert.rejects(
+      reconcileXBalance(checkpoint, "owner"),
+      "A repeated checkpoint cannot rewrite its audit",
+    );
+    await db.query(
+      "UPDATE x_credit_snapshots SET observed_at=now()-interval '6 minutes'",
+    );
+    await syncXCredits();
+    assert.equal(
+      (await apiUsage({ period: "all" })).xBalance?.state,
+      "matched",
+      "Exclusions do not poison every future clean interval",
+    );
+    await db.query(
+      "INSERT INTO api_usage(id,user_id,provider,model,outcome,estimated_usd) VALUES($1,$2,'x','post-lookup','success',0.005)",
+      [randomUUID(), a],
+    );
+    await db.query(
+      "UPDATE x_credit_snapshots SET observed_at=now()-interval '6 minutes'",
+    );
+    await syncXCredits();
+    assert.equal(
+      (await apiUsage({ period: "all" })).xBalance?.state,
+      "review",
+      "A new unexplained discrepancy still requires review",
+    );
+    checkpoint.snapshotId = (await apiUsage({ period: "all" })).xBalance!.id;
+    await db.query(
+      "UPDATE x_credit_snapshots SET observed_at=now()-interval '6 minutes'",
+    );
+    fetchMock.mock.mockImplementation(async () => {
+      await reconcileXBalance(checkpoint, "owner");
+      return Response.json({
+        data: { prepaid_balance: 20, free_balance: 0, free_grants: [] },
+      });
+    });
+    await syncXCredits();
+    assert.equal(
+      (await apiUsage({ period: "all" })).xBalance?.id,
+      checkpoint.snapshotId,
+      "In-flight balance reads cannot overwrite a newly accepted checkpoint",
+    );
+    assert.equal(
+      (await apiUsage({ period: "all" })).xBalance?.state,
+      "baseline",
     );
   } finally {
     fetchMock.mock.restore();

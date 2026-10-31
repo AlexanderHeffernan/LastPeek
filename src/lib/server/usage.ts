@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db, transaction } from "./db";
 import { reserveAPI } from "./plans";
 import { error } from "@sveltejs/kit";
+import { usageLedger } from "./usage-reconciliation";
 import {
   usageQuery,
   type APIUsage,
@@ -64,14 +65,15 @@ const sums = `count(*)::float8 AS requests,
   count(*) FILTER(WHERE outcome='success')::float8 AS successful,
   count(*) FILTER(WHERE outcome IN ('error','incomplete','unusable'))::float8 AS failed,
   count(*) FILTER(WHERE outcome='pending')::float8 AS pending,
-  count(*) FILTER(WHERE estimated_usd IS NULL)::float8 AS unpriced,
+  count(*) FILTER(WHERE accounted_usd IS NULL)::float8 AS unpriced,
+  count(*) FILTER(WHERE decision='non_billable')::float8 AS excluded,
   COALESCE(sum(input_tokens),0)::float8 AS input_tokens,
   COALESCE(sum(cached_input_tokens),0)::float8 AS cached_input_tokens,
   COALESCE(sum(cache_write_tokens),0)::float8 AS cache_write_tokens,
   COALESCE(sum(output_tokens),0)::float8 AS output_tokens,
   COALESCE(sum(estimated_usd),0)::float8 AS estimated_usd,
-  CASE WHEN count(*) FILTER(WHERE estimated_usd IS NULL)=0
-    THEN COALESCE(sum(estimated_usd),0)::float8 ELSE NULL END AS cost_usd,
+  CASE WHEN count(*) FILTER(WHERE accounted_usd IS NULL)=0
+    THEN COALESCE(sum(accounted_usd),0)::float8 ELSE NULL END AS cost_usd,
   COALESCE(sum(reserved_cents),0)::float8/100 AS reserved_usd`;
 const monthStart = `date_trunc('month',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
 function providers(rows: APIUsage[]): APIUsage[] {
@@ -84,6 +86,7 @@ function providers(rows: APIUsage[]): APIUsage[] {
         failed: 0,
         pending: 0,
         unpriced: 0,
+        excluded: 0,
         input_tokens: 0,
         cached_input_tokens: 0,
         cache_write_tokens: 0,
@@ -98,11 +101,19 @@ function providers(rows: APIUsage[]): APIUsage[] {
 export async function apiUsage(input: UsageQuery): Promise<UsageData> {
   const query = usageQuery.parse(input);
   const result = await db.query<APIUsage>(
-    `SELECT provider,${sums} FROM api_usage
+    `SELECT provider,${sums} FROM ${usageLedger} ledger
     WHERE ($1::uuid IS NULL OR user_id=$1) AND ($2='all' OR created_at>=${monthStart}) GROUP BY provider`,
     [query.userId ?? null, query.period],
   );
-  const [tracking, legacy, account, operations, balance] = await Promise.all([
+  const [
+    tracking,
+    legacy,
+    account,
+    operations,
+    balance,
+    unresolved,
+    reconciliations,
+  ] = await Promise.all([
     db.query(
       "SELECT applied_at FROM schema_migrations WHERE name='013_api_usage.sql'",
     ),
@@ -115,13 +126,36 @@ export async function apiUsage(input: UsageQuery): Promise<UsageData> {
       ? db.query("SELECT email FROM users WHERE id=$1", [query.userId])
       : Promise.resolve({ rows: [] }),
     db.query<APIUsage & { operation: string }>(
-      `SELECT provider,model AS operation,${sums} FROM api_usage
+      `SELECT provider,model AS operation,${sums} FROM ${usageLedger} ledger
       WHERE ($1::uuid IS NULL OR user_id=$1) AND ($2='all' OR created_at>=${monthStart})
       GROUP BY provider,model ORDER BY provider,model`,
       [query.userId ?? null, query.period],
     ),
     db.query(
-      "SELECT state,observed_at FROM x_credit_snapshots ORDER BY id DESC LIMIT 1",
+      `SELECT s.id::text,CASE WHEN c.snapshot_id IS NOT NULL THEN 'baseline' ELSE s.state END AS state,s.observed_at,
+       s.prepaid_usd,s.free_usd,s.ledger_usd,s.requests,s.unresolved
+       FROM x_credit_snapshots s LEFT JOIN x_credit_checkpoints c ON c.snapshot_id=s.id ORDER BY s.id DESC LIMIT 1`,
+    ),
+    db.query(
+      `SELECT l.id,l.user_id AS "userId",u.email AS account,l.model AS operation,l.outcome,l.created_at,
+       (l.outcome<>'pending' OR l.created_at<=now()-interval '10 minutes') AS resolvable
+       FROM ${usageLedger} l LEFT JOIN users u ON u.id=l.user_id
+       WHERE l.accounted_usd IS NULL AND ($1::uuid IS NULL OR l.user_id=$1)
+       AND ($2='all' OR l.created_at>=${monthStart}) ORDER BY l.created_at,l.id LIMIT 50`,
+      [query.userId ?? null, query.period],
+    ),
+    db.query(
+      `SELECT a.id,a.actor,a.reason,a.evidence,a.thread,a.created_at,
+       COALESCE(max(r.decision),'checkpoint') AS decision,count(r.usage_id)::float8 AS requests,
+       sum(r.usd)::float8 AS usd,
+       COALESCE(array_agg(r.usage_id ORDER BY r.usage_id) FILTER(WHERE r.usage_id IS NOT NULL),'{}') AS ids,
+       max(c.snapshot_id)::text AS "snapshotId"
+       FROM usage_reconciliations a LEFT JOIN usage_resolutions r ON r.reconciliation_id=a.id
+       LEFT JOIN api_usage u ON u.id=r.usage_id
+       LEFT JOIN x_credit_checkpoints c ON c.reconciliation_id=a.id
+       WHERE ($1::uuid IS NULL OR u.user_id=$1) AND ($2='all' OR a.created_at>=${monthStart})
+       GROUP BY a.id ORDER BY a.created_at DESC,a.id LIMIT 20`,
+      [query.userId ?? null, query.period],
     ),
   ]);
   return {
@@ -135,16 +169,30 @@ export async function apiUsage(input: UsageQuery): Promise<UsageData> {
     legacyXReservedUsd: query.userId ? 0 : legacy.rows[0].amount,
     xBalance: balance.rows[0]
       ? {
+          id: balance.rows[0].id,
           state: balance.rows[0].state,
           observedAt: balance.rows[0].observed_at.toISOString(),
+          prepaidUsd: Number(balance.rows[0].prepaid_usd),
+          freeUsd: Number(balance.rows[0].free_usd),
+          ledgerUsd: Number(balance.rows[0].ledger_usd),
+          requests: Number(balance.rows[0].requests),
+          unresolved: Number(balance.rows[0].unresolved),
         }
       : null,
+    unresolved: unresolved.rows.map(({ created_at, ...row }) => ({
+      ...row,
+      createdAt: created_at.toISOString(),
+    })),
+    reconciliations: reconciliations.rows.map(({ created_at, ...row }) => ({
+      ...row,
+      createdAt: created_at.toISOString(),
+    })),
   };
 }
 
 export async function usageByUsers(ids: string[]) {
   const result = await db.query<APIUsage & { user_id: string }>(
-    `SELECT user_id,provider,${sums} FROM api_usage
+    `SELECT user_id,provider,${sums} FROM ${usageLedger} ledger
     WHERE user_id=ANY($1::uuid[]) AND created_at>=${monthStart} GROUP BY user_id,provider`,
     [ids],
   );

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, transaction } from "./db";
+import { xLedgerTotals } from "./usage-reconciliation";
 
 // Standard PPU, checked 2026-10-31. Never change historical snapshots.
 // https://console.x.com/api/credits/pricing (PostCreate/User/Post)
@@ -115,17 +116,11 @@ export async function syncXCredits() {
   const key = process.env.X_API_BEARER_TOKEN?.trim();
   if (!key) return;
   const latest = (
-    await db.query("SELECT * FROM x_credit_snapshots ORDER BY id DESC LIMIT 1")
+    await db.query(`SELECT s.*,c.snapshot_id AS checkpoint FROM x_credit_snapshots s
+      LEFT JOIN x_credit_checkpoints c ON c.snapshot_id=s.id ORDER BY s.id DESC LIMIT 1`)
   ).rows[0];
   if (latest && Date.now() - latest.observed_at.getTime() < 300000) return;
-  const ledger = async () =>
-    (
-      await db.query(
-        `SELECT COALESCE(sum(estimated_usd),0)::text AS usd,count(*)::text AS requests,
-     count(*) FILTER(WHERE estimated_usd IS NULL)::text AS unresolved,
-     max(completed_at)::text AS completed FROM api_usage WHERE provider='x'`,
-      )
-    ).rows[0];
+  const ledger = async () => (await db.query(xLedgerTotals)).rows[0];
   const before = await ledger();
   const response = await fetch("https://api.x.com/2/usage/credits", {
     headers: { Authorization: `Bearer ${key}` },
@@ -165,24 +160,42 @@ export async function syncXCredits() {
   const delta = latest ? Number(after.usd) - Number(latest.ledger_usd) : 0;
   const matched =
     latest &&
-    latest.state !== "review" &&
+    (latest.state !== "review" || latest.checkpoint) &&
     JSON.stringify(before) === JSON.stringify(after) &&
     after.unresolved === "0" &&
+    after.pending === "0" &&
     Number(latest.unresolved) === 0 &&
+    after.resolutions === latest.resolutions &&
     grants === latest.grants_hash &&
     debit >= 0 &&
     Math.abs(debit - delta) < 0.0000001;
-  await db.query(
-    `INSERT INTO x_credit_snapshots(prepaid_usd,free_usd,grants_hash,ledger_usd,requests,unresolved,state)
-     VALUES($1,$2,$3,$4,$5,$6,$7)`,
-    [
-      data.prepaid_balance,
-      data.free_balance,
-      grants,
-      after.usd,
-      after.requests,
-      after.unresolved,
-      !latest ? "baseline" : matched ? "matched" : "review",
-    ],
-  );
+  await transaction(async (client) => {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('usage-reconciliation'))",
+    );
+    // Another process/checkpoint may have advanced the baseline during HTTP.
+    const current = (
+      await client.query(`SELECT s.id,c.snapshot_id AS checkpoint FROM x_credit_snapshots s
+      LEFT JOIN x_credit_checkpoints c ON c.snapshot_id=s.id ORDER BY s.id DESC LIMIT 1`)
+    ).rows[0];
+    if (
+      current?.id !== latest?.id ||
+      current?.checkpoint !== latest?.checkpoint
+    )
+      return;
+    await client.query(
+      `INSERT INTO x_credit_snapshots(prepaid_usd,free_usd,grants_hash,ledger_usd,requests,unresolved,state,resolutions)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        data.prepaid_balance,
+        data.free_balance,
+        grants,
+        after.usd,
+        after.requests,
+        after.unresolved,
+        !latest ? "baseline" : matched ? "matched" : "review",
+        after.resolutions,
+      ],
+    );
+  });
 }

@@ -1,13 +1,23 @@
 import { z } from "zod";
 import { featureChangeSchema } from "./features";
 import { adminUsersQuery, adminFlagsQuery } from "./admin";
-import { usageQuery } from "./usage";
+import {
+  usageQuery,
+  usageResolutionSchema,
+  creditCheckpointSchema,
+} from "./usage";
 
 const email = z
   .email()
   .max(254)
   .transform((value) => value.toLowerCase());
 export const operatorCommand = z.discriminatedUnion("action", [
+  usageResolutionSchema.safeExtend({
+    thread: z.string().regex(/^T-[0-9a-f-]{36}$/),
+  }),
+  creditCheckpointSchema.safeExtend({
+    thread: z.string().regex(/^T-[0-9a-f-]{36}$/),
+  }),
   z.object({ action: z.literal("admin_overview") }).strict(),
   z.object({ action: z.literal("admin_history") }).strict(),
   z

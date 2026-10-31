@@ -111,8 +111,8 @@ across LastPeek users. The first recorded resource consumer bears its cost; late
 consumers that day cost zero. No post/profile text or raw resource IDs enter the
 accounting tables. X calls deduplication a soft guarantee, not an invoice promise.
 
-Admin shows one **Estimated spend** figure, never a cost plus a provision. The
-`cost_usd` aggregate is null if any included event lacks a price; admin displays
+Admin shows one **Billable estimate** figure, never a cost plus a provision. The
+`cost_usd` aggregate is null if any included event lacks a price or an explicit non-billable decision; admin displays
 **Needs reconciliation**, not an incomplete subtotal or a guessed billable total.
 `estimated_usd` remains the backward-compatible known subtotal for diagnostics,
 and `reserved_usd` remains safety metadata, not an alternative spending measure.
@@ -132,8 +132,40 @@ an earlier discrepancy. Failed checks leave the last snapshot stale; admin shows
 the check timestamp/overdue state. No balance is available when credentials are
 missing. This is a payer-wide cross-check, not an itemized bill or proof of each
 user's charges; other apps on the payer, adjustments and historical gaps need
-provider-console evidence before billing. There is no automatic adjustment or
-manual reconciliation write endpoint in this release.
+provider-console evidence before billing. There is no automatic adjustment.
+
+Migration `025_usage_reconciliation.sql` adds an immutable decision overlay, not
+an update to the original provider ledger. In API usage, the owner selects up to
+50 exact unresolved IDs and records a reason plus either a confirmed USD amount
+**per request** with itemized evidence, or a non-billable exception with no invented
+price. Choose requests separately when verified amounts differ. Non-billable costs
+stay unknown in the original ledger and are explicitly excluded from the billable
+estimate. This does not turn on billing, release safety reservations, retry posts,
+or change publication outcomes. Active requests cannot be settled until ten minutes
+after their creation; old interrupted requests can then be resolved explicitly.
+Stale/mixed/already-resolved selections fail atomically. Reconciliation history
+retains actor, time, reason, evidence, affected IDs/decision and agent thread.
+
+After resolving all payer-wide outstanding X calls, wait for the next five-minute
+balance snapshot, refresh, and use **Review X balance checkpoint**. Review the
+credits and ledger subtotal, then record why the historical discrepancy is accepted.
+Only the exact latest snapshot, less than ten minutes old and covering an unchanged
+settled ledger, can become a new baseline. The previous mismatch and unknown
+provider costs remain in history; this is not a claim that the old totals matched.
+New discrepancies still require review. Owner browser writes require same-origin
+authentication; ordinary admins have read-only access.
+
+Agents use `admin_usage` to obtain exact unresolved IDs, decision history and the
+balance snapshot ID, then `reconcile_usage` or `reconcile_x_balance`. Both require
+explicit user authorization and human confirmation in the plugin. The existing
+write credential (`LASTPEEK_OPS_FLAGS_KEY`, host role `flags`) is now also permitted
+these two bounded accounting commands; the read credential cannot reconcile.
+The server revalidates every command and records the trusted SSH actor and thread.
+Install the reviewed updated `scripts/operator-gateway.py` as root-owned 0755 at
+`/usr/local/sbin/lastpeek-operator` after the compatible application is deployed.
+An image update alone does not update this host allowlist. Do not reinstall keys,
+change SSH, grant shell/SQL access or rerun the installation script. A missing or
+old gateway is a blocker, not a reason to bypass it.
 
 Tariff sources checked 31 October 2026:
 
@@ -200,7 +232,7 @@ operator service deliberately after configuration updates.
 Root-owned authorized keys force each key into its read or flag-write role.
 Forwarding, TTY, passwords and user-supplied commands are disabled. The account
 has no Docker-group access; sudo allows only the fixed gateway commands. The
-gateway has a fixed Compose directory/project and nine JSON commands:
+gateway has a fixed Compose directory/project and eleven JSON commands:
 
 - `admin_overview`: the same aggregate overview and access history as `/siteadmin`.
 - `admin_users`: the same bounded, searchable account directory as `/siteadmin`.
@@ -209,6 +241,8 @@ gateway has a fixed Compose directory/project and nine JSON commands:
 - `admin_history`: the combined membership and feature-grant change history.
 - `feature_access`: one account's grants and audit history.
 - `set_feature_access`: grant/revoke one known flag, flag-write key only.
+- `reconcile-usage`: resolve exact unresolved IDs with an audited cost or exclusion, write key only.
+- `reconcile-x-balance`: accept one fresh reviewed payer snapshot, write key only.
 - `service_status`: selected container state/health fields only.
 - `recent_logs`: 1–60 minutes, 1–200 recent web log lines; returns only approved
   AI event enums/numbers, never arbitrary log strings or review URLs.
@@ -256,8 +290,8 @@ existing orb, refresh processes and run `.agents/resume`.
 
 ## Amp tools and credentials
 
-The project plugin `.amp/plugins/lastpeek-ops.ts` registers the nine commands above.
-Flag changes require human confirmation before a write is sent. This is a workflow
+The project plugin `.amp/plugins/lastpeek-ops.ts` registers the eleven commands above.
+Flag and accounting changes require human confirmation before a write is sent. This is a workflow
 safeguard: possession of the flag-write SSH key itself authorizes writes; the Pi
 cannot independently verify the dialog or thread ID. The audit actor identifies
 the SSH credential role, not an individual human.

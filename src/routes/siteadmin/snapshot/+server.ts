@@ -15,6 +15,11 @@ import { featureChangeSchema } from "$lib/features";
 import { allowanceSchema, planSchema } from "$lib/plans";
 import { setPlan, setAllowances } from "$lib/server/plans";
 import { readBody } from "$lib/server/request";
+import { usageResolutionSchema, creditCheckpointSchema } from "$lib/usage";
+import {
+  reconcileUsage,
+  reconcileXBalance,
+} from "$lib/server/usage-reconciliation";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ locals, url }) =>
@@ -25,6 +30,8 @@ export const POST: RequestHandler = async (event) => {
   requireOwner(event.locals.user);
   const parsed = z
     .discriminatedUnion("action", [
+      usageResolutionSchema,
+      creditCheckpointSchema,
       z
         .object({
           action: z.literal("financial-model"),
@@ -90,6 +97,10 @@ export const POST: RequestHandler = async (event) => {
     );
   const actor = requireUser(event.locals);
   const command = parsed.data;
+  if (command.action === "reconcile-usage")
+    return json(await reconcileUsage(command, actor.id));
+  if (command.action === "reconcile-x-balance")
+    return json(await reconcileXBalance(command, actor.id));
   if (command.action === "financial-model") {
     await saveFinancialModel(actor, command.model);
     return json({ ok: true });

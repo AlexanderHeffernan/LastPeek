@@ -492,6 +492,148 @@ test(
 );
 
 test(
+  "site admin reconciles usage without inventing provider costs",
+  { timeout: 30000 },
+  async () => {
+    const ownerId = process.env.LASTPEEK_OWNER_ID!;
+    const memberId = randomUUID(),
+      usageId = randomUUID(),
+      browser = await engine.launch();
+    const errors: string[] = [];
+    try {
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash,is_admin) VALUES($1,$2,'Accounting owner','unused',true),($3,$4,'Accounting member','unused',true)",
+        [
+          ownerId,
+          `${ownerId}@example.test`,
+          memberId,
+          `${memberId}@example.test`,
+        ],
+      );
+      const owner = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 2,
+      });
+      const member = await browser.newContext();
+      for (const [context, id] of [
+        [owner, ownerId],
+        [member, memberId],
+      ] as const) {
+        const value = token();
+        await db.query(
+          "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+          [tokenHash(value), id],
+        );
+        await context.addCookies([
+          { name: "lastpeek_session", value, url: baseURL },
+        ]);
+      }
+      await db.query(
+        "INSERT INTO api_usage(id,user_id,provider,model,outcome) VALUES($1,$2,'x','media-upload','success')",
+        [usageId, memberId],
+      );
+      const command = {
+        action: "reconcile-usage",
+        ids: [usageId],
+        decision: "non_billable",
+        reason: "Absorb historical upload gap",
+        evidence: "Provider only supplies aggregate billing",
+      };
+      assert.equal(
+        (
+          await member.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: command,
+            headers: { Origin: origin },
+          })
+        ).status(),
+        403,
+      );
+      assert.equal(
+        (
+          await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+            data: command,
+            headers: { Origin: "https://evil.example" },
+          })
+        ).status(),
+        403,
+      );
+      const page = await owner.newPage();
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.goto(
+        `${baseURL}/siteadmin/usage?userId=${memberId}&period=all`,
+      );
+      const region = page.getByRole("region", { name: "X usage", exact: true });
+      await region.getByText("Needs reconciliation", { exact: true }).waitFor();
+      await page
+        .getByRole("checkbox", {
+          name: `Select request ${usageId}`,
+          exact: true,
+        })
+        .check();
+      await page
+        .getByRole("button", { name: "Reconcile 1 requests", exact: true })
+        .click();
+      const dialog = page.getByRole("dialog", {
+        name: "Reconcile 1 requests",
+        exact: true,
+      });
+      await dialog.getByLabel("Reason", { exact: true }).fill(command.reason);
+      await dialog
+        .getByLabel("Evidence or reference", { exact: true })
+        .fill(command.evidence);
+      const result = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/siteadmin/snapshot") &&
+          response.request().method() === "POST",
+      );
+      await dialog
+        .getByRole("button", { name: "Record reconciliation", exact: true })
+        .click();
+      assert.equal((await result).status(), 200);
+      await region
+        .getByText("Needs reconciliation", { exact: true })
+        .waitFor({ state: "hidden" });
+      assert.ok(await region.getByText("US$0", { exact: true }).count());
+      await region
+        .getByText("1 non-billable exceptions · actual provider cost unknown", {
+          exact: true,
+        })
+        .waitFor();
+      await page
+        .getByText("No requests awaiting reconciliation in this view.", {
+          exact: true,
+        })
+        .waitFor();
+      await page.getByText(command.reason, { exact: true }).waitFor();
+      assert.equal(
+        (
+          await db.query("SELECT estimated_usd FROM api_usage WHERE id=$1", [
+            usageId,
+          ])
+        ).rows[0].estimated_usd,
+        null,
+      );
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        true,
+      );
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM usage_resolutions WHERE usage_id=$1", [
+        usageId,
+      ]);
+      await db.query("DELETE FROM api_usage WHERE id=$1", [usageId]);
+      await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+        [ownerId, memberId],
+      ]);
+    }
+  },
+);
+
+test(
   "site admin permissions, shared operator data and owner-managed team",
   { timeout: 90000 },
   async () => {
