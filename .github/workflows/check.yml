@@ -34,6 +34,9 @@ jobs:
       ORIGIN: http://127.0.0.1:4173
       PORT: 4173
       LASTPEEK_OWNER_ID: 11111111-1111-4111-8111-111111111111
+      # Enable the mocked OAuth flow without real X credentials or API calls.
+      X_CLIENT_ID: test-only-client-id
+      X_CLIENT_SECRET: test-only-client-secret
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
