@@ -1,8 +1,15 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import { sessionUser } from "$lib/server/auth";
 import { referrerPolicy } from "$lib/referrer-policy";
+import { db } from "$lib/server/db";
 export const handle: Handle = async ({ event, resolve }) => {
   event.locals.user = await sessionUser(event);
+  if (event.locals.user)
+    await db.query(
+      `UPDATE users SET last_seen_at=now() WHERE id=$1
+       AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')`,
+      [event.locals.user.id],
+    );
   const response = await resolve(event);
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   // Native account forms need a non-null Origin for CSRF checks, even before hydration.

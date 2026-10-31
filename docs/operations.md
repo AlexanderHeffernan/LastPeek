@@ -49,14 +49,17 @@ authentication and a confirmation, and are transactionally audited in migration
 `admin_overview` and `admin_users` use the same server queries as the website.
 They expose aggregate account/invitation/draft/review/feedback counts, media bytes,
 database health, image revision, the latest 20 admin access changes, and paginated
-account identity/current avatar/role/registration/current draft count/storage/feature grants. Admins
+account identity/current avatar/role/registration/last-online activity/current draft count/storage/feature grants. Admins
 can read current profile avatars, but gain no access to historical avatars or draft media. Directory search is a
 literal, case-insensitive name/email substring (200 characters maximum); pages
 contain at most 25 accounts. No passwords, session tokens, draft contents, review
 capabilities or raw request logs are returned. Media bytes count database-tracked
 uploads and avatars, not filesystem, database or backup disk usage. Registered
-accounts and seven-day registrations are not live-user or recent-activity counts;
-no activity tracking is added by this version.
+accounts and seven-day registrations are not live-user or recent-activity counts.
+Migration `015_user_activity.sql` adds a nullable `last_seen_at` timestamp, updated
+by authenticated requests at most once per minute. Accounts shows it as Last
+online, or Not recorded until the account next uses the site. There is no
+historical backfill, heartbeat or claim that an idle tab is still online.
 
 ```json
 { "action": "admin_overview" }

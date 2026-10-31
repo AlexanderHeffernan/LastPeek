@@ -173,13 +173,14 @@ export async function adminUsers(input: AdminUsersQuery) {
     name: string;
     email: string;
     created_at: Date;
+    last_seen_at: Date | null;
     avatar_id: string | null;
     is_admin: boolean;
     drafts: number;
     media_bytes: number;
     features: string[];
   }>(
-    `SELECT u.id,u.name,u.email,u.created_at,u.avatar_id,u.is_admin,
+    `SELECT u.id,u.name,u.email,u.created_at,u.last_seen_at,u.avatar_id,u.is_admin,
       (SELECT count(*)::float8 FROM drafts WHERE owner_id=u.id) AS drafts,
       ((SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=u.id)
        + (SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=u.id))::float8 AS media_bytes,
@@ -199,6 +200,7 @@ export async function adminUsers(input: AdminUsersQuery) {
       ...row,
       usage: usage.get(row.id)!,
       created_at: row.created_at.toISOString(),
+      last_seen_at: row.last_seen_at?.toISOString() ?? null,
       role:
         row.id === owner
           ? ("owner" as const)

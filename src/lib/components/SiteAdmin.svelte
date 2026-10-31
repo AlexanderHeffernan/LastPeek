@@ -319,7 +319,7 @@
             <thead
               ><tr
                 ><th scope="col">Name</th><th scope="col">Email</th><th
-                  scope="col">Joined</th
+                  scope="col">Activity</th
                 ><th scope="col">Role</th><th scope="col">Drafts</th><th
                   scope="col">Media storage</th
                 ><th scope="col"
@@ -346,10 +346,19 @@
                   >
                   <td class="account-email">{account.email}</td>
                   <td class="account-joined"
-                    ><span class="mobile-label muted">Joined </span><time
-                      datetime={account.created_at}
-                      >{joined(account.created_at)}</time
-                    ></td
+                    ><div class="account-activity">
+                      <span class="small muted">Last online</span>
+                      {#if account.last_seen_at}
+                        <time datetime={account.last_seen_at}
+                          >{date(account.last_seen_at)}</time
+                        >
+                      {:else}
+                        <span class="muted">Not recorded</span>
+                      {/if}
+                      <span class="small muted"
+                        >Joined {joined(account.created_at)}</span
+                      >
+                    </div></td
                   >
                   <td class="account-role">
                     <Badge variant="outline"
@@ -887,22 +896,22 @@
     font-weight: 400;
   }
   .accounts-table th:first-child {
-    width: 20%;
+    width: 15%;
   }
   .accounts-table th:nth-child(2) {
-    width: 23%;
+    width: 20%;
   }
   .accounts-table th:nth-child(3) {
-    width: 12%;
+    width: 17%;
   }
   .accounts-table th:nth-child(4) {
-    width: 10%;
+    width: 9%;
   }
   .accounts-table th:nth-child(5) {
     width: 7%;
   }
   .accounts-table th:nth-child(6) {
-    width: 10%;
+    width: 9%;
   }
   .accounts-table th:last-child {
     width: 44px;
@@ -912,6 +921,10 @@
   }
   .account-name strong {
     min-width: 0;
+  }
+  .account-activity {
+    display: grid;
+    gap: 4px;
   }
   .account-costs :global(.account-cost-button) {
     display: grid;

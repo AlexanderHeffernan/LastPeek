@@ -286,6 +286,47 @@ test(
         [ids[2]],
       );
       await login(authorPage, emails[2]);
+      const activity = (index: number) =>
+        operator({ action: "admin_users", search: emails[index] }).users[0]
+          .last_seen_at;
+      const firstSeen = activity(2);
+      assert.ok(Date.now() - Date.parse(firstSeen) < 60000);
+      await author.request.get(`${baseURL}/health`);
+      assert.equal(
+        activity(2),
+        firstSeen,
+        "Activity writes are minute-bounded.",
+      );
+      await db.query(
+        "UPDATE users SET last_seen_at=now()-interval '2 minutes' WHERE id=$1",
+        [ids[2]],
+      );
+      await author.request.get(`${baseURL}/health`);
+      assert.ok(Date.parse(activity(2)) >= Date.parse(firstSeen));
+      const legacyToken = token();
+      const expiredToken = token();
+      await db.query(
+        "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day'),($3,$4,now()-interval '1 day')",
+        [tokenHash(legacyToken), ids[25], tokenHash(expiredToken), ids[24]],
+      );
+      for (const cookie of ["", "invalid", expiredToken])
+        await fetch(`${baseURL}/health`, {
+          headers: { Cookie: `lastpeek_session=${cookie}` },
+        });
+      assert.equal(
+        activity(24),
+        null,
+        "Expired sessions do not record activity.",
+      );
+      assert.equal(
+        activity(25),
+        null,
+        "Unseen accounts have no invented activity.",
+      );
+      await fetch(`${baseURL}/health`, {
+        headers: { Cookie: `lastpeek_session=${legacyToken}` },
+      });
+      assert.ok(Date.now() - Date.parse(activity(25)) < 60000);
       const photo = await sharp({
         create: { width: 32, height: 32, channels: 3, background: "#ff6b5b" },
       })
@@ -610,6 +651,28 @@ test(
         has: page.getByRole("cell", { name: emails[2], exact: true }),
       });
       await authorRow.getByRole("cell", { name: "2", exact: true }).waitFor();
+      await authorRow.getByText("Last online", { exact: true }).waitFor();
+      assert.equal(
+        await authorRow
+          .locator("time[datetime]")
+          .first()
+          .getAttribute("datetime"),
+        authorAccount.last_seen_at,
+      );
+      await page.getByText("Not recorded", { exact: true }).first().waitFor();
+      await screenshot(page, "siteadmin-accounts-desktop");
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        await authorRow.getByText("Last online", { exact: true }).waitFor();
+        assert.ok(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= window.innerWidth,
+          ),
+          "Account activity fits narrow screens.",
+        );
+        await screenshot(page, `siteadmin-accounts-${width}`);
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
       await authorRow
         .getByRole("cell", {
           name: `${expectedStorage.toLocaleString()} B`,
