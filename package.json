@@ -22,9 +22,12 @@
     "format:check": "prettier --check .",
     "browsers:install": "playwright install --with-deps chromium webkit",
     "verify:release": "node --env-file-if-exists=.env scripts/verify-release.mjs",
-    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts tests/release-policy.test.mjs",
+    "verify:focused": "node --env-file-if-exists=.env scripts/verify-release.mjs --focused",
+    "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts tests/release-policy.test.mjs tests/verification.test.mjs",
     "test:deployment": "node --test tests/deployment.test.mjs",
-    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts tests/plans.test.ts tests/notifications.test.ts && node --env-file-if-exists=.env --import tsx --test tests/x-publishing.test.ts"
+    "test:integration": "node --env-file-if-exists=.env --import tsx --test tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts tests/plans.test.ts tests/notifications.test.ts tests/x-publishing-server.test.ts",
+    "test:http": "node --env-file-if-exists=.env --import tsx --test tests/review-card.test.ts",
+    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts && node --env-file-if-exists=.env --import tsx --test tests/x-publishing.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
