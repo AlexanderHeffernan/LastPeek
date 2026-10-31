@@ -14,3 +14,10 @@ Read `docs/design.md` before UI or copy changes. LastPeek is dark-only, minimal,
 - Revisions are immutable. Autosave must use the expected edit version. Comments retain their original revision and post identity.
 - Use SQL migrations; do not mutate schema automatically on requests. New abstractions need a real second consumer or a coherent responsibility.
 - Do not commit `.env`, media, database volumes or test artifacts. No agent co-author trailers. Commit as the checkout's configured human identity.
+
+## Production site administration
+
+- For production accounts, draft/storage totals, API usage, feature flags or access history, use the project Amp plugin `.amp/plugins/lastpeek-ops.ts` first. Discover `admin_overview`, `admin_users`, `admin_usage`, `admin_flags` and `admin_history` with `tool_search`, then call them through `code_exec`. Search accounts with `admin_users` to obtain a `userId` for per-account reads.
+- Read `docs/operations.md` for tool parameters, access limits and troubleshooting. New LastPeek orbs load the plugin and configured restricted access; existing threads may need to reload the plugin. Report missing tools, credentials or connectivity rather than bypassing the gateway or asking for secrets in chat.
+- These admin tools are read-only. Feature changes use `set_feature_access` only with the user's authorization and the plugin's human confirmation. The gateway cannot change admin membership, perform bulk writes or deploy.
+- The orb's PostgreSQL database is disposable development data, **not production**. Never use it to answer production questions or run E2E tests against production. Registered-account totals are not live-online or recent-activity counts; report only what the tools actually measure.
