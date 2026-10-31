@@ -1,11 +1,16 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { signIn, rateLimit, devSignIn } from "$lib/server/auth";
+import { xAuthEnabled } from "$lib/server/x-auth";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = ({ locals, url }) => {
   if (locals.user) redirect(303, "/");
-  return { devSignIn: devSignIn() };
+  return {
+    devSignIn: devSignIn(),
+    xEnabled: xAuthEnabled(),
+    xCancelled: url.searchParams.get("x") === "cancelled",
+  };
 };
 export const actions: Actions = {
   default: async (event) => {

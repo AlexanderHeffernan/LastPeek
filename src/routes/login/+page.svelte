@@ -22,6 +22,17 @@
   </section>
   <section class="auth-card">
     <h2>Welcome back.</h2>
+    {#if data.xCancelled}<p class="notice" role="status">
+        X sign-in cancelled. You can try again or use your password.
+      </p>{/if}
+    {#if data.xEnabled}
+      <form method="POST" action="/auth/x/start" class="social-auth">
+        <Button variant="outline" type="submit"
+          ><Icon name="x" size={18} />Sign in with X</Button
+        >
+      </form>
+      <p class="small muted auth-divider">or use your password</p>
+    {/if}
     <form
       method="POST"
       use:enhance={() => {

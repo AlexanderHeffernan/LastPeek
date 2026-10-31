@@ -2,6 +2,7 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { db, transaction } from "$lib/server/db";
 import { hash, passwordHash, signIn, rateLimit } from "$lib/server/auth";
+import { xAuthEnabled } from "$lib/server/x-auth";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   if (locals.user) redirect(303, "/");
@@ -17,6 +18,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       404,
       "This invitation has expired, was revoked, or has already been used. Ask your friend for a new one.",
     );
+  return { xEnabled: xAuthEnabled(), invite: params.token };
 };
 export const actions: Actions = {
   default: async (event) => {

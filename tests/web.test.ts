@@ -860,6 +860,130 @@ test(
 );
 
 test(
+  "X-only accounts keep a sign-in method when disconnecting",
+  { timeout: 30000 },
+  async () => {
+    const id = randomUUID(),
+      session = token();
+    const browser = await engine.launch();
+    const context = await browser.newContext();
+    try {
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash,has_password) VALUES($1,$2,'X author',$3,false)",
+        [id, `${id}@example.test`, await passwordHash(token())],
+      );
+      await db.query(
+        "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+        [tokenHash(session), id],
+      );
+      await db.query(
+        "INSERT INTO x_accounts(user_id,x_id,access_token,expires_at,scope,profile) VALUES($1,$2,'test-only',now(),'users.read',$3)",
+        [
+          id,
+          `${Date.now()}654`,
+          { id: `${Date.now()}654`, name: "X author", username: "x_author" },
+        ],
+      );
+      await context.addCookies([
+        { name: "lastpeek_session", value: session, url: baseURL },
+      ]);
+      const page = await context.newPage();
+      await page.goto(`${baseURL}/settings`);
+      assert.equal(
+        (
+          await context.request.post(`${baseURL}/auth/x/start`, {
+            form: {},
+            headers: { Origin: "https://not-lastpeek.example" },
+          })
+        ).status(),
+        403,
+      );
+      await page
+        .getByRole("button", { name: "X account actions", exact: true })
+        .click();
+      const reconnect = page.getByRole("button", {
+        name: "Reconnect X",
+        exact: true,
+      });
+      if (await reconnect.isVisible()) {
+        // Exercise the native form and callback, without contacting the real X service.
+        await page.route("https://x.com/i/oauth2/authorize**", (route) =>
+          route.fulfill({ contentType: "text/html", body: "Test X consent" }),
+        );
+        await reconnect.click();
+        await page.waitForURL("https://x.com/i/oauth2/authorize**");
+        const authorization = new URL(page.url());
+        assert.equal(
+          authorization.searchParams.get("code_challenge_method"),
+          "S256",
+        );
+        assert.equal(
+          authorization.searchParams.get("redirect_uri"),
+          `${origin}/auth/x/callback`,
+        );
+        await page.goto(
+          `${baseURL}/auth/x/callback?state=${authorization.searchParams.get("state")}&error=access_denied`,
+        );
+        await page.getByText("Reconnect needed", { exact: true }).waitFor();
+        await page
+          .getByRole("button", { name: "X account actions", exact: true })
+          .click();
+      }
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Disconnect X", exact: true })
+          .isDisabled(),
+        true,
+      );
+      const blocked = await context.request.post(
+        `${baseURL}/settings?/disconnectX`,
+        { form: {}, headers: { Origin: origin } },
+      );
+      assert.equal(blocked.status(), 400);
+      await page.keyboard.press("Escape");
+      await page.getByLabel("New password", { exact: true }).fill(password);
+      await page
+        .getByRole("button", { name: "Set password", exact: true })
+        .click();
+      await page
+        .getByText("Password changed. Other sessions have been signed out.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        (await db.query("SELECT has_password FROM users WHERE id=$1", [id]))
+          .rows[0].has_password,
+        true,
+      );
+      assert.equal(
+        (
+          await db.query("SELECT 1 FROM sessions WHERE hash=$1", [
+            tokenHash(session),
+          ])
+        ).rowCount,
+        0,
+      );
+      await page
+        .getByRole("button", { name: "X account actions", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Disconnect X", exact: true })
+        .click();
+      await page.getByText("Not connected", { exact: true }).waitFor();
+      assert.equal(
+        await page.getByText("X disconnected.", { exact: false }).count(),
+        0,
+      );
+      await context.clearCookies();
+      await login(page, `${id}@example.test`);
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM users WHERE id=$1", [id]);
+    }
+  },
+);
+
+test(
   "author → private draft → media → live guest review → revoke",
   { timeout: 150000 },
   async () => {
@@ -1120,6 +1244,248 @@ test(
         await page.getByLabel("X handle", { exact: true }).inputValue(),
         "alex",
       );
+      // WebKit bypasses image mocks in service-worker-controlled pages. Isolate
+      // only the mocked X onboarding; keep real workers in the author/reviewer
+      // contexts so the offline-storage privacy assertions remain unchanged.
+      const xProfileContext = await browser.newContext({
+        storageState: await owner.storageState(),
+        serviceWorkers: "block",
+      });
+      try {
+        const page = await xProfileContext.newPage();
+        await db.query(
+          "INSERT INTO x_accounts(user_id,x_id,access_token,expires_at,scope,profile,import_pending) VALUES($1,$2,'test-only',now(),'users.read',$3,true)",
+          [
+            userId,
+            `${Date.now()}987`,
+            {
+              id: `${Date.now()}987`,
+              name: "Name from X",
+              username: "handle_from_x",
+              profile_image_url:
+                "https://pbs.twimg.com/profile_images/0/lastpeek-test-missing.png",
+            },
+          ],
+        );
+        const xPreview = await sharp({
+          create: { width: 48, height: 48, channels: 3, background: "#ff6b5b" },
+        })
+          .png()
+          .toBuffer();
+        await page.route(
+          "https://pbs.twimg.com/profile_images/0/lastpeek-test-missing.png",
+          (route) =>
+            route.fulfill({ contentType: "image/png", body: xPreview }),
+        );
+        await page.goto(`${baseURL}/settings`);
+        const xDialog = page.getByRole("dialog", {
+          name: "Connected to X",
+          exact: true,
+        });
+        await xDialog.waitFor();
+        assert.equal(
+          await page
+            .getByAltText("Avatar from X", { exact: true })
+            .evaluate(async (image: HTMLImageElement) => {
+              await image.decode();
+              return image.naturalWidth > 0;
+            }),
+          true,
+        );
+        assert.equal(
+          await page
+            .getByText("X account linked. Choose what to update below.", {
+              exact: true,
+            })
+            .count(),
+          0,
+        );
+        const xName = xDialog.getByRole("checkbox", {
+          name: "Display name Name from X",
+          exact: true,
+        });
+        const xHandle = xDialog.getByRole("checkbox", { name: /^X handle @/ });
+        assert.equal(await xName.isChecked(), false);
+        assert.equal(await xHandle.isChecked(), false);
+        await xDialog.getByText("Name from X", { exact: true }).click();
+        assert.equal(await xName.isChecked(), true);
+        await xName.press("Space");
+        assert.equal(await xName.isChecked(), false);
+        await xName.press("Space");
+        assert.equal(await xName.isChecked(), true);
+        const releaseRefresh = Promise.withResolvers<void>();
+        const refreshURL = `${baseURL}/settings/__data.json*`;
+        await page.route(refreshURL, async (route) => {
+          await releaseRefresh.promise;
+          await route.continue();
+        });
+        const refreshing = page.waitForRequest((request) =>
+          request.url().includes("/settings/__data.json"),
+        );
+        await page
+          .getByRole("button", { name: "Apply selection", exact: true })
+          .click();
+        await refreshing;
+        try {
+          assert.equal(await xName.isDisabled(), true);
+          assert.equal(await xHandle.isDisabled(), true);
+          assert.equal(
+            await xDialog.isVisible(),
+            true,
+            "Keep the dialog visible until the refreshed profile arrives",
+          );
+        } finally {
+          releaseRefresh.resolve();
+          await page.unroute(refreshURL);
+        }
+        await xDialog.waitFor({ state: "hidden" });
+        assert.equal(
+          await page.getByLabel("Display name", { exact: true }).inputValue(),
+          "Name from X",
+        );
+        assert.equal(
+          await page.getByLabel("X handle", { exact: true }).inputValue(),
+          "alex",
+        );
+        await page.reload();
+        assert.equal(await page.getByRole("checkbox").count(), 0);
+        assert.equal(
+          await page
+            .getByText("Update profile from X", { exact: true })
+            .count(),
+          0,
+        );
+        const finishedImport = await owner.request.post(
+          `${baseURL}/settings?/importX`,
+          { form: { handle: "on" }, headers: { Origin: origin } },
+        );
+        assert.equal(finishedImport.status(), 400);
+        await db.query(
+          "UPDATE x_accounts SET import_pending=true,profile=jsonb_set(profile,'{name}','\"Different X name\"') WHERE user_id=$1",
+          [userId],
+        );
+        await page.reload();
+        await xHandle.check();
+        await page
+          .getByRole("button", { name: "Apply selection", exact: true })
+          .click();
+        await xDialog.waitFor({ state: "hidden" });
+        assert.equal(
+          await page.getByLabel("X handle", { exact: true }).inputValue(),
+          "handle_from_x",
+        );
+        assert.equal(
+          await page.getByLabel("Display name", { exact: true }).inputValue(),
+          "Name from X",
+        );
+        await db.query(
+          "UPDATE x_accounts SET import_pending=true WHERE user_id=$1",
+          [userId],
+        );
+        await page.reload();
+        await xDialog
+          .getByRole("checkbox", {
+            name: "Display name Different X name",
+            exact: true,
+          })
+          .check();
+        await page
+          .getByRole("button", { name: "Keep current profile", exact: true })
+          .click();
+        await xDialog.waitFor({ state: "hidden" });
+        assert.equal(
+          await page.getByLabel("Display name", { exact: true }).inputValue(),
+          "Name from X",
+        );
+        await page.reload();
+        assert.equal(await page.getByRole("dialog").count(), 0);
+        await db.query(
+          "UPDATE x_accounts SET import_pending=true WHERE user_id=$1",
+          [userId],
+        );
+        await page.reload();
+        await page
+          .getByRole("checkbox", { name: "Profile photo", exact: true })
+          .check();
+        await xDialog
+          .getByRole("checkbox", {
+            name: "Display name Different X name",
+            exact: true,
+          })
+          .check();
+        await page
+          .getByRole("button", { name: "Apply selection", exact: true })
+          .click();
+        await page
+          .getByText("Couldn’t import the X photo.", { exact: false })
+          .waitFor();
+        assert.equal(
+          (await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId]))
+            .rows[0].avatar_id,
+          null,
+        );
+        assert.equal(await xDialog.isVisible(), true);
+        assert.equal(
+          (await db.query("SELECT name FROM users WHERE id=$1", [userId]))
+            .rows[0].name,
+          "Name from X",
+        );
+        await screenshot(page, "x-profile-import-error");
+        await page.keyboard.press("Escape");
+        await xDialog.waitFor({ state: "hidden" });
+        await page.reload();
+        assert.equal(await page.getByRole("dialog").count(), 0);
+        assert.equal(
+          (
+            await db.query(
+              "SELECT import_pending FROM x_accounts WHERE user_id=$1",
+              [userId],
+            )
+          ).rows[0].import_pending,
+          false,
+        );
+        // An expired access token with refresh credentials is still connected.
+        await db.query(
+          "UPDATE x_accounts SET refresh_token='test-only' WHERE user_id=$1",
+          [userId],
+        );
+        await page.reload();
+        await page.getByText("Connected", { exact: true }).waitFor();
+        await page
+          .getByRole("button", { name: "X account actions", exact: true })
+          .click();
+        assert.equal(
+          await page
+            .getByRole("button", { name: "Reconnect X", exact: true })
+            .count(),
+          0,
+        );
+        await page
+          .getByRole("button", { name: "Disconnect X", exact: true })
+          .click();
+        await page.getByText("Not connected", { exact: true }).waitFor();
+        assert.equal(
+          await page.getByText("X disconnected.", { exact: false }).count(),
+          0,
+        );
+        assert.equal(
+          (
+            await db.query("SELECT 1 FROM x_accounts WHERE user_id=$1", [
+              userId,
+            ])
+          ).rowCount,
+          0,
+        );
+      } finally {
+        await xProfileContext.close();
+      }
+      await page.reload();
+      await page.getByLabel("Display name", { exact: true }).fill("Alex");
+      await page.getByLabel("X handle", { exact: true }).fill("alex");
+      await page
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await page.getByText("Profile saved.", { exact: true }).waitFor();
       const photo = await sharp({
         create: { width: 640, height: 480, channels: 3, background: "#c4f36b" },
       })
@@ -2160,6 +2526,12 @@ test(
       );
       await joining.waitForLoadState("networkidle");
       await screenshot(joining, "join");
+      const passwordAlternative = joining.getByText(
+        "Sign up with a password instead",
+        { exact: true },
+      );
+      if (await passwordAlternative.isVisible())
+        await passwordAlternative.click();
       await joining
         .getByLabel("Your name", { exact: true })
         .fill("Invited friend");

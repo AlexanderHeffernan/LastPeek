@@ -36,7 +36,7 @@ export async function passwordMatches(password: string, stored: string) {
 
 // Keep the signing key outside PostgreSQL: database session tokens alone must
 // not suffice to forge a signed cookie. The private media backup includes it.
-async function signingSecret() {
+export async function signingSecret() {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const directory = process.env.MEDIA_DIR || "./data/media";
   await mkdir(directory, { recursive: true });
@@ -197,7 +197,7 @@ export async function sessionUser(event: RequestEvent): Promise<User | null> {
     );
     return user.rows[0] ?? null;
   }
-  // Existing author sessions remain usable until expiry; all new logins use Better Auth.
+  // Hashed author sessions (including X OAuth) remain usable until expiry/revocation.
   const value = cookies.get("lastpeek_session");
   if (!value) return null;
   const result = await db.query(
@@ -212,6 +212,17 @@ export async function createDevSession(
   secure: boolean,
 ) {
   if (!devSignIn()) error(404, "Not found");
+  return createSession(cookies, userId, secure);
+}
+
+// X OAuth uses the same hashed, server-side sessions as existing accounts.
+export async function createSession(
+  cookies: Cookies,
+  userId: string,
+  secure: boolean,
+) {
+  cookies.delete("lastpeek.session_token", { path: "/" });
+  cookies.delete("__Secure-lastpeek.session_token", { path: "/" });
   const value = token();
   await db.query(
     "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '30 days')",

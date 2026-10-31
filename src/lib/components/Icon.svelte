@@ -26,6 +26,7 @@
   import DotsThree from "phosphor-svelte/lib/DotsThree";
   import ChartBar from "phosphor-svelte/lib/ChartBar";
   import ClockCounterClockwise from "phosphor-svelte/lib/ClockCounterClockwise";
+  import Minus from "phosphor-svelte/lib/Minus";
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const icons = {
     refresh: ArrowsClockwise,
@@ -55,6 +56,7 @@
     quote: Quotes,
     reply: ArrowBendUpLeft,
     x: XLogo,
+    minus: Minus,
   };
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>

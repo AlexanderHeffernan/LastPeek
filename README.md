@@ -33,6 +33,16 @@ Open the address printed by Vite. Bootstrap creates an administrator and sample 
 
 Authentication uses self-hosted Better Auth in the same server and database. Existing passwords, account IDs and active legacy sessions survive the migration. Public registration and generic auth API endpoints are disabled; invitation-only registration and local administrator recovery remain available. On the first authentication request, LastPeek creates an owner-readable `.auth-secret` in `MEDIA_DIR` for signing cookies. Keep the private media volume persistent and include hidden files in backups. Alternatively provide a random `BETTER_AUTH_SECRET` of at least 32 characters through your secret manager, and back it up separately. Losing or changing this key signs out Better Auth sessions; it does not delete accounts or drafts. No email service, social account or hosted auth subscription is required.
 
+### Optional X sign-up and account linking
+
+Enable OAuth 2.0 in the X Developer Console for a **Web App** (confidential client), with read permissions. Register the exact callback `https://your-host/auth/x/callback` (the hosted service uses `https://lastpeek.alexheffernan.dev/auth/x/callback`). Set server-only `X_CLIENT_ID` and `X_CLIENT_SECRET` and restart web; these are separate from `X_API_BEARER_TOKEN`. Never use `PUBLIC_` variables. Local testing needs its own exact callback URL. Buttons are hidden unless both credentials are configured.
+
+Invitations offer **Sign up with X** with an account email and no password; name, handle and photo are imported automatically. Email is user-supplied and unverified, never used to auto-link identities. Existing users choose **Link X account** under Account → Connections. A one-time **Connected to X** dialog previews the photo and offers independent photo, display name and handle choices. **Keep current profile**, the close button or Escape dismisses these choices without changing the profile; they do not remain in settings. Connections shows the linked handle/status and disconnect, with reconnect offered when the access token has expired without refresh credentials. Linked users can sign in with X. Reconnect refreshes consent and offers the profile choices again; it never silently overwrites the LastPeek profile. Shared snapshots keep their original identity.
+
+OAuth uses PKCE S256, short-lived single-use browser-bound state and only `tweet.read users.read offline.access` (no posting permissions). Access/refresh tokens, expiry and granted scopes are stored server-side; tokens use authenticated encryption with the private auth key. Back up that key: losing/rotating it makes stored X tokens unusable, requiring reconnection. Future user-specific API features must implement refresh-token rotation and request limits before using these credentials; no background API use or posting is enabled here. X identity reads may incur provider charges and are separate from the source-post budget. Set spending limits in X's console.
+
+X-only users can set a local password in Account. Disconnect requires a password so it cannot strand the account; it deletes locally stored X tokens, not the profile or drafts. Users can also revoke the application's grant in X. Administrator password recovery remains available if access to X is lost.
+
 ```sh
 ORIGIN=http://localhost:3000 npm run build
 npm start
