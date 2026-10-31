@@ -175,10 +175,12 @@ export async function adminUsers(input: AdminUsersQuery) {
     created_at: Date;
     avatar_id: string | null;
     is_admin: boolean;
+    drafts: number;
     media_bytes: number;
     features: string[];
   }>(
     `SELECT u.id,u.name,u.email,u.created_at,u.avatar_id,u.is_admin,
+      (SELECT count(*)::float8 FROM drafts WHERE owner_id=u.id) AS drafts,
       ((SELECT COALESCE(sum(bytes),0) FROM media WHERE owner_id=u.id)
        + (SELECT COALESCE(sum(bytes),0) FROM avatars WHERE owner_id=u.id))::float8 AS media_bytes,
       ARRAY(SELECT feature FROM feature_grants WHERE user_id=u.id ORDER BY feature) AS features

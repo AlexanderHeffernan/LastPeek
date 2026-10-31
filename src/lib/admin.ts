@@ -66,6 +66,7 @@ export type AdminDirectory = {
     created_at: string;
     avatar_id: string | null;
     is_admin: boolean;
+    drafts: number;
     media_bytes: number;
     role: "owner" | "admin" | "author";
     features: string[];

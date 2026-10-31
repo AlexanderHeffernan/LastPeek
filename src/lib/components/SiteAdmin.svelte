@@ -46,8 +46,11 @@
       dateStyle: "medium",
       timeStyle: "short",
     });
-  const storage = (bytes: number) =>
-    `${(bytes / 1024 / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB`;
+  const storage = (bytes: number) => {
+    const unit = bytes < 1024 ? "B" : bytes < 1024 * 1024 ? "KB" : "MB";
+    const divisor = unit === "B" ? 1 : unit === "KB" ? 1024 : 1024 * 1024;
+    return `${(bytes / divisor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
+  };
   const money = (value: number) =>
     `US$${value.toLocaleString("en-US", { maximumFractionDigits: 6 })}`;
   const joined = (value: string) =>
@@ -317,7 +320,9 @@
               ><tr
                 ><th scope="col">Name</th><th scope="col">Email</th><th
                   scope="col">Joined</th
-                ><th scope="col">Role</th><th scope="col"
+                ><th scope="col">Role</th><th scope="col">Drafts</th><th
+                  scope="col">Media storage</th
+                ><th scope="col"
                   >API costs <span class="small muted">/ month</span></th
                 ><th scope="col"><span class="sr-only">Actions</span></th></tr
               ></thead
@@ -355,6 +360,16 @@
                           : "Author"}</Badge
                     >
                   </td>
+                  <td class="account-drafts"
+                    ><span class="mobile-label muted"
+                      >Drafts
+                    </span>{account.drafts.toLocaleString()}</td
+                  >
+                  <td class="account-storage"
+                    ><span class="mobile-label muted">Storage </span>{storage(
+                      account.media_bytes,
+                    )}</td
+                  >
                   <td class="account-costs">
                     <Button
                       variant="ghost"
@@ -872,16 +887,22 @@
     font-weight: 400;
   }
   .accounts-table th:first-child {
-    width: 24%;
+    width: 20%;
   }
   .accounts-table th:nth-child(2) {
-    width: 25%;
+    width: 23%;
   }
   .accounts-table th:nth-child(3) {
-    width: 14%;
+    width: 12%;
   }
   .accounts-table th:nth-child(4) {
-    width: 12%;
+    width: 10%;
+  }
+  .accounts-table th:nth-child(5) {
+    width: 7%;
+  }
+  .accounts-table th:nth-child(6) {
+    width: 10%;
   }
   .accounts-table th:last-child {
     width: 44px;
@@ -1032,7 +1053,7 @@
     .accounts-table tbody tr {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas: "identity actions" "email email" "joined role" "costs costs";
+      grid-template-areas: "identity actions" "email email" "joined role" "drafts storage" "costs costs";
       gap: 10px;
       padding: 16px 0;
       border-bottom: 1px solid var(--line);
@@ -1057,6 +1078,13 @@
     }
     .account-role {
       grid-area: role;
+      justify-self: end;
+    }
+    .account-drafts {
+      grid-area: drafts;
+    }
+    .account-storage {
+      grid-area: storage;
       justify-self: end;
     }
     .account-costs {

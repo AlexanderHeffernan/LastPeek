@@ -266,7 +266,41 @@ test(
       );
       assert.equal(currentAvatar.status(), 201);
       const avatarId = (await currentAvatar.json()).avatar;
+      const createdDrafts: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const created = await author.request.post(`${baseURL}/?/create`, {
+          form: {},
+          headers: { Origin: origin, Accept: "text/html" },
+          maxRedirects: 0,
+        });
+        assert.equal(created.status(), 303);
+        createdDrafts.push(created.headers().location.split("/").at(-1)!);
+      }
+      const uploaded = await author.request.post(
+        `${baseURL}/api/drafts/${createdDrafts[0]}/media`,
+        {
+          multipart: {
+            file: {
+              name: "account-storage.png",
+              mimeType: "image/png",
+              buffer: photo,
+            },
+          },
+          headers: { Origin: origin },
+        },
+      );
+      assert.equal(uploaded.status(), 201);
+      const expectedStorage =
+        photo.length +
+        (await readFile(avatarPath(retiredAvatarId))).length +
+        (await readFile(avatarPath(avatarId))).length;
       await login(memberPage, emails[1]);
+      const memberDraft = await member.request.post(`${baseURL}/?/create`, {
+        form: {},
+        headers: { Origin: origin, Accept: "text/html" },
+        maxRedirects: 0,
+      });
+      assert.equal(memberDraft.status(), 303);
       assert.equal(
         (await member.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
         404,
@@ -437,6 +471,27 @@ test(
       const directory = operator({ action: "admin_users", search: prefix });
       assert.equal(directory.total, 27);
       assert.equal(directory.users.length, 25);
+      const authorAccount = directory.users.find(
+        (u: { id: string }) => u.id === ids[2],
+      );
+      assert.equal(authorAccount.drafts, 2);
+      assert.equal(authorAccount.media_bytes, expectedStorage);
+      const memberAccount = operator({
+        action: "admin_users",
+        search: emails[1],
+      }).users[0];
+      assert.equal(memberAccount.drafts, 1);
+      assert.equal(memberAccount.media_bytes, 0);
+      const authorRow = page.getByRole("row").filter({
+        has: page.getByRole("cell", { name: emails[2], exact: true }),
+      });
+      await authorRow.getByRole("cell", { name: "2", exact: true }).waitFor();
+      await authorRow
+        .getByRole("cell", {
+          name: `${expectedStorage.toLocaleString()} B`,
+          exact: true,
+        })
+        .waitFor();
       assert.equal(
         directory.users.find((u: { id: string }) => u.id === ids[2]).avatar_id,
         avatarId,
@@ -778,6 +833,16 @@ test(
       await db.query(
         "DELETE FROM feature_audit WHERE user_id=ANY($1::uuid[])",
         [ids],
+      );
+      const uploadedMedia = await db.query(
+        "SELECT id FROM media WHERE owner_id=ANY($1::uuid[])",
+        [ids],
+      );
+      await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [
+        ids,
+      ]);
+      await Promise.all(
+        uploadedMedia.rows.map((row) => rm(mediaPath(row.id), { force: true })),
       );
       const avatars = await db.query(
         "DELETE FROM avatars WHERE owner_id=ANY($1::uuid[]) RETURNING id",
