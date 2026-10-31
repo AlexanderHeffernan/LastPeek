@@ -471,26 +471,77 @@
 .page-header h1 {
   margin: 10px 0;
 }
-.workspace {
-  width: 100%;
-  max-width: 1080px;
-  margin: 28px auto 72px;
-  padding: 0 36px;
-}
 .account-link[data-slot="button"] {
   padding: 2px;
   border-radius: 50%;
 }
-.workspace-grid {
+.draft-page {
   display: grid;
-  grid-template-columns: minmax(0, 600px) minmax(280px, 360px);
-  gap: 40px;
-  justify-content: center;
-  align-items: start;
+  grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+  grid-template-areas: "heading sidebar" "posts sidebar";
+  grid-template-rows: 52px 1fr;
+  column-gap: 24px;
+  min-height: 100dvh;
 }
-.workspace-grid > *,
-.feedback-column {
+.draft-heading {
+  grid-area: heading;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 12px;
+  border-inline: 1px solid #2f3336;
+}
+.draft-heading h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+.editor-posts {
+  grid-area: posts;
   min-width: 0;
+  border-inline: 1px solid #2f3336;
+}
+.draft-sidebar {
+  grid-area: sidebar;
+  min-width: 0;
+  padding-top: 12px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: 100dvh;
+  overflow-y: auto;
+}
+.draft-feedback {
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 1000px) {
+  .draft-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "heading" "sidebar" "posts" "feedback";
+    grid-template-rows: 52px auto auto 1fr;
+    min-height: calc(100dvh - 104px);
+    border-inline: 1px solid #2f3336;
+  }
+  .draft-heading,
+  .editor-posts {
+    border-inline: 0;
+  }
+  .draft-sidebar {
+    display: contents;
+  }
+  .draft-feedback {
+    grid-area: feedback;
+    margin: 0 12px;
+  }
+}
+@media (max-width: 600px) {
+  .draft-page {
+    border-inline: 0;
+  }
+  .draft-heading {
+    gap: 12px;
+    padding-inline: 8px;
+  }
 }
 .share-actions {
   display: flex;
@@ -561,13 +612,6 @@
 }
 .ai-results > p {
   font-size: 13px;
-}
-.post-panel {
-  border: 1px solid #2f3336;
-  border-radius: 16px;
-  background: #000;
-  overflow: hidden;
-  gap: 0;
 }
 .post {
   position: relative;
@@ -830,17 +874,15 @@
 }
 .feedback-card {
   scroll-margin-block: 24px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--card);
-  padding: 16px;
-  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 20px 0 16px;
 }
-.feedback-card.resolved {
-  opacity: 0.65;
+.feedback-card.resolved .comment {
+  color: var(--muted-foreground);
 }
 .feedback-card.targeted {
-  border-color: var(--primary);
+  box-shadow: inset 2px 0 var(--primary);
+  padding-left: 12px;
 }
 .feedback-person {
   display: flex;
@@ -887,21 +929,15 @@
   padding-inline: 12px;
 }
 .feedback-empty {
-  padding: 32px 16px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
+  padding: 24px 12px;
   font-size: 13px;
   color: var(--muted-foreground);
   text-align: center;
 }
 .feedback-form {
-  border: 1px solid var(--line);
-  padding: 20px;
-  border-radius: 12px;
-  background: var(--card);
+  padding-bottom: 20px;
   display: grid;
   gap: 18px;
-  margin: 0 0 20px;
 }
 .pending {
   padding: 14px;
@@ -1247,20 +1283,7 @@ progress {
   text-align: center;
 }
 
-@media (min-width: 901px) {
-  .feedback-column {
-    position: sticky;
-    top: 24px;
-    max-height: calc(100vh - 48px);
-    overflow: auto;
-    padding-bottom: 12px;
-  }
-}
 @media (max-width: 900px) {
-  .workspace-grid {
-    grid-template-columns: minmax(0, 600px);
-    gap: 32px;
-  }
   .auth-shell {
     gap: 40px;
   }
@@ -1271,14 +1294,6 @@ progress {
   }
   .app-navigation {
     left: max(0px, calc((100vw - 668px) / 2));
-  }
-  .signed-in .workspace-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
-  }
-  .signed-in .feedback-column {
-    position: static;
-    max-height: none;
   }
 }
 @media (max-width: 600px) {
@@ -1380,13 +1395,6 @@ progress {
   .page-header {
     gap: 18px;
     margin-bottom: 28px;
-  }
-  .workspace {
-    padding: 0 12px;
-    margin: 20px auto 48px;
-  }
-  .post-panel {
-    border-radius: 14px;
   }
   .post {
     padding-inline: 12px;

@@ -2416,6 +2416,12 @@ test(
           version: sourceVersion,
         });
         await reviewer.goto(`${baseURL}/r/${shared.token}`);
+        await reviewer
+          .getByRole("heading", {
+            name: kind === "reply" ? "Comment" : "Quote",
+            exact: true,
+          })
+          .waitFor();
         const original = reviewer.getByRole("link", {
           name: "View on X",
           exact: true,
@@ -2957,6 +2963,20 @@ test(
         404,
       );
       await reviewer.goto(link);
+      await reviewer
+        .getByRole("heading", { name: "Post", exact: true })
+        .waitFor();
+      await reviewer.getByRole("link", { name: "Back", exact: true }).waitFor();
+      assert.equal(
+        await reviewer
+          .getByRole("button", { name: "Edit", exact: true })
+          .count(),
+        0,
+      );
+      assert.equal(
+        await reviewer.getByLabel("Post 1 text", { exact: true }).count(),
+        0,
+      );
       assert.equal(
         await reviewer.locator('meta[property="og:title"]').count(),
         1,
@@ -3269,6 +3289,7 @@ test(
         (await guest.request.get(`${avatarURL}?key=${renewed.token}`)).status(),
         200,
       );
+      await reviewer.getByText("Alex", { exact: true }).first().waitFor();
       assert.equal(
         await reviewer.getByText("Alex", { exact: true }).count(),
         2,
@@ -3690,6 +3711,16 @@ test(
         .waitFor();
       await stranger.goBack();
       await stranger.getByLabel("Your feedback", { exact: true }).waitFor();
+      await stranger
+        .getByRole("link", { name: "Back to drafts", exact: true })
+        .click();
+      await stranger
+        .getByRole("main", { name: "Drafts", exact: true })
+        .waitFor();
+      await stranger.goBack();
+      await stranger
+        .getByRole("heading", { name: "Post", exact: true })
+        .waitFor();
       assert.equal(
         await reviewer
           .getByRole("navigation", { name: "Main navigation" })

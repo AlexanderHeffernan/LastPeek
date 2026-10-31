@@ -497,27 +497,6 @@
 </dialog>
 
 <style>
-  .draft-page {
-    display: grid;
-    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
-    grid-template-areas: "heading sidebar" "posts sidebar";
-    grid-template-rows: 52px 1fr;
-    column-gap: 24px;
-    min-height: 100dvh;
-  }
-  .draft-heading {
-    grid-area: heading;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 4px 12px;
-    border-inline: 1px solid #2f3336;
-  }
-  .draft-heading h1 {
-    margin: 0;
-    font-size: 20px;
-    letter-spacing: 0;
-  }
   .draft-heading :global(.edit-shortcut) {
     margin-left: auto;
     color: var(--muted-foreground);
@@ -525,21 +504,6 @@
   .draft-heading :global(.edit-shortcut:hover),
   .draft-heading :global(.edit-shortcut:focus-visible) {
     color: var(--foreground);
-  }
-  .editor-posts {
-    grid-area: posts;
-    min-width: 0;
-    border-inline: 1px solid #2f3336;
-  }
-  .draft-sidebar {
-    grid-area: sidebar;
-    min-width: 0;
-    padding-top: 12px;
-    align-self: start;
-    position: sticky;
-    top: 0;
-    max-height: 100dvh;
-    overflow-y: auto;
   }
   .draft-actions {
     display: grid;
@@ -570,50 +534,10 @@
     grid-column: 1 / -1;
     margin: 0;
   }
-  .draft-feedback {
-    border-top: 1px solid var(--border);
-  }
-  .draft-feedback :global(.feedback-card) {
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0;
-    padding: 20px 0 16px;
-    margin: 0;
-  }
-  .draft-feedback :global(.feedback-card.resolved) {
-    opacity: 1;
-  }
-  .draft-feedback :global(.feedback-card.resolved .comment) {
-    color: var(--muted-foreground);
-  }
-  .draft-feedback :global(.feedback-card.targeted) {
-    box-shadow: inset 2px 0 var(--primary);
-    padding-left: 12px;
-  }
-  .draft-feedback :global(.feedback-empty) {
-    padding: 24px 12px;
-    border: 0;
-    border-radius: 0;
-  }
   .pending {
     margin: 12px;
   }
   @media (max-width: 1000px) {
-    .draft-page {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: "heading" "sidebar" "posts" "feedback";
-      grid-template-rows: 52px auto auto 1fr;
-      min-height: calc(100dvh - 104px);
-      border-inline: 1px solid #2f3336;
-    }
-    .draft-heading,
-    .editor-posts {
-      border-inline: 0;
-    }
-    .draft-sidebar {
-      display: contents;
-    }
     .draft-actions {
       grid-area: sidebar;
       padding: 4px 12px 12px;
@@ -621,19 +545,8 @@
     .secondary-actions {
       gap: 4px;
     }
-    .draft-feedback {
-      grid-area: feedback;
-      margin: 0 12px;
-    }
   }
   @media (max-width: 600px) {
-    .draft-page {
-      border-inline: 0;
-    }
-    .draft-heading {
-      gap: 12px;
-      padding-inline: 8px;
-    }
     .draft-actions {
       gap: 6px;
     }

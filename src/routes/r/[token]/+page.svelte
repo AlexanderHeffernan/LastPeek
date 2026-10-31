@@ -20,6 +20,13 @@
   let feedbackForm = $state<HTMLFormElement>();
   let sent = $state(false);
   let signingIn = $state(false);
+  const postKind = $derived(
+    data.content.source?.kind === "reply"
+      ? "Comment"
+      : data.content.source?.kind === "quote"
+        ? "Quote"
+        : "Post",
+  );
   const previewTitle = $derived(
     `${data.content.author.name} · ${data.content.posts.length > 1 ? "Thread" : "Post"} for review`,
   );
@@ -89,105 +96,115 @@
     >
   </header>
 {/if}
-<main class="workspace">
-  <div class="workspace-grid">
-    <section>
-      <div class="post-panel">
-        <PostPreview
-          content={data.content}
-          media={data.media}
-          sourcePost={data.sourcePost}
-          token={data.token}
-          focusedPost={postId}
-          onfocuspost={focusPost}
-        />
-      </div>
-    </section>
-    <aside class="feedback-column" aria-label="Feedback">
-      <form
-        bind:this={feedbackForm}
-        class="feedback-form"
-        method="POST"
-        action="?/comment"
-        use:enhance={({ cancel }) => {
-          if (!data.reviewer && !name.trim() && !signingIn) {
-            cancel();
-            identityDialog?.showModal();
-            return;
+<main class="draft-page review-page" class:guest-review={!data.reviewer}>
+  <header class="draft-heading">
+    <Button
+      variant="ghost"
+      class="icon-button"
+      href={data.reviewer ? "/" : "/login"}
+      aria-label={data.reviewer ? "Back to drafts" : "Back"}
+      onclick={(event) => {
+        if (!data.reviewer && history.length > 1) {
+          event.preventDefault();
+          history.back();
+        }
+      }}><Icon name="back" size={20} /></Button
+    >
+    <h1>{postKind}</h1>
+  </header>
+  <section class="editor-posts" aria-label="Post for review">
+    <PostPreview
+      content={data.content}
+      media={data.media}
+      sourcePost={data.sourcePost}
+      token={data.token}
+      focusedPost={postId}
+      onfocuspost={focusPost}
+    />
+  </section>
+  <aside class="draft-sidebar" aria-label="Feedback">
+    <form
+      bind:this={feedbackForm}
+      class="feedback-form"
+      method="POST"
+      action="?/comment"
+      use:enhance={({ cancel }) => {
+        if (!data.reviewer && !name.trim() && !signingIn) {
+          cancel();
+          identityDialog?.showModal();
+          return;
+        }
+        busy = true;
+        return async ({ result, update }) => {
+          await update({ reset: false, invalidateAll: true });
+          busy = false;
+          signingIn = false;
+          if (result.type === "success") {
+            body = "";
+            postId = "";
+            quote = "";
+            feedbackRevision = null;
+            sent = true;
+            identityDialog?.close();
+            sessionStorage.setItem("reviewer-name", name);
           }
-          busy = true;
-          return async ({ result, update }) => {
-            await update({ reset: false, invalidateAll: true });
-            busy = false;
-            signingIn = false;
-            if (result.type === "success") {
-              body = "";
-              postId = "";
-              quote = "";
-              feedbackRevision = null;
-              sent = true;
-              identityDialog?.close();
-              sessionStorage.setItem("reviewer-name", name);
-            }
-          };
-        }}
+        };
+      }}
+    >
+      <input
+        type="hidden"
+        name="revision"
+        value={feedbackRevision ?? data.revision}
+      />
+      <input type="hidden" name="postId" value={postId} />
+      <input type="hidden" name="quote" value={quote} />
+      <input type="hidden" name="name" value={name} />
+      <label
+        >Your feedback<Textarea
+          name="body"
+          bind:value={body}
+          oninput={() => {
+            feedbackRevision ??= data.revision;
+            sent = false;
+          }}
+          required
+          maxlength={2000}
+          rows={4}
+          placeholder="What do you think?"
+        /></label
       >
-        <input
-          type="hidden"
-          name="revision"
-          value={feedbackRevision ?? data.revision}
-        />
-        <input type="hidden" name="postId" value={postId} />
-        <input type="hidden" name="quote" value={quote} />
-        <input type="hidden" name="name" value={name} />
-        <label
-          >Your feedback<Textarea
-            name="body"
-            bind:value={body}
-            oninput={() => {
-              feedbackRevision ??= data.revision;
-              sent = false;
-            }}
-            required
-            maxlength={2000}
-            rows={4}
-            placeholder="What do you think?"
-          /></label
-        >
-        {#if postId}<div class="feedback-focus">
-            <div class="row between">
-              <span class="small"
-                >On post {data.content.posts.findIndex((p) => p.id === postId) +
-                  1}</span
-              ><Button
-                variant="ghost"
-                class="icon-button"
-                aria-label="Clear feedback focus"
-                onclick={() => {
-                  postId = "";
-                  quote = "";
-                }}><Icon name="close" size={14} /></Button
-              >
-            </div>
-            {#if quote}<blockquote class="feedback-quote">
-                {quote}
-              </blockquote>{/if}
-          </div>{:else}<span class="small muted"
-            >General feedback · click a post or select text to focus</span
-          >{/if}
-        {#if form?.message && !form.success}<p
-            class="action-error"
-            role="alert"
-          >
-            {form.message}
-          </p>{/if}
-        <Button type="submit" disabled={busy}
-          >{busy ? "Sending…" : sent ? "Feedback sent" : "Send feedback"}<Icon
-            name={sent ? "check" : "arrow"}
-            size={16}
-          /></Button
-        >
-      </form>
+      {#if postId}<div class="feedback-focus">
+          <div class="row between">
+            <span class="small"
+              >On post {data.content.posts.findIndex((p) => p.id === postId) +
+                1}</span
+            ><Button
+              variant="ghost"
+              class="icon-button"
+              aria-label="Clear feedback focus"
+              onclick={() => {
+                postId = "";
+                quote = "";
+              }}><Icon name="close" size={14} /></Button
+            >
+          </div>
+          {#if quote}<blockquote class="feedback-quote">
+              {quote}
+            </blockquote>{/if}
+        </div>{:else}<span class="small muted"
+          >General feedback · click a post or select text to focus</span
+        >{/if}
+      {#if form?.message && !form.success}<p class="action-error" role="alert">
+          {form.message}
+        </p>{/if}
+      <Button type="submit" disabled={busy}
+        >{busy ? "Sending…" : sent ? "Feedback sent" : "Send feedback"}<Icon
+          name={sent ? "check" : "arrow"}
+          size={16}
+        /></Button
+      >
+    </form>
+    <div class="draft-feedback">
       <FeedbackList
         comments={data.comments}
         revision={data.revision}
@@ -195,8 +212,8 @@
         token={data.token}
         emptyText="Be the first to give this draft a second look."
       />
-    </aside>
-  </div>
+    </div>
+  </aside>
 </main>
 <dialog
   bind:this={identityDialog}
@@ -244,3 +261,30 @@
     >
   </form>
 </dialog>
+
+<style>
+  .review-page {
+    width: 100%;
+    max-width: 932px;
+    margin-inline: auto;
+  }
+  .guest-review {
+    min-height: 0;
+    flex: 1;
+  }
+  :global(.app-content:has(.guest-review)) {
+    display: flex;
+    flex-direction: column;
+  }
+  @media (max-width: 1000px) {
+    .review-page {
+      max-width: 600px;
+      grid-template-areas: "heading" "posts" "form" "feedback";
+      grid-template-rows: 52px auto auto 1fr;
+    }
+    .feedback-form {
+      grid-area: form;
+      padding: 24px 12px 20px;
+    }
+  }
+</style>
