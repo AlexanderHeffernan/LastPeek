@@ -1,19 +1,13 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import { sessionUser } from "$lib/server/auth";
+import { referrerPolicy } from "$lib/referrer-policy";
 export const handle: Handle = async ({ event, resolve }) => {
   event.locals.user = await sessionUser(event);
   const response = await resolve(event);
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   // Native account forms need a non-null Origin for CSRF checks, even before hydration.
   // Send only the origin on these pages; review capabilities keep no-referrer.
-  response.headers.set(
-    "Referrer-Policy",
-    ["/login", "/join/[token]", "/(app)/settings"].includes(
-      event.route.id ?? "",
-    )
-      ? "strict-origin"
-      : "no-referrer",
-  );
+  response.headers.set("Referrer-Policy", referrerPolicy(event.route.id));
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set(
     "Permissions-Policy",

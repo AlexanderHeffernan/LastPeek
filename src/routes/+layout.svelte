@@ -6,6 +6,7 @@
   import PortraitOrientation from "$lib/components/PortraitOrientation.svelte";
   import AppShell from "$lib/components/AppShell.svelte";
   import { appleLaunchImages } from "$lib/pwa";
+  import { referrerPolicy } from "$lib/referrer-policy";
   let { children } = $props();
   const shellUser = $derived(
     page.route.id?.startsWith("/(app)")
@@ -66,6 +67,8 @@
 
 <svelte:head
   ><title>LastPeek — A second pair of eyes</title>
+  <!-- Response headers alone cannot update the document after client-side navigation. -->
+  <meta name="referrer" content={referrerPolicy(page.route.id)} />
   {#if page.route.id !== "/r/[token]"}<meta
       name="description"
       content="A little space for a second opinion before you post. Private drafts, thoughtful feedback."

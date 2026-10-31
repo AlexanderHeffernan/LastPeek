@@ -984,6 +984,106 @@ test(
 );
 
 test(
+  "X forms work on the first attempt after client-side account navigation",
+  { timeout: 60000 },
+  async () => {
+    const id = randomUUID(),
+      session = token();
+    const browser = await engine.launch();
+    try {
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'X navigation author',$3)",
+        [id, `${id}@example.test`, await passwordHash(token())],
+      );
+      await db.query(
+        "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+        [tokenHash(session), id],
+      );
+      for (const width of [1280, 390]) {
+        for (const signIn of [false, true]) {
+          const context = await browser.newContext({
+            viewport: { width, height: 900 },
+          });
+          await context.addCookies([
+            { name: "lastpeek_session", value: session, url: baseURL },
+          ]);
+          const page = await context.newPage();
+          await page.route("https://x.com/i/oauth2/authorize**", (route) =>
+            route.fulfill({ contentType: "text/html", body: "Test X consent" }),
+          );
+          await page.goto(baseURL);
+          await page.waitForLoadState("networkidle");
+          // Keep the original document: a full reload would hide this regression.
+          await page.evaluate(() =>
+            Reflect.set(window, "accountNavigation", true),
+          );
+          await page
+            .getByRole("link", { name: "Account settings", exact: true })
+            .click();
+          await page
+            .getByRole("heading", { name: "Account.", exact: true })
+            .waitFor();
+          // Leaving Account must restore privacy, not keep its more permissive policy.
+          await page.getByRole("link", { name: "Drafts", exact: true }).click();
+          await page
+            .getByRole("main", { name: "Drafts", exact: true })
+            .waitFor();
+          const privateRequest = page.waitForRequest(`${baseURL}/health`);
+          await page.evaluate(() => fetch("/health"));
+          assert.equal((await privateRequest).headers().referer, undefined);
+          await page
+            .getByRole("link", { name: "Account settings", exact: true })
+            .click();
+          await page
+            .getByRole("heading", { name: "Account.", exact: true })
+            .waitFor();
+          if (signIn) {
+            await page
+              .getByRole("button", { name: "Sign out", exact: true })
+              .click();
+            await page
+              .getByRole("heading", { name: "Welcome back.", exact: true })
+              .waitFor();
+          }
+          assert.equal(
+            await page.evaluate(() => Reflect.get(window, "accountNavigation")),
+            true,
+          );
+          const [request] = await Promise.all([
+            page.waitForRequest(
+              (request) => request.url() === `${baseURL}/auth/x/start`,
+            ),
+            page
+              .getByRole("button", {
+                name: signIn ? "Sign in with X" : "Link X account",
+                exact: true,
+              })
+              .click(),
+          ]);
+          assert.equal(request.headers().origin, origin);
+          await page.waitForURL("https://x.com/i/oauth2/authorize**");
+          assert.equal(
+            new URL(page.url()).searchParams.get("code_challenge_method"),
+            "S256",
+          );
+          await context.close();
+          // Sign out deliberately revokes the fixture session; restore it for the next case.
+          if (signIn)
+            await db.query(
+              "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+              [tokenHash(session), id],
+            );
+        }
+      }
+    } finally {
+      await browser.close();
+      await db.query("DELETE FROM x_oauth_flows WHERE user_id=$1", [id]);
+      await db.query("DELETE FROM users WHERE id=$1", [id]);
+    }
+  },
+);
+
+test(
   "X-only accounts keep a sign-in method when disconnecting",
   { timeout: 30000 },
   async () => {
