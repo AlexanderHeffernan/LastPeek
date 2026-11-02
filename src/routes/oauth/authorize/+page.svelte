@@ -11,7 +11,9 @@
   let expiry = $state("90");
   let selected = $state(
     untrack(() =>
-      data.authorization.scopes.filter((scope) => scope.endsWith(":read")),
+      data.authorization.scopes.filter(
+        (scope) => scope.endsWith(":read") && scope !== "x:read",
+      ),
     ),
   );
 </script>
@@ -48,7 +50,7 @@
       </label>
       <p class="terms">
         Change access or disconnect at any time in Settings → Agents. This does
-        not allow deletion, account changes or posting to X.
+        not allow deleting drafts, changing account security or posting to X.
       </p>
       {#if form?.message}<p class="error" role="alert">{form.message}</p>{/if}
       <div class="actions">

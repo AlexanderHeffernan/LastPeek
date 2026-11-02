@@ -120,11 +120,32 @@ Revocation blocks subsequent requests, not operations already authorized and in 
 
 `agent-tools.ts` adapts typed inputs to existing draft operations. `feedback.ts` is shared by browser
 and agent feedback, preserving identity, snapshot anchors, access-revocation locks and notifications.
-No MCP tool uses X credentials, publishes externally, deletes drafts, exposes admin operations or
-fetches arbitrary URLs. Draft/comment content is untrusted data, not tool instructions. Neither
+No MCP tool publishes externally, deletes drafts, exposes admin operations or fetches arbitrary
+URLs. Explicit X lookup and AI review permissions reuse existing server-only provider operations,
+eligibility and monetary allowances; paid X reads are unchecked at consent. Draft/comment content
+is untrusted data, not tool instructions. Neither
 credentials nor content are logged. `last_used_at` records authenticated requests, including MCP
 initialization; client names are unverified registration metadata, not identities inferred from
 user-agent headers. Maintenance prunes expired credentials and old disconnected connections.
+
+Migration 031 adds server-derived feedback provenance, bounded request replay records, private
+media-transfer grants and metadata-only successful operation history. Create, feedback, inline
+upload and AI requests accept an optional request ID. Identical successful inputs replay the
+stored result; mismatches and unfinished/uncertain claims fail rather than repeating a write.
+Replay records expire after 30 days and draft-associated results are removed with the draft.
+Activity retains only connection, operation and time for 30 days, never content or credentials.
+MCP results include structured content while preserving the original JSON text block. Errors
+carry stable codes/status and retry guidance; SDK input validation may reject before execution.
+
+`upload_media` accepts bounded inline base64 (700,000 characters) or returns a ten-minute
+draft-bound raw-binary transfer. `/api/agent-media` requires its own hashed-at-rest bearer grant,
+not a cookie or URL credential. Upload bytes must match the authorized SHA-256, pass `storeMedia`
+validation/quotas and return a media ID to attach through a versioned save. Reusing the same
+grant/bytes returns the same upload; uncertain claims cannot silently duplicate it. Downloads
+support byte ranges and bounded MCP image previews. Review grants expose only media in the
+current shared snapshot; each byte request rechecks connection permission, feature access,
+expiry and current review/recipient access. Maintenance removes expired transfers. Neither
+transfer capability authorizes arbitrary paths, remote URL ingestion, editing or sharing.
 
 Disconnected connections remain server-side for credential revocation but are omitted from the
 management list. Unapproved permissions are visible but disabled in the editor; existing OAuth

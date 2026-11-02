@@ -923,6 +923,10 @@
   font-size: 11px;
   color: var(--muted-foreground);
 }
+.agent-attribution {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
 .feedback-card .comment {
   font-size: 14px;
   white-space: pre-wrap;

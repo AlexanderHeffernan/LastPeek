@@ -16,6 +16,7 @@ export async function sendFeedback(
   reviewToken: string,
   userId: string | undefined,
   input: z.infer<typeof feedbackSchema>,
+  connectionId?: string,
 ) {
   const draft = await sharedDraft(reviewToken, userId);
   const { body, revision, postId, quote } = input;
@@ -54,9 +55,17 @@ export async function sendFeedback(
           .rows[0]?.name
       : input.name;
     if (!name) error(400, "Enter a name to send your feedback.");
+    const agentName = connectionId
+      ? (
+          await client.query(
+            "SELECT c.name FROM agent_connections a JOIN agent_clients c ON c.id=a.client_id WHERE a.id=$1 AND a.user_id=$2",
+            [connectionId, userId],
+          )
+        ).rows[0]?.name
+      : null;
     const id = crypto.randomUUID();
     await client.query(
-      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id,agent_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
       [
         id,
         draft.id,
@@ -66,6 +75,7 @@ export async function sendFeedback(
         body,
         quote || null,
         userId ?? null,
+        agentName ?? null,
       ],
     );
     await notify(client, {

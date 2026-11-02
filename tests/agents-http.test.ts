@@ -7,6 +7,9 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { db } from "../src/lib/server/db";
 import { hash, token } from "../src/lib/server/auth";
 import { agentScopes } from "../src/lib/agents";
+import sharp from "sharp";
+import { readFile, rm } from "node:fs/promises";
+import { mediaPath } from "../src/lib/server/media";
 
 const origin = process.env.TEST_BASE_URL || "http://127.0.0.1:4173";
 after(() => db.end());
@@ -439,7 +442,7 @@ test("agent OAuth binds grants and MCP preserves ownership, versions and review 
   );
   assert.deepEqual(
     (await client.listTools()).tools.map((tool) => tool.name).sort(),
-    ["get_draft", "list_drafts"],
+    ["check_draft", "get_draft", "list_drafts", "list_feedback"],
   );
   const refreshed = await anonymous.post(`${origin}/oauth/token`, {
     form: {
@@ -513,5 +516,497 @@ test("agent OAuth binds grants and MCP preserves ownership, versions and review 
       })
     ).status(),
     401,
+  );
+});
+
+// Exercise the actual MCP/binary boundary. A digest mismatch, a foreign draft,
+// a removed private recipient and a live scope reduction must all differ from
+// an authorized transfer; retrying an upload/create must not duplicate it.
+test("agent workflows transfer private media, preserve context and attribute review work", async (t) => {
+  const owner = randomUUID(),
+    reviewer = randomUUID(),
+    app = token(),
+    connection = randomUUID(),
+    access = token();
+  const reviewConnection = randomUUID(),
+    reviewAccess = token();
+  const client = new Client({ name: "Workflow contract", version: "1" });
+  const peer = new Client({ name: "Reviewer contract", version: "1" });
+  const http = await request.newContext();
+  const uploads: string[] = [];
+  t.after(async () => {
+    await client.close();
+    await peer.close();
+    await http.dispose();
+    await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [
+      [owner, reviewer],
+    ]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, reviewer],
+    ]);
+    await db.query("DELETE FROM agent_clients WHERE id=$1", [app]);
+    await Promise.all(uploads.map((id) => rm(mediaPath(id), { force: true })));
+  });
+  await db.query(
+    "INSERT INTO agent_clients(id,name,redirect_uris) VALUES($1,'Test Codex','[]')",
+    [app],
+  );
+  for (const [user, id, bearer] of [
+    [owner, connection, access],
+    [reviewer, reviewConnection, reviewAccess],
+  ]) {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash,plan) VALUES($1,$2,$3,'unused','pro')",
+      [user, `${user}@example.test`, user === owner ? "Author" : "Reviewer"],
+    );
+    await db.query(
+      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'agents')",
+      [user],
+    );
+    await db.query(
+      "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes) VALUES($1,$2,$3,$4,$4)",
+      [id, user, app, agentScopes],
+    );
+    await db.query(
+      "INSERT INTO agent_tokens(hash,connection_id,kind,scopes,resource,expires_at) VALUES($1,$2,'access',$3,$4,now()+interval '1 hour')",
+      [hash(bearer), id, agentScopes, `${origin}/mcp`],
+    );
+  }
+  for (const [sdk, bearer] of [
+    [client, access],
+    [peer, reviewAccess],
+  ] as const)
+    await sdk.connect(
+      new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+      }),
+    );
+  const call = (name: string, args: Record<string, unknown>, sdk = client) =>
+    sdk.callTool({ name, arguments: args });
+  const read = (result: Awaited<ReturnType<typeof call>>) => {
+    assert.notEqual(result.isError, true, JSON.stringify(result.content));
+    const value = JSON.parse((result.content as { text: string }[])[0].text);
+    assert.deepEqual(result.structuredContent, { result: value });
+    return value;
+  };
+  const account = read(await call("get_account", {}));
+  assert.equal(account.profile.id, owner);
+  assert.ok(account.tools.includes("update_draft"));
+  assert.ok(account.tools.includes("upload_media"));
+  assert.ok(
+    !account.tools.some((name: string) => /publish|delete_draft/.test(name)),
+  );
+  const input = {
+    posts: [
+      "Opening https://example.com/" + "a".repeat(100),
+      "Keep this second post",
+    ],
+    requestId: randomUUID(),
+  };
+  const created = read(await call("create_draft", input));
+  assert.equal(read(await call("create_draft", input)).id, created.id);
+  const conflict = await call("create_draft", {
+    ...input,
+    posts: ["Different content"],
+  });
+  assert.equal((conflict.structuredContent as any).error.code, "conflict");
+  assert.equal(
+    (
+      await db.query(
+        "SELECT count(*)::int AS n FROM drafts WHERE owner_id=$1",
+        [owner],
+      )
+    ).rows[0].n,
+    1,
+  );
+  const checks = read(await call("check_draft", { id: created.id }));
+  assert.equal(checks.posts[0].weightedLength, 31); // 8 chars + X's 23-char URL.
+  assert.equal(
+    read(await call("list_drafts", { query: "second", status: "draft" }))[0].id,
+    created.id,
+  );
+  assert.deepEqual(read(await call("list_drafts", { query: "absent" })), []);
+
+  const bytes = await sharp({
+    create: { width: 24, height: 12, channels: 3, background: "coral" },
+  })
+    .png()
+    .toBuffer();
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  assert.equal(
+    (
+      await call(
+        "upload_media",
+        { id: created.id, filename: "foreign.png", sha256: digest },
+        peer,
+      )
+    ).isError,
+    true,
+  );
+  const grant = read(
+    await call("upload_media", {
+      id: created.id,
+      filename: "screenshot.png",
+      sha256: digest,
+    }),
+  ).transfer;
+  assert.equal(new URL(grant.url).search, "");
+  assert.equal((await http.post(grant.url, { data: bytes })).status(), 401);
+  assert.equal(
+    (
+      await http.post(grant.url, {
+        headers: grant.headers,
+        data: Buffer.from("wrong bytes"),
+      })
+    ).status(),
+    400,
+  );
+  const uploaded = await http.post(grant.url, {
+    headers: grant.headers,
+    data: bytes,
+  });
+  assert.equal(uploaded.status(), 201);
+  const media = await uploaded.json();
+  uploads.push(media.id);
+  assert.equal(
+    (
+      await (
+        await http.post(grant.url, { headers: grant.headers, data: bytes })
+      ).json()
+    ).id,
+    media.id,
+  );
+  assert.equal(
+    (
+      await db.query("SELECT count(*)::int AS n FROM media WHERE draft_id=$1", [
+        created.id,
+      ])
+    ).rows[0].n,
+    1,
+  );
+  assert.equal(
+    read(await call("get_draft", { id: created.id })).media[0].attached,
+    false,
+  );
+  read(
+    await call("edit_post", {
+      id: created.id,
+      version: 1,
+      postId: created.content.posts[0].id,
+      media: [media.id],
+      text: "Revised opening",
+    }),
+  );
+  const edited = read(await call("get_draft", { id: created.id }));
+  assert.equal(edited.media[0].attached, true);
+  assert.equal(edited.content.posts[1].text, "Keep this second post");
+  assert.equal(
+    (
+      await call("edit_post", {
+        id: created.id,
+        version: 1,
+        postId: created.content.posts[0].id,
+        text: "Stale",
+      })
+    ).isError,
+    true,
+  );
+  const downloadResult = await call("read_media", {
+    id: created.id,
+    mediaId: media.id,
+  });
+  const download = read(downloadResult).transfer;
+  assert.ok(
+    (downloadResult.content as any[]).some((block) => block.type === "image"),
+  );
+  const ranged = await http.get(download.url, {
+    headers: { ...download.headers, Range: "bytes=2-9" },
+  });
+  assert.equal(ranged.status(), 206);
+  assert.deepEqual(await ranged.body(), bytes.subarray(2, 10));
+  assert.equal(
+    (
+      await http.get(download.url, {
+        headers: { ...download.headers, Range: "bytes=999999-" },
+      })
+    ).status(),
+    416,
+  );
+  await db.query(
+    "UPDATE agent_transfers SET expires_at=now()-interval '1 second' WHERE hash=$1",
+    [hash(download.headers.Authorization.slice(7))],
+  );
+  assert.equal(
+    (await http.get(download.url, { headers: download.headers })).status(),
+    403,
+  );
+  await db.query(
+    "UPDATE agent_transfers SET expires_at=now()+interval '10 minutes' WHERE hash=$1",
+    [hash(download.headers.Authorization.slice(7))],
+  );
+  const inlineInput = {
+    id: created.id,
+    filename: "inline.png",
+    sha256: digest,
+    dataBase64: bytes.toString("base64"),
+    requestId: randomUUID(),
+  };
+  const inline = read(await call("upload_media", inlineInput));
+  uploads.push(inline.media.id);
+  assert.equal(
+    read(await call("upload_media", inlineInput)).media.id,
+    inline.media.id,
+  );
+  assert.equal(
+    (await call("get_review", { id: created.id })).isError,
+    true,
+    "reading sharing state must not create a review link",
+  );
+  // A valid MP4 with a padding/free atom exceeds the MCP JSON body ceiling.
+  const padding = Buffer.alloc(1_010_000);
+  padding.writeUInt32BE(padding.length, 0);
+  padding.write("free", 4);
+  const video = Buffer.concat([
+    await readFile("tests/fixtures/video.mp4"),
+    padding,
+  ]);
+  const videoGrant = read(
+    await call("upload_media", {
+      id: created.id,
+      filename: "clip.mp4",
+      sha256: createHash("sha256").update(video).digest("hex"),
+    }),
+  ).transfer;
+  const videoResponse = await http.post(videoGrant.url, {
+    headers: videoGrant.headers,
+    data: video,
+  });
+  assert.equal(videoResponse.status(), 201);
+  const videoMedia = await videoResponse.json();
+  uploads.push(videoMedia.id);
+  assert.equal(videoMedia.mime, "video/mp4");
+  assert.equal(videoMedia.bytes, video.length);
+
+  const postId = "1900000000000000001";
+  const source = {
+    kind: "reply",
+    url: `https://x.com/example/status/${postId}`,
+  };
+  const context = {
+    id: postId,
+    url: source.url,
+    text: "The original announcement",
+    author: {
+      name: "Original",
+      username: "example",
+      avatar: "https://pbs.twimg.com/profile_images/test.png",
+    },
+    createdAt: "2026-11-01T12:00:00.000Z",
+    links: [],
+    media: [],
+  };
+  await db.query(
+    "INSERT INTO x_source_posts(post_id,content,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+    [postId, context],
+  );
+  const reply = read(
+    await call("create_draft", {
+      posts: ["A reply, not a standalone post"],
+      source,
+    }),
+  );
+  assert.equal(reply.content.source.kind, "reply");
+  assert.equal(
+    read(await call("get_source_post", { id: reply.id })).context.text,
+    context.text,
+  );
+  read(
+    await call("update_draft", {
+      id: reply.id,
+      version: 1,
+      posts: reply.content.posts,
+      source: { ...source, kind: "quote" },
+    }),
+  );
+  assert.equal(
+    read(await call("get_draft", { id: reply.id })).content.source.kind,
+    "quote",
+  );
+  assert.equal(
+    (
+      await call("create_draft", {
+        posts: ["Bad URL"],
+        source: { kind: "reply", url: "http://127.0.0.1/private" },
+      })
+    ).isError,
+    true,
+  );
+  assert.equal(
+    (await call("request_ai_review", { id: created.id, version: 1 })).isError,
+    true,
+    "stale review must be rejected before a provider call",
+  );
+
+  const friendship = randomUUID();
+  await db.query(
+    "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+    [friendship, owner, reviewer],
+  );
+  const shared = read(
+    await call("share_draft", {
+      id: created.id,
+      version: 2,
+      audience: "friend",
+      friendId: reviewer,
+    }),
+  );
+  assert.equal(
+    read(await call("get_sharing", { id: created.id })).recipients[0].id,
+    reviewer,
+  );
+  assert.equal(
+    read(await call("list_reviews", { status: "pending" }, peer))[0].id,
+    created.id,
+  );
+  const review = read(await call("get_review", { token: shared.token }, peer));
+  assert.equal(review.media[0].id, media.id);
+  const privateGrant = read(
+    await call(
+      "read_media",
+      { id: created.id, mediaId: media.id, reviewToken: shared.token },
+      peer,
+    ),
+  ).transfer;
+  const feedbackInput = {
+    token: shared.token,
+    revision: shared.revision,
+    body: "Make the opening clearer",
+    requestId: randomUUID(),
+  };
+  const feedback = read(await call("send_feedback", feedbackInput, peer));
+  assert.equal(
+    read(await call("send_feedback", feedbackInput, peer)).id,
+    feedback.id,
+  );
+  assert.equal(
+    read(await call("list_reviews", { status: "done" }, peer))[0].completed,
+    true,
+  );
+  const feed = read(
+    await call("list_feedback", { query: "clearer", status: "open" }),
+  );
+  assert.equal(feed[0].agent_name, "Test Codex");
+  assert.equal(feed[0].name, "Reviewer");
+  assert.equal(
+    read(await call("get_review", { id: created.id })).feedback[0].agent_name,
+    "Test Codex",
+  );
+  assert.equal(
+    review.media.length,
+    1,
+    "unattached uploads must not leak into a review",
+  );
+  read(
+    await call("send_feedback", {
+      id: created.id,
+      revision: shared.revision,
+      body: "Updated, thank you",
+    }),
+  );
+  const notifications = read(
+    await call("list_notifications", { unreadOnly: true }),
+  );
+  assert.ok(notifications.unread > 0);
+  read(
+    await call("mark_notifications_read", {
+      ids: [notifications.notifications[0].id],
+    }),
+  );
+  assert.ok(
+    read(await call("list_notifications", {})).unread < notifications.unread,
+  );
+  assert.deepEqual(read(await call("get_friends", {}))[0].id, friendship);
+  read(await call("remove_recipient", { id: created.id, friendId: reviewer }));
+  assert.equal(
+    (
+      await http.get(privateGrant.url, { headers: privateGrant.headers })
+    ).status(),
+    404,
+  );
+  assert.equal(
+    (await call("get_review", { token: shared.token }, peer)).isError,
+    true,
+  );
+  assert.equal(
+    read(await call("get_sharing", { id: created.id })).recipients.length,
+    0,
+  );
+  const preferences = {
+    friend_request: false,
+    friend_accepted: true,
+    feedback: true,
+    shared_draft: false,
+  };
+  assert.deepEqual(
+    read(await call("set_notification_preferences", preferences)),
+    preferences,
+  );
+  assert.deepEqual(
+    read(await call("list_notifications", {})).preferences,
+    preferences,
+  );
+  const peerNotification = read(await call("list_notifications", {}, peer))
+    .notifications[0];
+  assert.deepEqual(
+    read(await call("delete_notifications", { ids: [peerNotification.id] }))
+      .deleted,
+    [],
+    "cannot delete another account’s history",
+  );
+  read(await call("delete_notifications", { all: true }));
+  assert.equal(
+    read(await call("list_notifications", {})).notifications.length,
+    0,
+  );
+  read(await call("change_friendship", { id: friendship, action: "remove" }));
+  read(await call("request_friend", { email: `${reviewer}@example.test` }));
+  const incoming = read(await call("get_friends", {}, peer))[0];
+  assert.equal(incoming.incoming, true);
+  assert.equal(incoming.accepted, false);
+  read(
+    await call(
+      "change_friendship",
+      { id: incoming.id, action: "accept" },
+      peer,
+    ),
+  );
+  assert.equal(read(await call("get_friends", {}))[0].accepted, true);
+  assert.equal(
+    (await call("get_review", { token: shared.token }, peer)).isError,
+    true,
+    "re-friending must not restore review grants",
+  );
+
+  await db.query(
+    "UPDATE agent_connections SET scopes=array_remove(scopes,'media:read') WHERE id=$1",
+    [connection],
+  );
+  assert.equal(
+    (await http.get(download.url, { headers: download.headers })).status(),
+    403,
+  );
+  assert.ok(
+    !(await client.listTools()).tools.some(
+      (tool) => tool.name === "read_media",
+    ),
+  );
+  await db.query("UPDATE agent_connections SET revoked_at=now() WHERE id=$1", [
+    connection,
+  ]);
+  assert.equal(
+    (
+      await http.post(grant.url, { headers: grant.headers, data: bytes })
+    ).status(),
+    403,
   );
 });

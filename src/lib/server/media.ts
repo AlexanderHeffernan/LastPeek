@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { error } from "@sveltejs/kit";
@@ -11,6 +13,61 @@ export const uploadLimit =
   Number(process.env.MAX_UPLOAD_MB || 50) * 1024 * 1024;
 export function mediaPath(id: string) {
   return resolve(mediaDir, id);
+}
+// Call only after authorizing access to this exact media row.
+export async function mediaResponse(
+  media: { id: string; mime: string; filename: string },
+  request: Request,
+) {
+  const path = mediaPath(media.id);
+  const size = await stat(path)
+    .then((file) => file.size)
+    .catch(() => error(404, "Attachment unavailable."));
+  let start = 0,
+    end = size - 1,
+    status = 200;
+  const range = request.headers.get("range");
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || (!match[1] && !match[2]))
+      return new Response(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${size}` },
+      });
+    if (!match[1]) start = Math.max(0, size - Number(match[2]));
+    else {
+      start = Number(match[1]);
+      end = match[2] ? Math.min(Number(match[2]), end) : end;
+    }
+    if (
+      start >= size ||
+      start > end ||
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end)
+    )
+      return new Response(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${size}` },
+      });
+    status = 206;
+  }
+  const headers: Record<string, string> = {
+    "Content-Type": media.mime,
+    "Content-Length": String(end - start + 1),
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  };
+  if (status === 206)
+    headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+  if (new URL(request.url).searchParams.has("download"))
+    headers["Content-Disposition"] =
+      `attachment; filename*=UTF-8''${encodeURIComponent(media.filename)}`;
+  return new Response(
+    Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream,
+    { status, headers },
+  );
 }
 export async function storeMedia(
   bytes: Buffer,

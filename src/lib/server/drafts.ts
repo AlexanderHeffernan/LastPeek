@@ -249,7 +249,7 @@ export async function draftMedia(id: string): Promise<Media[]> {
 export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
-      `SELECT c.id,c.user_id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
+      `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
        u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
        LEFT JOIN x_accounts x ON x.user_id=u.id

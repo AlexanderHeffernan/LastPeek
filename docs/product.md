@@ -71,14 +71,23 @@ change expiry in their permission editor; changing permissions alone never exten
 Disconnected and expired connections require fresh consent. Access tokens renew silently through
 rotating refresh credentials; an agent unused for 30 days may need to sign in again.
 
-The initial tools list/read/create/edit text drafts and threads, list/read shared reviews, send
-revision-anchored feedback, resolve author feedback, list accepted friends and manage sharing.
-Existing attachment references can be preserved while editing; uploading/downloading bytes,
-source-post creation, deletion, X publishing, notifications and account changes are not agent tools
-in this version. Existing ownership, review access, quotas and optimistic concurrency still apply.
-Editing a shared draft advances its review as it does on the website. An authorized agent acts as
-the user; feedback uses that account’s identity. Sharing permission can change the review audience.
-No agent may read private reviews merely because it knows their address.
+Tools cover text posts/threads, targeted post edits, private media uploads/reads, source-linked
+replies and quotes, search/status filters, local X readiness checks, review/feedback queues and
+sharing inspection or recipient removal. Owners can respond to an existing review using its draft
+ID without creating another link. Read-only account context exposes permissions, tool discovery,
+allowances and metadata-only recent operations. Optional permissions cover friend requests and
+notification management, X source/mention lookups and provider-backed AI review. Provider calls
+reuse website eligibility, cache and allowances; paid X reads are not selected by default.
+New permissions always require fresh consent and never broaden existing credentials.
+
+Small media uploads can be inline; larger files use a short-lived draft-bound binary transfer,
+not a remote filesystem path or unrestricted URL import. Existing ownership, review access,
+quotas and optimistic concurrency still apply. Editing a shared draft advances its review as on
+the website. An authorized agent acts as the user; feedback retains that account’s identity plus
+the server-derived app-provided connection name (shown as “via …”). Names are not verified agent
+identities. Sharing permission can change the review audience. No agent may read private reviews
+merely because it knows their address. Draft titles, per-thread-item external targets, threaded
+comment replies, X publishing, draft deletion and account-security changes are not agent tools.
 
 ## Next, not now
 

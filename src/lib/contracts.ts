@@ -73,6 +73,7 @@ export type Media = {
 export type Feedback = {
   id: string;
   user_id?: string | null;
+  agent_name?: string | null;
   handle?: string | null;
   revision: number;
   post_id: string | null;

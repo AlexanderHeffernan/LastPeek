@@ -139,7 +139,17 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
     name: "Browser test agent permissions",
   });
   await editor.waitFor();
-  assert.equal(await editor.getByRole("checkbox").count(), 6);
+  assert.equal(await editor.getByRole("checkbox").count(), 15);
+  // A connection approved before the expansion cannot gain new authority here.
+  for (const name of [
+    "Read attachments",
+    "Upload attachments",
+    "Look up X posts and accounts",
+  ])
+    assert.equal(
+      await editor.getByRole("checkbox", { name }).isDisabled(),
+      true,
+    );
   assert.equal(
     await editor
       .getByRole("checkbox", { name: "Create and edit drafts" })
@@ -7189,6 +7199,11 @@ for (const scenario of [
           ).rows[0].name,
           "Alex Updated",
         );
+        // Delegated feedback keeps its human identity but must not look human-written.
+        await db.query(
+          "UPDATE comments SET agent_name='Amp' WHERE draft_id=$1 AND body='Signed-in feedback'",
+          [focusId],
+        );
         // A signed-in reviewer is not the draft owner; identity follows their account.
         const reviewerPhotoUpload = await other.request.post(
           `${baseURL}/api/profile/avatar`,
@@ -7213,6 +7228,20 @@ for (const scenario of [
         await stranger
           .getByRole("link", { name: "Account settings", exact: true })
           .waitFor();
+        await stranger
+          .getByRole("article", {
+            name: "Feedback from Alex Updated",
+            exact: true,
+          })
+          .getByText("via Amp", { exact: true })
+          .waitFor();
+        assert.equal(
+          await stranger
+            .getByRole("article", { name: "Feedback from Sam", exact: true })
+            .getByText("via Amp", { exact: true })
+            .count(),
+          0,
+        );
         const reviewNavigation = stranger.getByRole("navigation", {
           name: "Main navigation",
         });

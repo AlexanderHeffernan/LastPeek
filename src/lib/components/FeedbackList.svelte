@@ -49,6 +49,11 @@
         <time datetime={comment.created_at}
           >{relativeTime(comment.created_at)}</time
         >
+        {#if comment.agent_name}<span
+            class="small muted agent-attribution"
+            title="Sent by an agent on this user’s behalf. App-provided name."
+            >via {comment.agent_name}</span
+          >{/if}
         {#if comment.user_id && (draftId || token)}<FriendControl
             userId={comment.user_id}
             name={comment.name}

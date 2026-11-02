@@ -6,6 +6,10 @@ A second pair of eyes before you post. Write a post or thread, attach original m
 
 The official hosted service is [lastpeek.alexheffernan.dev](https://lastpeek.alexheffernan.dev). See [deployment and automatic updates](docs/deployment.md), [security and limitations](SECURITY.md), and [contributing](CONTRIBUTING.md). Self-hosting does not require the official service, GitHub Actions or Cloudflare.
 
+Compatible agents can connect through OAuth at `/mcp` when the Agents trial is enabled for their
+account. See [agent tools and media transfers](docs/agents.md) for permissions, workflows and retry
+rules. An agent can prepare and review work without receiving permission to publish or delete it.
+
 ## Licence
 
 Copyright © 2026 Alexander Heffernan. LastPeek's original code is licensed under [GNU AGPL version 3 only](LICENSE), without warranty. You may self-host, modify and sell services subject to that licence, including its corresponding-source obligations for modified network services. Dependencies retain their own licences/notices. The LastPeek name and logo do not grant permission to imply an official service or endorsement. This project is not affiliated with X.

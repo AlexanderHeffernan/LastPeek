@@ -24,6 +24,13 @@ try {
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
   await db.query("DELETE FROM agent_codes WHERE expires_at<now()");
   await db.query("DELETE FROM agent_tokens WHERE expires_at<now()");
+  await db.query("DELETE FROM agent_transfers WHERE expires_at<now()");
+  await db.query(
+    "DELETE FROM agent_requests WHERE created_at<now()-interval '30 days'",
+  );
+  await db.query(
+    "DELETE FROM agent_activity WHERE created_at<now()-interval '30 days'",
+  );
   await db.query(
     "DELETE FROM agent_connections WHERE (revoked_at IS NOT NULL OR expires_at<now()) AND created_at<now()-interval '90 days'",
   );
