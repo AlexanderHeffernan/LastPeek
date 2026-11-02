@@ -1425,6 +1425,11 @@ progress {
   width: 88px;
   height: 88px;
 }
+.profile-photo .photo-picker,
+.profile-photo .remove-photo {
+  /* Keep icon rasterization stable when hover transitions composite. */
+  transform: translateZ(0);
+}
 .profile-photo .remove-photo {
   position: absolute;
   top: -6px;

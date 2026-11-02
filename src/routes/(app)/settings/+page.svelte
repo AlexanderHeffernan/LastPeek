@@ -12,8 +12,10 @@
   import PushControl from "$lib/components/PushControl.svelte";
   import AgentConnections from "$lib/components/AgentConnections.svelte";
   import BrowserSessions from "$lib/components/BrowserSessions.svelte";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import { notificationKinds } from "$lib/notifications";
   let { data, form } = $props();
+  let confirmPhotoRemoval: ConfirmDialog;
   const sections = $derived([
     { id: "profile", label: "Profile", icon: "users" },
     { id: "connections", label: "Connections", icon: "link" },
@@ -151,6 +153,8 @@
   const usagePercent = (used: number, limit: number) =>
     limit ? `${Math.round((used / limit) * 100)}% used` : "No allowance";
 </script>
+
+<ConfirmDialog bind:this={confirmPhotoRemoval} />
 
 <svelte:window
   onbeforeunload={(event) => {
@@ -360,7 +364,17 @@
                 aria-label="Remove photo"
                 title="Remove photo"
                 type="button"
-                onclick={() => {
+                onclick={async () => {
+                  if (
+                    !(await confirmPhotoRemoval.ask({
+                      title: "Remove profile photo?",
+                      description:
+                        "Your initial will replace your photo when you save your profile.",
+                      confirmLabel: "Remove photo",
+                      cancelLabel: "Keep photo",
+                    }))
+                  )
+                    return;
                   photo = undefined;
                   removePhoto = !!data.user.avatar_id;
                   if (photoInput) photoInput.value = "";

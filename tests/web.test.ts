@@ -5077,6 +5077,38 @@ for (const scenario of [
         await page
           .getByRole("button", { name: "Remove photo", exact: true })
           .click();
+        const removePhotoDialog = page.getByRole("alertdialog", {
+          name: "Remove profile photo?",
+        });
+        await removePhotoDialog.waitFor();
+        await removePhotoDialog
+          .getByRole("button", { name: "Keep photo", exact: true })
+          .click();
+        await removePhotoDialog.waitFor({ state: "hidden" });
+        assert.equal(
+          await page.getByRole("button", { name: "Save profile" }).isDisabled(),
+          true,
+          "Cancelling photo removal must not stage a profile change",
+        );
+        await page
+          .getByRole("button", { name: "Change photo", exact: true })
+          .waitFor();
+        await page.getByRole("link", { name: "Profile", exact: true }).click();
+        await page.waitForURL(`${baseURL}/settings?tab=profile`);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page
+          .getByRole("button", { name: "Remove photo", exact: true })
+          .click();
+        await removePhotoDialog
+          .getByRole("button", { name: "Remove photo", exact: true })
+          .click();
+        await removePhotoDialog.waitFor({ state: "hidden" });
+        await page.getByText("Unsaved changes", { exact: true }).waitFor();
+        assert.equal(
+          await page.getByRole("button", { name: "Remove photo" }).count(),
+          0,
+        );
+        await page.setViewportSize({ width: 1440, height: 1000 });
         dismissNextDialog = true;
         await page
           .getByRole("button", { name: "Sign out", exact: true })
@@ -6755,6 +6787,10 @@ for (const scenario of [
           );
           await page.goto(`${baseURL}/settings`);
           await page.getByRole("button", { name: "Remove photo" }).click();
+          await page
+            .getByRole("alertdialog", { name: "Remove profile photo?" })
+            .getByRole("button", { name: "Remove photo", exact: true })
+            .click();
           await page
             .getByRole("button", { name: "Save profile", exact: true })
             .click();
