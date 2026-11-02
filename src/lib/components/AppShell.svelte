@@ -17,6 +17,15 @@
     children: Snippet;
   } = $props();
   const openAdmin = getContext<() => void>("open-siteadmin");
+  const mobileTitle = $derived(
+    page.url.pathname === "/notifications"
+      ? "Notifications"
+      : page.url.pathname === "/friends"
+        ? page.url.searchParams.get("view") === "requests"
+          ? "Add friends"
+          : "Friends"
+        : null,
+  );
   let shell = $state<HTMLDivElement>();
   let header = $state<HTMLElement>();
   let requests = $state(0),
@@ -159,20 +168,52 @@
     class="mobile-header"
     onfocusin={() => navigation.reveal()}
   >
-    {@render account()}
-    <Brand
-      markOnly
-      onlongpress={canViewAdmin ? openAdmin : undefined}
-      onactivate={() => {
-        navigation.reveal();
-        window.scrollTo({
-          top: 0,
-          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "instant"
-            : "smooth",
-        });
-      }}
-    />
+    {#if page.url.pathname === "/friends" && page.url.searchParams.get("view") === "requests"}
+      <Button
+        variant="ghost"
+        size="icon"
+        href="/friends"
+        aria-label="Back to friends"><Icon name="back" /></Button
+      >
+    {:else}
+      {@render account()}
+    {/if}
+    {#if mobileTitle}
+      <h1 class="mobile-title">{mobileTitle}</h1>
+      {#if page.url.pathname === "/notifications"}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="mobile-header-action"
+          href="/settings?tab=notifications"
+          aria-label="Notification settings"><Icon name="settings" /></Button
+        >
+      {:else if page.url.searchParams.get("view") !== "requests"}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="mobile-header-action"
+          href="/friends?view=requests"
+          aria-label="Add friends"
+          ><Icon name="plus" />{#if requests}<span
+              class="nav-count"
+              aria-hidden="true">{requests}</span
+            >{/if}</Button
+        >
+      {/if}
+    {:else}<Brand
+        markOnly
+        onlongpress={canViewAdmin ? openAdmin : undefined}
+        onactivate={() => {
+          navigation.reveal();
+          window.scrollTo({
+            top: 0,
+            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "instant"
+              : "smooth",
+          });
+        }}
+      />{/if}
   </header>
   <nav
     class="app-navigation"
@@ -265,6 +306,11 @@
 {/snippet}
 
 <style>
+  .mobile-header .nav-count {
+    top: 0;
+    right: 0;
+    transform: translate(25%, -10%);
+  }
   .nav-count {
     position: absolute;
     top: 6px;

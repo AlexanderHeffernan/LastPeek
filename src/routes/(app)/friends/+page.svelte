@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
+  import { page } from "$app/state";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import FriendControl from "$lib/components/FriendControl.svelte";
@@ -42,7 +43,11 @@
 </script>
 
 <svelte:head><title>Friends · LastPeek</title></svelte:head>
-<main class="friends-page" aria-label="Friends">
+<main
+  class="friends-page"
+  class:show-requests={page.url.searchParams.get("view") === "requests"}
+  aria-label="Friends"
+>
   <section class="friends-main" aria-label="Your friends">
     <header>
       <h1>Friends</h1>
@@ -313,6 +318,22 @@
     }
     .add-friend :global(button) {
       width: 100%;
+    }
+  }
+  @media (max-width: 600px) {
+    .friends-page {
+      min-height: calc(100dvh - 52px - 48px - var(--mobile-nav-inset));
+    }
+    header,
+    aside {
+      display: none;
+    }
+    .show-requests .friends-main {
+      display: none;
+    }
+    .show-requests aside {
+      display: block;
+      border-bottom: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {

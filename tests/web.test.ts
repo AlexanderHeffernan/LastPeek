@@ -111,6 +111,151 @@ async function screenshot(page: Page, name: string) {
   });
 }
 
+test("mobile / friends drill-in and notification header", async () => {
+  const ids = [randomUUID(), randomUUID(), randomUUID()];
+  const session = token();
+  const browser = await engine.launch();
+  try {
+    for (const [index, id] of ids.entries())
+      await db.query(
+        "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'unused')",
+        [id, `${id}@example.test`, ["Alex", "Jules", "Mina"][index]],
+      );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+      [tokenHash(session), ids[0]],
+    );
+    await db.query(
+      `INSERT INTO friendships(id,requester_id,recipient_id,accepted_at)
+       VALUES($1,$2,$3,now()),($4,$5,$2,NULL)`,
+      [randomUUID(), ids[0], ids[1], randomUUID(), ids[2]],
+    );
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+    });
+    await context.addCookies([
+      { name: "lastpeek_session", value: session, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    if (engine === chromium) {
+      // A transient oversized launch inset must not enlarge the navigation row.
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+        insets: { top: 0, right: 0, bottom: 120, left: 0 },
+      });
+    }
+    await page.goto(`${baseURL}/friends`);
+    await page.waitForLoadState("load");
+    const navigation = page.getByRole("navigation", {
+      name: "Main navigation",
+    });
+    const initialHeight = (await navigation.boundingBox())!.height;
+    assert.ok(initialHeight >= 48 && initialHeight <= 70);
+    assert.equal(
+      await page.getByRole("heading", { name: "Friends", exact: true }).count(),
+      1,
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Back to top", exact: true })
+        .count(),
+      0,
+    );
+    assert.ok(
+      await page
+        .getByRole("region", { name: "Your friends" })
+        .getByText("Jules", { exact: true })
+        .isVisible(),
+    );
+    assert.equal(await page.getByLabel("Add by email").isVisible(), false);
+    await page.getByRole("link", { name: "Add friends", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Add friends", exact: true })
+      .waitFor();
+    assert.ok(page.url().endsWith("/friends?view=requests"));
+    assert.ok(
+      await page
+        .getByRole("button", { name: "Accept Mina’s friend request" })
+        .isVisible(),
+    );
+    assert.equal(
+      await page.getByRole("region", { name: "Your friends" }).isVisible(),
+      false,
+    );
+    await page.getByLabel("Add by email").fill("missing@example.test");
+    await page
+      .getByRole("button", { name: "Send request", exact: true })
+      .click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "No account found with that email address." })
+      .waitFor();
+    await page
+      .getByRole("link", { name: "Back to friends", exact: true })
+      .click();
+    await page.getByRole("heading", { name: "Friends", exact: true }).waitFor();
+    await page.goBack();
+    await page
+      .getByRole("heading", { name: "Add friends", exact: true })
+      .waitFor();
+    await page.reload();
+    await page.getByLabel("Add by email").waitFor();
+    await navigation
+      .getByRole("link", { name: "Notifications", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Notifications", exact: true })
+      .waitFor();
+    assert.equal((await navigation.boundingBox())!.height, initialHeight);
+    const inbox = page.getByRole("main", {
+      name: "Notifications",
+      exact: true,
+    });
+    assert.equal(
+      await inbox.evaluate(
+        (element) => getComputedStyle(element).borderLeftWidth,
+      ),
+      "0px",
+    );
+    assert.equal(
+      await inbox.evaluate(
+        (element) => getComputedStyle(element).borderRightWidth,
+      ),
+      "0px",
+    );
+    const settings = page.getByRole("link", {
+      name: "Notification settings",
+      exact: true,
+    });
+    assert.ok((await settings.boundingBox())!.y < 52);
+    await settings.click();
+    await page.waitForURL(`${baseURL}/settings?tab=notifications`);
+    await page
+      .getByRole("heading", { name: "Notifications", exact: true })
+      .waitFor();
+    assert.ok(page.url().endsWith("/settings?tab=notifications"));
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto(`${baseURL}/friends?view=requests`);
+    await page.getByLabel("Add by email").waitFor();
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      320,
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    assert.ok(
+      await page.getByRole("region", { name: "Your friends" }).isVisible(),
+    );
+    assert.ok(await page.getByLabel("Add by email").isVisible());
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
+  }
+});
+
 test("settings / mobile drill-in navigation and plan usage", async () => {
   const id = randomUUID(),
     session = token();

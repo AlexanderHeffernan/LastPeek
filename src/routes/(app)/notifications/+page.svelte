@@ -57,11 +57,11 @@
           action="?/read"
           use:enhance={manage}
         >
-          <Button variant="ghost" type="submit" disabled={busy}
+          <Button variant="outline" type="submit" disabled={busy}
             >Mark all as read</Button
           >
         </form>{/if}
-      <Button variant="ghost" disabled={busy} onclick={deleteAll}
+      <Button variant="outline" disabled={busy} onclick={deleteAll}
         >Delete all</Button
       >
     </div>{/if}
@@ -219,5 +219,14 @@
     margin: 12px auto 0;
     color: var(--muted-foreground);
     font-size: 15px;
+  }
+  @media (max-width: 600px) {
+    .notifications-page {
+      border-inline: 0;
+      min-height: calc(100dvh - 52px - 48px - var(--mobile-nav-inset));
+    }
+    header {
+      display: none;
+    }
   }
 </style>

@@ -1601,7 +1601,11 @@ progress {
 }
 @media (max-width: 600px) {
   .app-content.signed-in {
-    --mobile-nav-inset: max(8px, calc(env(safe-area-inset-bottom, 0px) - 12px));
+    --mobile-nav-inset: clamp(
+      8px,
+      calc(env(safe-area-inset-bottom, 0px) - 12px),
+      22px
+    );
     padding-left: 0;
     padding-top: 52px;
     padding-bottom: calc(48px + var(--mobile-nav-inset));
@@ -1679,6 +1683,18 @@ progress {
   .mobile-header .avatar {
     width: 32px;
     height: 32px;
+  }
+  .mobile-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    font-size: 20px;
+    white-space: nowrap;
+  }
+  .mobile-header .mobile-header-action {
+    position: relative;
+    margin-left: auto;
   }
   .topbar {
     height: 68px;
