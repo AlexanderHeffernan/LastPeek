@@ -537,12 +537,18 @@ test("user identities / compact feedback friend actions and friends-only presenc
     const draftPresence = page.waitForResponse((r) =>
       r.url().endsWith("/api/presence"),
     );
+    const draftData = page.waitForResponse((r) =>
+      r.url().includes(`/drafts/${draft}/__data.json`),
+    );
     await newReviewer
       .getByRole("link", { name: /^Open feedback from Rae Rivers:/ })
       .click();
     await page.waitForURL(
       (url) => url.pathname === `/drafts/${draft}` && !!url.hash,
     );
+    // Kit can render streamed navigation data before its transport has closed.
+    // Finish that response before the later reload, which otherwise aborts it in WebKit.
+    assert.equal(await (await draftData).finished(), null);
     assert.equal((await draftPresence).status(), 200);
     const feedback = page.getByRole("article", {
       name: "Feedback from Galen Green",
