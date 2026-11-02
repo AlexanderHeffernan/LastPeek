@@ -3611,6 +3611,14 @@ test("new drafts save only after interaction", { timeout: 45000 }, async () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseURL}/drafts/${randomUUID()}?new`);
+    // The SSR file input exists before its upload handler is hydrated.
+    await page
+      .getByRole("combobox", {
+        name: "Post 1 text",
+        exact: true,
+        disabled: false,
+      })
+      .waitFor();
     const image = await sharp({
       create: { width: 8, height: 8, channels: 3, background: "#ff6b5b" },
     })
