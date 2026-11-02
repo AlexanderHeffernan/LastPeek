@@ -1014,7 +1014,8 @@ progress {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 12px 24px;
+  min-height: 64px;
+  padding: 0 20px 24px;
 }
 .settings-sidebar nav {
   display: grid;
@@ -1053,11 +1054,9 @@ progress {
   min-height: 40px;
   margin: 0 0 32px;
 }
-.settings-detail-heading > [data-slot="button"] {
-  display: none;
-}
 .settings-index-heading > [data-slot="button"],
 .settings-detail-heading > [data-slot="button"] {
+  display: none;
   flex-shrink: 0;
 }
 .settings-body section > p {
@@ -1242,6 +1241,7 @@ progress {
     min-height: 64px;
     margin: 0 -8px 24px;
   }
+  .settings-index-heading > [data-slot="button"],
   .settings-detail-heading > [data-slot="button"] {
     display: inline-flex;
   }

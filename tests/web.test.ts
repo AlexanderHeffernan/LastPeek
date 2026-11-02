@@ -391,6 +391,11 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
         await page.getByRole("link", { name: "Back to settings" }).isVisible(),
         width <= 600,
       );
+      if (width > 600)
+        assert.equal(
+          await page.getByRole("link", { name: "Back to drafts" }).isVisible(),
+          false,
+        );
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
