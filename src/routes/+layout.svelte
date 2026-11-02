@@ -9,7 +9,63 @@
   import { appleLaunchImages } from "$lib/pwa";
   import { referrerPolicy } from "$lib/referrer-policy";
   import { registerServiceWorker } from "$lib/register-service-worker";
+  import { Presence } from "$lib/presence.svelte";
   let { children } = $props();
+  const presence = new Presence();
+  setContext("presence", presence);
+  $effect(() => {
+    const user = shellUser;
+    const ids = [...presence.users.keys()];
+    if (!user) {
+      presence.activity.clear();
+      return;
+    }
+    let disposed = false,
+      busy = false;
+    async function refresh() {
+      if (document.visibilityState !== "visible" || busy) return;
+      busy = true;
+      const request = new AbortController();
+      const cancel = () => request.abort();
+      const deadline = setTimeout(cancel, 10000);
+      try {
+        const activity: { id: string; last_seen_at: string | null }[] = [];
+        // Batch large feedback lists without exposing a general account directory.
+        for (let start = 0; start < Math.max(ids.length, 1); start += 100) {
+          const response = await fetch("/api/presence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: ids.slice(start, start + 100) }),
+            signal: request.signal,
+            keepalive: true,
+          });
+          if (disposed) return;
+          if (!response.ok) throw new Error("Activity unavailable");
+          activity.push(...(await response.json()));
+        }
+        if (disposed) return;
+        presence.activity.clear();
+        for (const person of activity)
+          presence.activity.set(person.id, person.last_seen_at);
+        presence.now = Date.now();
+      } catch {
+        if (!disposed) presence.activity.clear();
+      } finally {
+        clearTimeout(deadline);
+        busy = false;
+      }
+    }
+    const initial = setTimeout(refresh, 100);
+    const timer = setInterval(refresh, 60000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      // Let bounded requests finish; aborting during navigation can raise a WebKit page error.
+      disposed = true;
+      clearTimeout(initial);
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  });
   onMount(() => {
     if (!dev && "serviceWorker" in navigator)
       void registerServiceWorker().catch((error) => {

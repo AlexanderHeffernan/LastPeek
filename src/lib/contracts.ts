@@ -8,7 +8,6 @@ export type FriendConnection = {
   avatar_id: string | null;
   accepted: boolean;
   incoming: boolean;
-  active: boolean;
 };
 
 export const xPostURLSchema = z
@@ -74,6 +73,7 @@ export type Media = {
 export type Feedback = {
   id: string;
   user_id?: string | null;
+  handle?: string | null;
   revision: number;
   post_id: string | null;
   quote: string | null;
@@ -106,6 +106,18 @@ export function mediaURL(id: string, token?: string) {
 }
 export function avatarURL(id: string, token?: string) {
   return `/avatars/${id}${token ? `?key=${encodeURIComponent(token)}` : ""}`;
+}
+export function presenceLabel(seen: string | null | undefined, now: number) {
+  if (seen === undefined) return "";
+  if (seen === null) return "Last seen unknown";
+  const minutes = Math.max(
+    0,
+    Math.floor((now - new Date(seen).getTime()) / 60000),
+  );
+  if (minutes < 5) return "Active now";
+  if (minutes < 60) return `Last seen ${minutes}m ago`;
+  if (minutes < 1440) return `Last seen ${Math.floor(minutes / 60)}h ago`;
+  return `Last seen ${Math.floor(minutes / 1440)}d ago`;
 }
 export function relativeTime(value: string | Date) {
   const minutes = Math.max(

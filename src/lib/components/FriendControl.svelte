@@ -12,6 +12,7 @@
     token,
     manage = false,
     compact = false,
+    inline = false,
   }: {
     userId: string;
     name: string;
@@ -19,6 +20,7 @@
     token?: string;
     manage?: boolean;
     compact?: boolean;
+    inline?: boolean;
   } = $props();
   let busy = $state(false),
     message = $state("");
@@ -66,8 +68,8 @@
 </script>
 
 <ConfirmDialog bind:this={confirmation} />
-{#if page.data.viewerId && page.data.viewerId !== userId}
-  <div class="friend-control">
+{#if page.data.viewerId && page.data.viewerId !== userId && (!inline || !connection?.accepted)}
+  <span class="friend-control" class:inline>
     {#if connection?.accepted}
       {#if manage}<Button
           variant="ghost"
@@ -81,39 +83,55 @@
         >{/if}
     {:else if connection?.incoming}
       <Button
-        variant="secondary"
+        variant={inline ? "link" : "secondary"}
+        class={inline ? "h-11 -my-3 px-0 text-xs" : undefined}
         disabled={busy}
         onclick={() => act("accept")}
-        aria-label={`Accept ${name}’s friend request`}>Accept</Button
+        aria-label={`Accept ${name}’s friend request`}
+        >{inline ? "Accept request" : "Accept"}</Button
       >
-      <Button
-        variant="ghost"
-        disabled={busy}
-        onclick={() => act("remove")}
-        aria-label={`Decline ${name}’s friend request`}
-        >{#if compact}<Icon name="close" size={18} />{:else}Decline{/if}</Button
-      >
+      {#if !inline}<Button
+          variant="ghost"
+          disabled={busy}
+          onclick={() => act("remove")}
+          aria-label={`Decline ${name}’s friend request`}
+          >{#if compact}<Icon
+              name="close"
+              size={18}
+            />{:else}Decline{/if}</Button
+        >{/if}
     {:else if connection}
       <Button
-        variant="ghost"
+        variant={inline ? "link" : "ghost"}
+        class={inline
+          ? "h-11 -my-3 px-0 text-xs text-muted-foreground"
+          : undefined}
         disabled={busy}
         onclick={() => act("remove")}
         aria-label={`Cancel friend request to ${name}`}
-        >{compact ? "Cancel" : "Cancel request"}</Button
+        title={inline ? "Cancel friend request" : undefined}
+        >{inline
+          ? busy
+            ? "Cancelling…"
+            : "Request sent"
+          : compact
+            ? "Cancel"
+            : "Cancel request"}</Button
       >
     {:else}
       <Button
-        variant="ghost"
+        variant={inline ? "link" : "ghost"}
+        class={inline ? "h-11 -my-3 px-0 text-xs" : undefined}
         disabled={busy}
         onclick={() => act("request")}
         aria-label={`Add ${name} as a friend`}
-        ><Icon name="users" size={16} />{busy
+        >{#if !inline}<Icon name="users" size={16} />{/if}{busy
           ? "Sending…"
           : "Add friend"}</Button
       >
     {/if}
-    {#if message}<p class="action-error" role="alert">{message}</p>{/if}
-  </div>
+    {#if message}<span class="action-error" role="alert">{message}</span>{/if}
+  </span>
 {/if}
 
 <style>
@@ -122,6 +140,16 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 4px;
+  }
+  .inline {
+    position: relative;
+    z-index: 1;
+    column-gap: 6px;
+    min-height: 20px;
+  }
+  .inline::before {
+    content: "·";
+    color: var(--muted-foreground);
   }
   .action-error {
     flex-basis: 100%;

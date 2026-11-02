@@ -11,11 +11,17 @@ export const load: PageServerLoad = async ({ locals }) => {
       id: string;
       kind: NotificationKind;
       name: string | null;
+      actor_id: string | null;
+      avatar_id: string | null;
+      handle: string | null;
       created_at: Date;
       read_at: Date | null;
     }>(
-      `SELECT n.id,n.kind,u.name,n.created_at,n.read_at FROM notifications n
-     LEFT JOIN users u ON u.id=n.actor_id WHERE n.user_id=$1
+      `SELECT n.id,n.kind,COALESCE(u.name,c.name) AS name,u.id AS actor_id,
+       u.avatar_id,COALESCE(x.profile->>'username','') AS handle,n.created_at,n.read_at FROM notifications n
+     LEFT JOIN users u ON u.id=n.actor_id
+     LEFT JOIN x_accounts x ON x.user_id=u.id
+     LEFT JOIN comments c ON c.id=n.comment_id WHERE n.user_id=$1
      ORDER BY n.created_at DESC,n.id DESC LIMIT 100`,
       [user.id],
     )

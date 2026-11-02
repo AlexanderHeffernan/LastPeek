@@ -26,6 +26,9 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
         SELECT 1 FROM users u JOIN friendships f
           ON (f.requester_id=u.id AND f.recipient_id=$2) OR (f.recipient_id=u.id AND f.requester_id=$2)
         WHERE u.avatar_id=$1
+      ) OR EXISTS (
+        SELECT 1 FROM notifications n JOIN users u ON u.id=n.actor_id
+        WHERE n.user_id=$2 AND u.avatar_id=$1
       )
     )`,
     [

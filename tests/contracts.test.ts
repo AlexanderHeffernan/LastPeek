@@ -7,7 +7,22 @@ import {
   contentSchema,
   hasContent,
   mediaIds,
+  presenceLabel,
 } from "../src/lib/contracts";
+
+test("presence expires at five minutes and distinguishes unavailable activity", () => {
+  const now = Date.parse("2026-11-02T12:00:00Z");
+  const ago = (minutes: number) =>
+    new Date(now - minutes * 60000).toISOString();
+  assert.equal(presenceLabel(undefined, now), "");
+  assert.equal(presenceLabel(null, now), "Last seen unknown");
+  assert.equal(presenceLabel(ago(4.99), now), "Active now");
+  assert.equal(presenceLabel(ago(5), now), "Last seen 5m ago");
+  assert.equal(presenceLabel(ago(59), now), "Last seen 59m ago");
+  assert.equal(presenceLabel(ago(60), now), "Last seen 1h ago");
+  assert.equal(presenceLabel(ago(1439), now), "Last seen 23h ago");
+  assert.equal(presenceLabel(ago(1440), now), "Last seen 1d ago");
+});
 
 test("drafts preserve multiline Unicode text and stable post/media order", () => {
   const a = randomUUID(),

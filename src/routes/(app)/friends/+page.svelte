@@ -6,7 +6,7 @@
   import FriendControl from "$lib/components/FriendControl.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
-  import { avatarURL } from "$lib/contracts";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   let { data } = $props();
   let email = $state(""),
     message = $state(""),
@@ -101,26 +101,13 @@
 </main>
 {#snippet personRow(person: (typeof data.connections)[number])}
   <div class="person-row">
-    <span class="avatar" aria-hidden="true"
-      >{#if person.avatar_id}<img
-          src={avatarURL(person.avatar_id)}
-          alt=""
-        />{:else}{person.name.slice(0, 1).toUpperCase()}{/if}
-      {#if person.accepted && person.active}<span
-          class="activity"
-          title="Active recently"
-        ></span>{/if}
-    </span>
-    <div class="person-name">
-      <strong title={person.name}>{person.name}</strong>{#if person.handle}<span
-          class="small muted"
-          >{person.handle.startsWith("@")
-            ? person.handle
-            : `@${person.handle}`}</span
-        >{/if}{#if person.accepted && person.active}<span class="sr-only"
-          >Active recently</span
-        >{/if}
-    </div>
+    <UserIdentity
+      name={person.name}
+      handle={person.handle}
+      avatarId={person.avatar_id}
+      userId={person.user_id}
+      showPresence={person.accepted}
+    />
     <FriendControl userId={person.user_id} name={person.name} manage compact />
   </div>
 {/snippet}
@@ -200,51 +187,12 @@
     padding: 12px 16px;
     border-bottom: 1px solid var(--line);
   }
-  .avatar {
-    position: relative;
-    flex-shrink: 0;
-    overflow: visible;
-  }
-  .avatar img {
-    border-radius: 50%;
-  }
-  .activity {
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 9px;
-    height: 9px;
-    border: 2px solid var(--background);
-    border-radius: 50%;
-    background: var(--primary);
-  }
-  .person-name {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .person-name strong {
-    font-size: 15px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .person-name > span:not(.sr-only) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   aside .person-row {
     padding: 10px 0;
     gap: 8px;
   }
   aside section:last-child .person-row:last-child {
     border-bottom: 0;
-  }
-  aside .person-name .muted {
-    display: none;
   }
   aside section h2 {
     margin-top: 24px;
@@ -310,9 +258,6 @@
     }
   }
   @media (max-width: 360px) {
-    .person-name .muted {
-      display: none;
-    }
     .add-friend {
       grid-template-columns: minmax(0, 1fr);
     }

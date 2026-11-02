@@ -11,6 +11,7 @@
   import { page } from "$app/state";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import AIReview from "$lib/components/AIReview.svelte";
   import XPublish from "$lib/components/XPublish.svelte";
   import PostedOnX from "$lib/components/PostedOnX.svelte";
@@ -23,7 +24,6 @@
     type Content,
     type Media,
     type Feedback,
-    avatarURL,
   } from "$lib/contracts";
   let { data } = $props();
   // The layout remounts this editor on draft changes. Refreshing feedback must not reset edits.
@@ -762,12 +762,12 @@
       {#each data.connections.filter((c) => c.accepted) as friend (friend.id)}
         {@const sent = data.recipients.includes(friend.user_id)}
         <div class="share-friend">
-          <span class="avatar" aria-hidden="true"
-            >{#if friend.avatar_id}<img
-                src={avatarURL(friend.avatar_id)}
-                alt=""
-              />{:else}{friend.name.slice(0, 1).toUpperCase()}{/if}</span
-          ><strong>{friend.name}</strong>
+          <UserIdentity
+            name={friend.name}
+            handle={friend.handle}
+            avatarId={friend.avatar_id}
+            userId={friend.user_id}
+          />
           <Button
             variant={sent ? "ghost" : "secondary"}
             disabled={busy || saving || uploading}
@@ -811,14 +811,6 @@
     align-items: center;
     gap: 10px;
     padding: 10px 0;
-  }
-  .share-friend strong {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .share-friend .avatar {
-    flex-shrink: 0;
   }
   .share-link-option {
     margin-top: 24px;

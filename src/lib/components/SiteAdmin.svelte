@@ -9,7 +9,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import type { Feature } from "$lib/features";
   import type { AdminData, AdminView } from "$lib/admin";
-  import { avatarURL } from "$lib/contracts";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import PlanAdmin from "$lib/components/PlanAdmin.svelte";
   import AdminInvitations from "$lib/components/AdminInvitations.svelte";
   import UsageReconciliation from "$lib/components/UsageReconciliation.svelte";
@@ -383,16 +383,11 @@
                 <tr>
                   <th scope="row" class="account-name"
                     ><div class="row">
-                      <span class="avatar" aria-hidden="true"
-                        >{#if account.avatar_id}<img
-                            src={avatarURL(account.avatar_id)}
-                            alt=""
-                            loading="lazy"
-                          />{:else}{account.name
-                            .slice(0, 1)
-                            .toUpperCase()}{/if}</span
-                      >
-                      <strong>{account.name}</strong>
+                      <UserIdentity
+                        name={account.name}
+                        avatarId={account.avatar_id}
+                        showPresence={false}
+                      />
                     </div></th
                   >
                   <td class="account-email">{account.email}</td>
@@ -1130,9 +1125,6 @@
   }
   .account-name .row {
     gap: 10px;
-  }
-  .account-name strong {
-    min-width: 0;
   }
   .account-activity {
     display: grid;

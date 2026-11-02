@@ -7,8 +7,7 @@ export async function connections(userId: string) {
   return (
     await db.query<FriendConnection>(
       `SELECT f.id,u.id AS user_id,u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id,
-      f.accepted_at IS NOT NULL AS accepted,f.recipient_id=$1 AS incoming,
-      COALESCE(f.accepted_at IS NOT NULL AND u.last_seen_at > now()-interval '5 minutes',false) AS active
+      f.accepted_at IS NOT NULL AS accepted,f.recipient_id=$1 AS incoming
       FROM friendships f JOIN users u
       ON u.id=CASE WHEN f.requester_id=$1 THEN f.recipient_id ELSE f.requester_id END
       LEFT JOIN x_accounts x ON x.user_id=u.id

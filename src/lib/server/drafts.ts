@@ -250,8 +250,9 @@ export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
       `SELECT c.id,c.user_id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
-       u.avatar_id,c.body,c.suggestion,c.quote,c.resolved,c.created_at
+       u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
+       LEFT JOIN x_accounts x ON x.user_id=u.id
        WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
       [id],
     )

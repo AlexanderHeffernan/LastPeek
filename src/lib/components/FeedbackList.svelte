@@ -3,12 +3,8 @@
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import FriendControl from "$lib/components/FriendControl.svelte";
-  import {
-    avatarURL,
-    relativeTime,
-    type Feedback,
-    type Content,
-  } from "$lib/contracts";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
+  import { relativeTime, type Feedback, type Content } from "$lib/contracts";
   let {
     comments,
     revision,
@@ -42,36 +38,37 @@
     aria-label={`Feedback from ${comment.name}`}
   >
     <div class="feedback-person">
-      <span class="avatar" aria-hidden="true">
-        {#if comment.avatar_id}<img
-            src={avatarURL(comment.avatar_id, token)}
-            alt=""
-          />
-        {:else}{comment.name.slice(0, 1).toUpperCase()}{/if}
-      </span>
-      <div>
-        <strong>{comment.name}</strong>
-        <div><small>{relativeTime(comment.created_at)}</small></div>
-      </div>
-      {#if comment.user_id && (draftId || token)}<FriendControl
-          userId={comment.user_id}
-          name={comment.name}
-          {draftId}
-          {token}
-        />{/if}
-      {#if comment.revision !== revision}<Badge
-          variant="secondary"
-          style="margin-left:auto"
-          class={[comment.revision !== revision && "old"]}
+      <UserIdentity
+        name={comment.name}
+        avatarId={comment.avatar_id}
+        handle={comment.handle}
+        userId={comment.user_id}
+        {token}
+        compact
+      >
+        <time datetime={comment.created_at}
+          >{relativeTime(comment.created_at)}</time
+        >
+        {#if comment.user_id && (draftId || token)}<FriendControl
+            userId={comment.user_id}
+            name={comment.name}
+            {draftId}
+            {token}
+            inline
+          />{/if}
+      </UserIdentity>
+    </div>
+    <div class="feedback-context small muted">
+      <span>
+        {!comment.post_id
+          ? "General feedback"
+          : index >= 0
+            ? `On post ${index + 1}`
+            : "On a removed post"}{comment.resolved ? " · Resolved" : ""}</span
+      >
+      {#if comment.revision !== revision}<Badge variant="secondary" class="old"
           >Earlier feedback</Badge
         >{/if}
-    </div>
-    <div class="small muted">
-      {!comment.post_id
-        ? "General feedback"
-        : index >= 0
-          ? `On post ${index + 1}`
-          : "On a removed post"}{comment.resolved ? " · Resolved" : ""}
     </div>
     {#if comment.quote}<blockquote class="feedback-quote">
         {comment.quote}
@@ -93,3 +90,12 @@
     </div>
   </article>
 {/each}
+
+<style>
+  .feedback-context {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>

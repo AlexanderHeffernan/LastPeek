@@ -10,7 +10,9 @@
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
   import PostPreview from "$lib/components/PostPreview.svelte";
-  import { avatarURL, relativeTime, xPostURLSchema } from "$lib/contracts";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
+  import FriendControl from "$lib/components/FriendControl.svelte";
+  import { relativeTime, xPostURLSchema } from "$lib/contracts";
   import type { PageData, ActionData } from "../../routes/(app)/$types";
   let {
     data,
@@ -606,34 +608,43 @@
 
 {#snippet feedbackEntry(comment: (typeof data.comments)[number])}
   {@const draft = data.drafts.find((draft) => draft.id === comment.draft_id)!}
-  <a
-    class="feedback-entry"
-    href={`/drafts/${comment.draft_id}#feedback-${comment.id}`}
-    aria-label={`Open feedback from ${comment.name}: ${comment.body.slice(0, 80)}`}
-  >
-    <span class="avatar feedback-avatar" aria-hidden="true">
-      {#if comment.avatar_id}<img src={avatarURL(comment.avatar_id)} alt="" />
-      {:else}{comment.name.slice(0, 1).toUpperCase()}{/if}
-    </span>
+  <article class="feedback-entry" aria-label={`Feedback from ${comment.name}`}>
     <div class="feedback-content">
-      <div class="feedback-byline">
-        <strong>{comment.name}</strong>
+      <UserIdentity
+        name={comment.name}
+        handle={comment.handle}
+        avatarId={comment.avatar_id}
+        userId={comment.user_id}
+        compact
+      >
         <time datetime={comment.created_at}
           >{relativeTime(comment.created_at)}</time
         >
-      </div>
-      <p class="feedback-body">{comment.body}</p>
-      <p class="feedback-draft">
-        {draft.content.posts[0].text || "Untitled draft"}
-      </p>
-      {#if comment.revision !== draft.shared_revision}
-        <span class="feedback-status">Earlier feedback</span>
-      {/if}
-      {#if comment.resolved}
-        <span class="feedback-status">Resolved</span>
-      {/if}
+        {#if comment.user_id}<FriendControl
+            userId={comment.user_id}
+            name={comment.name}
+            draftId={comment.draft_id}
+            inline
+          />{/if}
+      </UserIdentity>
+      <a
+        class="feedback-link"
+        href={`/drafts/${comment.draft_id}#feedback-${comment.id}`}
+        aria-label={`Open feedback from ${comment.name}: ${comment.body.slice(0, 80)}`}
+      >
+        <p class="feedback-body">{comment.body}</p>
+        <p class="feedback-draft">
+          {draft.content.posts[0].text || "Untitled draft"}
+        </p>
+        {#if comment.revision !== draft.shared_revision}
+          <span class="feedback-status">Earlier feedback</span>
+        {/if}
+        {#if comment.resolved}
+          <span class="feedback-status">Resolved</span>
+        {/if}
+      </a>
     </div>
-  </a>
+  </article>
 {/snippet}
 
 <style>
@@ -786,17 +797,13 @@
     font-size: 20px;
   }
   .feedback-entry {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 10px;
     padding: 16px;
     color: var(--foreground);
     transition: background 120ms;
-  }
-  .feedback-avatar {
-    width: 32px;
-    height: 32px;
-    font-size: 13px;
   }
   .feedback-content {
     min-width: 0;
@@ -808,25 +815,14 @@
   .feedback-entry:hover {
     background: var(--secondary);
   }
-  .feedback-entry:focus-visible {
+  .feedback-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .feedback-entry:focus-within {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
-  }
-  .feedback-byline {
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
-    font-size: 14px;
-  }
-  .feedback-byline time {
-    margin-left: auto;
-    flex-shrink: 0;
-    color: var(--muted-foreground);
-    font-size: 12px;
-  }
-  .feedback-byline strong {
-    min-width: 0;
-    overflow-wrap: anywhere;
   }
   .feedback-body,
   .feedback-draft {

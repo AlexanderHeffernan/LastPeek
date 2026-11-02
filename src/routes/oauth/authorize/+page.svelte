@@ -1,9 +1,9 @@
 <script lang="ts">
   import Brand from "$lib/components/Brand.svelte";
   import AgentPermissions from "$lib/components/AgentPermissions.svelte";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Select } from "$lib/components/ui/select/index.js";
-  import { avatarURL } from "$lib/contracts";
   import { agentExpiryOptions } from "$lib/agents";
   import { untrack } from "svelte";
   import type { PageProps } from "./$types";
@@ -27,21 +27,13 @@
   {#if data.account}
     <form method="POST">
       <section class="account" aria-label="Connecting as">
-        <span class="avatar" aria-hidden="true">
-          {#if data.account.avatar}<img
-              src={avatarURL(data.account.avatar)}
-              alt=""
-            />{:else}{data.account.name.slice(0, 1).toUpperCase()}{/if}
-        </span>
-        <div class="account-details">
-          <span class="account-label">Connecting as</span>
-          <strong>{data.account.name}</strong>
-          {#if data.account.handle}<span class="account-handle"
-              >{data.account.handle.startsWith("@")
-                ? data.account.handle
-                : `@${data.account.handle}`}</span
-            >{/if}
-        </div>
+        <span class="account-label">Connecting as</span>
+        <UserIdentity
+          name={data.account.name}
+          avatarId={data.account.avatar}
+          handle={data.account.handle}
+          showPresence={false}
+        />
       </section>
       <AgentPermissions bind:selected available={data.authorization.scopes} />
       <label class="expiry"
@@ -102,30 +94,16 @@
     border-bottom: 1px solid var(--line);
   }
   .account {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    display: grid;
+    gap: 8px;
     margin: 24px 0;
     padding: 16px;
     border: 1px solid var(--line);
     border-radius: 12px;
   }
-  .account .avatar {
-    flex-shrink: 0;
-  }
-  .account-details {
-    min-width: 0;
-    display: grid;
-    gap: 3px;
-    overflow-wrap: anywhere;
-  }
-  .account-label,
-  .account-handle {
+  .account-label {
     color: var(--muted-foreground);
     font-size: 13px;
-  }
-  .account .avatar img {
-    border-radius: 50%;
   }
   strong {
     color: var(--foreground);

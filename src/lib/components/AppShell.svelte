@@ -6,7 +6,7 @@
   import Brand from "$lib/components/Brand.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import NotificationActions from "$lib/components/NotificationActions.svelte";
-  import { avatarURL } from "$lib/contracts";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import type { Snippet } from "svelte";
   let {
     user,
@@ -294,12 +294,11 @@
     aria-current={page.url.pathname === "/settings" ? "page" : undefined}
     aria-label="Account settings"
     title="Account settings"
-    ><span class="avatar" aria-hidden="true"
-      >{#if user.avatar_id}<img
-          src={avatarURL(user.avatar_id)}
-          alt=""
-        />{:else}{user.name.slice(0, 1).toUpperCase()}{/if}</span
-    ></Button
+    ><UserIdentity
+      name={user.name}
+      avatarId={user.avatar_id}
+      avatarOnly
+    /></Button
   >
 {/snippet}
 

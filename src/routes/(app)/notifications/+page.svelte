@@ -4,6 +4,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
   import NotificationActions from "$lib/components/NotificationActions.svelte";
+  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import { notificationMessage } from "$lib/notifications";
   import { relativeTime } from "$lib/contracts";
   import type { SubmitFunction } from "$app/forms";
@@ -42,22 +43,22 @@
       <form method="POST" action="?/open" use:enhance class="notification-open">
         <input type="hidden" name="id" value={item.id} />
         <Button variant="ghost" type="submit" class="notification-item">
-          <Icon
-            name={item.kind === "feedback"
-              ? "comment"
-              : item.kind === "shared_draft"
-                ? "drafts"
-                : "users"}
-          />
-          <div class="notification-copy">
-            {#if item.name}<strong>{item.name}</strong>{/if}
-            <p>{notificationMessage(item.kind)}</p>
+          <UserIdentity
+            name={item.name || "LastPeek"}
+            handle={item.handle}
+            avatarId={item.avatar_id}
+            userId={item.actor_id}
+            compact
+          >
+            <span class="notification-message"
+              >{notificationMessage(item.kind)}</span
+            >
             <small class="muted"
               >{relativeTime(item.created_at)}{!item.read_at
                 ? " · Unread"
                 : ""}</small
             >
-          </div>
+          </UserIdentity>
           <Icon name="arrow" size={18} />
         </Button>
       </form>
@@ -144,14 +145,12 @@
     white-space: normal;
     border-radius: 0;
   }
-  .notification-copy {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  p {
+  .notification-message {
+    display: block;
+    flex-basis: 100%;
     margin: 4px 0;
     font-size: 14px;
+    overflow-wrap: anywhere;
   }
   .notification-empty {
     padding: 72px 24px;

@@ -354,6 +354,269 @@ async function screenshot(page: Page, name: string) {
   });
 }
 
+test("user identities / compact feedback friend actions and friends-only presence", async () => {
+  const owner = randomUUID(),
+    friend = randomUUID(),
+    reviewerId = randomUUID(),
+    draft = randomUUID();
+  const session = token();
+  const browser = await engine.launch();
+  const errors: string[] = [];
+  try {
+    for (const [id, name, handle] of [
+      [owner, "Alex", "alex"],
+      [friend, "Galen Green", "Galen__Green"],
+      [reviewerId, "Rae Rivers", "rae_rivers"],
+    ]) {
+      await db.query(
+        "INSERT INTO users(id,email,name,handle,password_hash,last_seen_at) VALUES($1,$2,$3,$4,'unused',now())",
+        [id, `${id}@example.test`, name, "legacy_handle"],
+      );
+      await db.query(
+        "INSERT INTO x_accounts(user_id,x_id,access_token,expires_at,scope,profile) VALUES($1,$2,'test-only',now(),'users.read',$3)",
+        [id, id, JSON.stringify({ id, name, username: handle })],
+      );
+    }
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [tokenHash(session), owner],
+    );
+    await db.query(
+      "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+      [randomUUID(), owner, friend],
+    );
+    const content = blankContent("Alex", "alex");
+    content.posts[0].text = "A draft for feedback";
+    await db.query(
+      "INSERT INTO drafts(id,owner_id,content,shared_revision) VALUES($1,$2,$3,2)",
+      [draft, owner, JSON.stringify(content)],
+    );
+    await db.query(
+      "INSERT INTO revisions(draft_id,number,content) VALUES($1,1,$2),($1,2,$2)",
+      [draft, JSON.stringify(content)],
+    );
+    await db.query(
+      "INSERT INTO comments(id,draft_id,revision,user_id,name,body) VALUES($1,$2,1,$3,'Old name','A useful suggestion')",
+      [randomUUID(), draft, friend],
+    );
+    await db.query(
+      "INSERT INTO comments(id,draft_id,revision,name,body) VALUES($1,$2,1,'Guest reviewer','A guest suggestion')",
+      [randomUUID(), draft],
+    );
+    await db.query(
+      "INSERT INTO comments(id,draft_id,revision,user_id,name,body) VALUES($1,$2,1,$3,'Old reviewer name','A fresh perspective')",
+      [randomUUID(), draft, reviewerId],
+    );
+    await db.query(
+      "INSERT INTO notifications(id,user_id,kind,actor_id,draft_id) VALUES($1,$2,'feedback',$3,$4)",
+      [randomUUID(), owner, friend, draft],
+    );
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      // Page routing cannot intercept service-worker-controlled requests in WebKit.
+      // Worker behavior has its own PWA scenario; this exercises polling failures.
+      serviceWorkers: "block",
+    });
+    await context.addCookies([
+      { name: "lastpeek_session", value: session, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.clock.install();
+    await page.goto(`${baseURL}/friends`);
+    await page.getByText("Active now", { exact: true }).waitFor();
+    await page.getByText("@Galen__Green", { exact: true }).waitFor();
+    await db.query(
+      "UPDATE users SET last_seen_at=now()-interval '2 hours' WHERE id=$1",
+      [friend],
+    );
+    const refresh = page.waitForResponse((r) =>
+      r.url().endsWith("/api/presence"),
+    );
+    await page.clock.fastForward(60000);
+    assert.equal((await refresh).status(), 200);
+    await page.getByText("Last seen 2h ago", { exact: true }).waitFor();
+    await page.goto(`${baseURL}/notifications`);
+    await page.getByText("Galen Green", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert.ok(
+        await page.getByText("@Galen__Green", { exact: true }).isVisible(),
+      );
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+        false,
+      );
+    }
+    await page.goto(`${baseURL}/feedback`);
+    await page.getByText("Guest reviewer", { exact: true }).waitFor();
+    const newReviewer = page.getByRole("article", {
+      name: "Feedback from Rae Rivers",
+      exact: true,
+    });
+    assert.equal(
+      await newReviewer.getByRole("img", { name: "Active now" }).count(),
+      0,
+    );
+    await page.route("**/api/friends", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Friend requests unavailable." }),
+      }),
+    );
+    await newReviewer
+      .getByRole("button", { name: "Add Rae Rivers as a friend", exact: true })
+      .click();
+    await newReviewer
+      .getByRole("alert")
+      .getByText("Friend requests unavailable.")
+      .waitFor();
+    assert.equal(
+      new URL(page.url()).pathname,
+      "/feedback",
+      "the inline action never opens the feedback link",
+    );
+    await page.unroute("**/api/friends");
+    const requested = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/friends") && r.request().method() === "POST",
+    );
+    await newReviewer
+      .getByRole("button", { name: "Add Rae Rivers as a friend", exact: true })
+      .click();
+    assert.equal((await requested).status(), 200);
+    const pending = newReviewer.getByRole("button", {
+      name: "Cancel friend request to Rae Rivers",
+      exact: true,
+    });
+    await pending.getByText("Request sent", { exact: true }).waitFor();
+    assert.equal(
+      await newReviewer.getByRole("img", { name: "Active now" }).count(),
+      0,
+      "pending friendship reveals no activity",
+    );
+    await page.reload();
+    await pending.waitFor();
+    const target = await pending.boundingBox();
+    assert.ok(
+      target && target.height >= 44,
+      "small text retains a 44px touch target",
+    );
+    await pending.focus();
+    await page.keyboard.press("Enter");
+    await newReviewer
+      .getByRole("button", { name: "Add Rae Rivers as a friend", exact: true })
+      .waitFor();
+    await db.query(
+      "INSERT INTO friendships(id,requester_id,recipient_id) VALUES($1,$2,$3)",
+      [randomUUID(), reviewerId, owner],
+    );
+    await page.reload();
+    const accepted = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/friends") && r.request().method() === "POST",
+    );
+    await newReviewer
+      .getByRole("button", {
+        name: "Accept Rae Rivers’s friend request",
+        exact: true,
+      })
+      .click();
+    assert.equal((await accepted).status(), 200);
+    await newReviewer.getByRole("img", { name: "Active now" }).waitFor();
+    assert.equal(
+      await newReviewer.getByRole("button").count(),
+      0,
+      "accepted friends need no identity action",
+    );
+    assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
+    const draftPresence = page.waitForResponse((r) =>
+      r.url().endsWith("/api/presence"),
+    );
+    await newReviewer
+      .getByRole("link", { name: /^Open feedback from Rae Rivers:/ })
+      .click();
+    await page.waitForURL(
+      (url) => url.pathname === `/drafts/${draft}` && !!url.hash,
+    );
+    assert.equal((await draftPresence).status(), 200);
+    const feedback = page.getByRole("article", {
+      name: "Feedback from Galen Green",
+    });
+    await feedback.getByText("Earlier feedback", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+        false,
+      );
+    }
+    assert.equal(
+      await page
+        .getByRole("article", { name: "Feedback from Guest reviewer" })
+        .getByText(/Last seen|Active now/)
+        .count(),
+      0,
+    );
+    const guestFeedback = page.getByRole("article", {
+      name: "Feedback from Guest reviewer",
+      exact: true,
+    });
+    assert.equal(
+      await guestFeedback.getByRole("button", { name: /friend/ }).count(),
+      0,
+    );
+    await db.query(
+      "DELETE FROM friendships WHERE requester_id=$1 AND recipient_id=$2",
+      [reviewerId, owner],
+    );
+    await page.reload();
+    const revoked = page.getByRole("article", {
+      name: "Feedback from Rae Rivers",
+      exact: true,
+    });
+    await revoked
+      .getByRole("button", { name: "Add Rae Rivers as a friend", exact: true })
+      .waitFor();
+    assert.equal(
+      await revoked.getByRole("img", { name: "Active now" }).count(),
+      0,
+      "removing friendship hides the dot even on an owned draft",
+    );
+    await db.query("UPDATE users SET last_seen_at=now() WHERE id=$1", [friend]);
+    await page.goto(`${baseURL}/friends`);
+    await page.getByText("Active now", { exact: true }).waitFor();
+    // Failed polling must not keep claiming someone is currently active.
+    await page.route("**/api/presence", (route) =>
+      route.fulfill({ status: 503 }),
+    );
+    const failed = page.waitForResponse((r) =>
+      r.url().endsWith("/api/presence"),
+    );
+    await page.clock.fastForward(60000);
+    assert.equal((await failed).status(), 503);
+    await page.waitForFunction(
+      () =>
+        !document.body.textContent?.includes("Active now") &&
+        !document.querySelector('[role="img"][aria-label="Active now"]'),
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+    await db.query("DELETE FROM drafts WHERE id=$1", [draft]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, friend, reviewerId],
+    ]);
+  }
+});
+
 test("mobile / friends drill-in and notification header", async () => {
   const ids = [randomUUID(), randomUUID(), randomUUID()];
   const session = token();
@@ -4293,6 +4556,9 @@ for (const scenario of [
         await feedbackFeed
           .getByRole("link", { name: /^Open feedback from/ })
           .click();
+        await page.waitForURL(
+          (url) => url.hash === `#feedback-${feedbackIds[5]}`,
+        );
         const targetFeedback = page
           .getByRole("article", { name: "Feedback from Reader" })
           .filter({ hasText: "Feedback-only mango 5" });

@@ -919,14 +919,6 @@
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.feedback-person .avatar {
-  width: 30px;
-  height: 30px;
-  font-size: 12px;
-}
-.feedback-person strong {
-  font-size: 13px;
-}
 .feedback-person small {
   font-size: 11px;
   color: var(--muted-foreground);
