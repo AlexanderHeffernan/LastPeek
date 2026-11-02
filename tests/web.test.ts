@@ -243,6 +243,10 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 844 });
       assert.equal(
+        await page.getByRole("link", { name: "Back to settings" }).isVisible(),
+        width <= 600,
+      );
+      assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
         ),

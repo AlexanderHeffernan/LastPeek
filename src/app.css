@@ -1051,7 +1051,10 @@ progress {
   align-items: center;
   gap: 12px;
   min-height: 40px;
-  margin: 0 0 32px -8px;
+  margin: 0 0 32px;
+}
+.settings-detail-heading > [data-slot="button"] {
+  display: none;
 }
 .settings-index-heading > [data-slot="button"],
 .settings-detail-heading > [data-slot="button"] {
@@ -1238,6 +1241,9 @@ progress {
   .settings-detail-heading {
     min-height: 64px;
     margin: 0 -8px 24px;
+  }
+  .settings-detail-heading > [data-slot="button"] {
+    display: inline-flex;
   }
 }
 .profile-choice {
