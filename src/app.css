@@ -1003,15 +1003,18 @@ progress {
   margin-top: 16px;
   justify-self: start;
 }
-.settings-sidebar h1,
-.settings-body h2 {
+.settings-index-heading h1,
+.settings-detail-heading h2 {
   font-size: 20px;
   line-height: 28px;
   letter-spacing: -0.3px;
   margin: 0;
 }
-.settings-sidebar h1 {
-  padding: 0 20px 24px;
+.settings-index-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 24px;
 }
 .settings-sidebar nav {
   display: grid;
@@ -1039,20 +1042,20 @@ progress {
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
-.settings-sidebar > form button {
-  justify-content: flex-start;
-  color: var(--muted-foreground);
-}
 .settings-body {
   min-width: 0;
   padding: 24px 28px 48px;
 }
-.settings-body section > h2 {
-  margin-bottom: 12px;
+.settings-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  margin: 0 0 32px -8px;
 }
-.settings-body section > h3 {
-  font-size: 15px;
-  margin: 32px 0 8px;
+.settings-index-heading > [data-slot="button"],
+.settings-detail-heading > [data-slot="button"] {
+  flex-shrink: 0;
 }
 .settings-body section > p {
   margin: 0 0 28px;
@@ -1083,6 +1086,100 @@ progress {
 .settings-save > button {
   flex-shrink: 0;
 }
+.allowance-plan {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.allowance-group + .allowance-group {
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+.allowance-group h3 {
+  margin: 0 0 24px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.allowance-group .allowance-period {
+  margin: -14px 0 26px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.allowance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.allowance-row + .allowance-row {
+  margin-top: 26px;
+}
+.allowance-row > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--muted-foreground);
+}
+.allowance-meter {
+  flex: 1;
+  min-width: 0;
+}
+.allowance-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.allowance-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.allowance-meter progress {
+  display: block;
+  appearance: none;
+  height: 6px;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--muted);
+  color: var(--primary);
+}
+.allowance-meter progress::-webkit-progress-bar {
+  border-radius: 4px;
+  background: var(--muted);
+}
+.allowance-meter progress::-webkit-progress-value {
+  border-radius: 4px;
+  background: var(--primary);
+}
+.allowance-meter progress::-moz-progress-bar {
+  border-radius: 4px;
+  background: var(--primary);
+}
+.allowance-hint,
+.allowance-change {
+  margin: 10px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.allowance-hint a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.at-limit .allowance-value {
+  color: var(--primary);
+}
+.allowance-change {
+  margin-top: 24px;
+}
 @media (min-width: 601px) and (max-width: 1000px) {
   .settings {
     grid-template-columns: 200px minmax(0, 1fr);
@@ -1094,47 +1191,53 @@ progress {
 @media (max-width: 600px) {
   .settings {
     display: block;
-    min-height: calc(100dvh - 108px);
+    min-height: calc(
+      100dvh - env(safe-area-inset-top, 0px) -
+        env(safe-area-inset-bottom, 0px) - 48px - var(--mobile-nav-inset)
+    );
   }
   .settings-sidebar {
     border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding-top: 16px;
+    padding-top: 0;
   }
-  .settings-sidebar h1 {
-    padding: 0 16px 16px;
-  }
-  .settings-sidebar nav {
-    display: flex;
-    overflow-x: auto;
+  .settings-index-heading {
+    min-height: 64px;
+    padding: 0 12px;
+    margin-bottom: 16px;
   }
   .settings-sidebar nav [data-slot="button"] {
-    padding: 10px 14px;
-    flex-shrink: 0;
+    padding: 16px 24px;
     min-width: 0;
-    min-height: 44px;
+    min-height: 72px;
     border-right: 0;
-    border-bottom: 3px solid transparent;
-    justify-content: center;
-    font-size: 12px;
-    gap: 0;
+    font-size: 16px;
+    gap: 24px;
   }
   .settings-sidebar nav [data-slot="button"] svg {
-    display: none;
+    width: 24px;
+    height: 24px;
   }
   .settings-sidebar nav [aria-current="page"] {
-    border-bottom-color: var(--primary);
+    background: transparent;
+    font-weight: 400;
+  }
+  .settings-sidebar nav [data-slot="button"] svg:last-child {
+    width: 18px;
+    height: 18px;
   }
   .settings-sidebar > form {
-    position: absolute;
-    top: 60px;
-    right: 12px;
-    margin: 0;
-    padding: 0;
-    border: 0;
+    margin: 24px 20px;
+  }
+  .settings:not(.detail-open) .settings-body,
+  .settings.detail-open .settings-sidebar {
+    display: none;
   }
   .settings-body {
-    padding: 24px 16px 40px;
+    padding: 0 20px 40px;
+  }
+  .settings-detail-heading {
+    min-height: 64px;
+    margin: 0 -8px 24px;
   }
 }
 .profile-choice {
@@ -1203,9 +1306,6 @@ progress {
 }
 .x-connected-heading > button {
   margin-left: auto;
-}
-.settings .connections > h2 {
-  margin-bottom: 24px;
 }
 .connection-row {
   display: grid;
@@ -1499,6 +1599,12 @@ progress {
     padding-left: 0;
     padding-top: 52px;
     padding-bottom: calc(48px + var(--mobile-nav-inset));
+  }
+  .app-content.signed-in:has(.settings-page) {
+    padding-top: 0;
+  }
+  .settings-page .mobile-header {
+    display: none;
   }
   .app-shell::before {
     content: "";

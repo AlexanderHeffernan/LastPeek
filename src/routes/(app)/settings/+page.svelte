@@ -22,11 +22,18 @@
   const selected = $derived(
     sections.find((section) => section.id === page.url.searchParams.get("tab"))
       ?.id ||
-      (page.url.searchParams.has("/password")
-        ? "password"
-        : page.url.searchParams.has("x")
-          ? "connections"
-          : "profile"),
+      sections.find((section) => page.url.searchParams.has(`/${section.id}`))
+        ?.id ||
+      (page.url.searchParams.has("x") ||
+      page.url.searchParams.has("/importX") ||
+      page.url.searchParams.has("/disconnectX")
+        ? "connections"
+        : "profile"),
+  );
+  const detailOpen = $derived(
+    [...page.url.searchParams.keys()].some(
+      (key) => key === "tab" || key === "x" || key.startsWith("/"),
+    ),
   );
   let hydrated = $state(false);
   onMount(() => {
@@ -125,7 +132,19 @@
   function keepProfile() {
     if (!xBusy && xKeep) xForm?.requestSubmit(xKeep);
   }
-  const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+  const mb = (bytes: number) =>
+    (bytes / 1024 / 1024).toLocaleString("en-NZ", {
+      maximumFractionDigits: 1,
+    });
+  const periodDate = (date: string) =>
+    new Date(date).toLocaleDateString("en-NZ", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  const usagePercent = (used: number, limit: number) =>
+    limit ? `${Math.round((used / limit) * 100)}% used` : "No allowance";
 </script>
 
 <svelte:window
@@ -137,9 +156,17 @@
   }}
 />
 <svelte:head><title>Settings · LastPeek</title></svelte:head>
-<main class="settings" aria-label="Settings">
+<main class="settings" class:detail-open={detailOpen} aria-label="Settings">
   <aside class="settings-sidebar">
-    <h1>Settings</h1>
+    <header class="settings-index-heading">
+      <Button
+        variant="ghost"
+        class="icon-button"
+        href="/"
+        aria-label="Back to drafts"><Icon name="back" size={24} /></Button
+      >
+      <h1>Settings</h1>
+    </header>
     <nav aria-label="Settings sections">
       {#each sections as section}
         <Button
@@ -165,15 +192,28 @@
         discardEdits();
       }}
     >
-      <Button variant="ghost" type="submit">Sign out</Button>
+      <Button variant="outline" type="submit">Sign out</Button>
     </form>
   </aside>
   <div class="settings-body">
+    <header class="settings-detail-heading">
+      <Button
+        variant="ghost"
+        class="icon-button"
+        href="/settings"
+        aria-label="Back to settings"><Icon name="back" size={24} /></Button
+      >
+      <h2 id={`${selected}-heading`}>
+        {sections.find((section) => section.id === selected)?.label}
+      </h2>
+      {#if selected === "allowances"}<span class="allowance-plan"
+          >{data.usage.plan === "pro" ? "Pro" : "Free"} plan</span
+        >{/if}
+    </header>
     <section
       hidden={selected !== "notifications"}
       aria-labelledby="notifications-heading"
     >
-      <h2 id="notifications-heading">Notifications</h2>
       <p class="small muted">
         Choose what appears in your inbox and on devices with push enabled.
       </p>
@@ -218,7 +258,6 @@
       {#if selected === "notifications"}<PushControl />{/if}
     </section>
     <section hidden={selected !== "profile"} aria-labelledby="profile-heading">
-      <h2 id="profile-heading">Profile</h2>
       <p class="small muted">Your identity in post previews.</p>
       <form
         method="POST"
@@ -362,7 +401,6 @@
       hidden={selected !== "connections"}
       aria-label="Connections"
     >
-      <h2>Connections</h2>
       <div class="connection-row">
         <span class="connection-provider"><Icon name="x" size={24} /></span>
         <div class="connection-identity">
@@ -581,52 +619,90 @@
         </form>
       </dialog>
     {/if}
-    <section hidden={selected !== "allowances"} aria-label="Allowances">
-      <h2>Allowances</h2>
-      <h3>{data.usage.plan === "pro" ? "Pro" : "Free"} plan</h3>
-      <p>{data.usage.drafts} of {data.usage.limits.drafts} drafts used.</p>
-      {#if data.usage.plan === "pro"}
-        <p class="small muted">
-          Allowance renews {new Date(data.usage.end).toLocaleDateString()}.
-        </p>
-        {#each [["AI allowance", data.usage.ai, data.usage.limits.ai_usd], ["X allowance", data.usage.x, data.usage.limits.x_usd]] as [label, used, limit]}
-          <label>
-            {label} · {Number(limit)
-              ? Math.round((Number(used) / Number(limit)) * 100)
-              : 100}% used
-            <progress
-              value={Number(used)}
-              max={Number(limit) || 1}
-              aria-label={String(label)}
-            ></progress>
-          </label>
+    <section
+      class="allowances"
+      hidden={selected !== "allowances"}
+      aria-label="Allowances"
+    >
+      <div
+        class="allowance-group"
+        role="group"
+        aria-labelledby="capacity-heading"
+      >
+        <h3 id="capacity-heading">Saved capacity</h3>
+        {#each [{ label: "Saved drafts", icon: "drafts", used: data.usage.drafts, limit: data.usage.limits.drafts, value: `${data.usage.drafts} / ${data.usage.limits.drafts}` }, { label: "Media storage", icon: "image", used: data.used, limit: data.limit, value: `${mb(data.used)} / ${mb(data.limit)} MB` }] as item}
+          <div class="allowance-row" class:at-limit={item.used >= item.limit}>
+            <Icon name={item.icon} size={22} />
+            <div class="allowance-meter">
+              <div class="allowance-label">
+                <span>{item.label}</span><span class="allowance-value"
+                  >{item.value}</span
+                >
+              </div>
+              <progress
+                value={Math.min(item.used, item.limit)}
+                max={item.limit || 1}
+                aria-label={`${item.label} used`}
+                aria-valuetext={`${item.value} used`}
+              ></progress>
+              {#if item.used >= item.limit}
+                <p class="allowance-hint">
+                  {item.label === "Saved drafts"
+                    ? "Delete a draft to make room."
+                    : "Delete drafts with media to make room."}
+                  <a href="/">View drafts</a>
+                </p>
+              {/if}
+            </div>
+          </div>
         {/each}
-        {#if data.usage.downgradeAtEnd}<p>
-            Free starts {new Date(data.usage.end).toLocaleDateString()}.
-            Existing drafts and feedback stay available.
-          </p>{/if}
-        {#if JSON.stringify(data.usage.limits) !== JSON.stringify(data.usage.nextLimits)}
-          <h3>Next period’s allowances</h3>
-          <p>
-            {data.usage.nextLimits.drafts} drafts · {data.usage.nextLimits
-              .storage_mb} MB storage · {data.usage.nextLimits.upload_mb} MB per upload.
+      </div>
+      {#if data.usage.plan === "pro"}
+        <div
+          class="allowance-group"
+          role="group"
+          aria-labelledby="monthly-heading"
+        >
+          <h3 id="monthly-heading">Monthly usage</h3>
+          <p class="allowance-period">
+            {periodDate(data.usage.start)} – {periodDate(data.usage.end)} · UTC
           </p>
-          <p>
-            AI: US${data.usage.nextLimits.ai_usd} · X: US${data.usage.nextLimits
-              .x_usd} per period.
-          </p>
-        {/if}
+          {#each [{ label: "AI review", icon: "sparkle", used: data.usage.ai, limit: data.usage.limits.ai_usd }, { label: "X API", icon: "x", used: data.usage.x, limit: data.usage.limits.x_usd }] as item}
+            <div class="allowance-row" class:at-limit={item.used >= item.limit}>
+              <Icon name={item.icon} size={22} />
+              <div class="allowance-meter">
+                <div class="allowance-label">
+                  <span>{item.label}</span>
+                  <span class="allowance-value"
+                    >{usagePercent(item.used, item.limit)}</span
+                  >
+                </div>
+                <progress
+                  value={Math.min(item.used, item.limit)}
+                  max={item.limit || 1}
+                  aria-label={`${item.label} used`}
+                  aria-valuetext={usagePercent(item.used, item.limit)}
+                ></progress>
+                {#if item.limit > 0 && item.used >= item.limit}<p
+                    class="allowance-hint"
+                  >
+                    Allowance used for this period.
+                  </p>{/if}
+              </div>
+            </div>
+          {/each}
+          {#if data.usage.downgradeAtEnd}<p class="allowance-change">
+              Free starts {periodDate(data.usage.end)}. Existing drafts and
+              feedback stay available.
+            </p>{:else if JSON.stringify(data.usage.limits) !== JSON.stringify(data.usage.nextLimits)}
+            <p class="allowance-change">
+              Your allowances change on {periodDate(data.usage.end)}.
+            </p>
+          {/if}
+        </div>
       {/if}
-      <h3>Media storage</h3>
-      <p class="small muted">{mb(data.used)} MB of {mb(data.limit)} MB used.</p>
-      <progress
-        value={data.used}
-        max={data.limit}
-        aria-label="Media storage used"
-      ></progress>
     </section>
     <section hidden={selected !== "password"} aria-label="Password">
-      <h2>{data.hasPassword ? "Change your password" : "Set a password"}</h2>
       <form
         method="POST"
         action="?/password"

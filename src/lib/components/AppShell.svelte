@@ -149,7 +149,11 @@
   });
 </script>
 
-<div class="app-shell" bind:this={shell}>
+<div
+  class="app-shell"
+  class:settings-page={page.url.pathname === "/settings"}
+  bind:this={shell}
+>
   <header
     bind:this={header}
     class="mobile-header"

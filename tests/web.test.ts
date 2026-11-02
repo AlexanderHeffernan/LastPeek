@@ -111,6 +111,242 @@ async function screenshot(page: Page, name: string) {
   });
 }
 
+test("settings / mobile drill-in navigation and plan usage", async () => {
+  const id = randomUUID(),
+    session = token();
+  const browser = await engine.launch();
+  try {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Settings author','unused')",
+      [id, `${id}@example.test`],
+    );
+    await setPlan(id, id, "pro", false);
+    const period = await entitlement(id);
+    await db.query(
+      `INSERT INTO api_usage(id,user_id,provider,model,period_start,reserved_usd,estimated_usd)
+       VALUES($1,$2,'openai','test',$3,0.25,0.18),($4,$2,'x','test',$3,0.42,NULL)`,
+      [randomUUID(), id, period.start, randomUUID()],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+      [tokenHash(session), id],
+    );
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+    });
+    await context.addCookies([
+      { name: "lastpeek_session", value: session, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${baseURL}/settings`);
+    await page.waitForLoadState("load");
+    const sections = page.getByRole("navigation", {
+      name: "Settings sections",
+    });
+    assert.equal(await sections.getByRole("link").count(), 5);
+    await page
+      .getByRole("link", { name: "Back to drafts", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+    await page
+      .getByRole("link", { name: "Account settings", exact: true })
+      .click();
+    await sections.waitFor();
+    assert.equal(
+      await page.getByRole("link", { name: "Account settings" }).isVisible(),
+      false,
+    );
+    assert.equal(
+      await page.getByLabel("Display name", { exact: true }).isVisible(),
+      false,
+    );
+    if (engine === chromium) {
+      const cdp = await context.newCDPSession(page);
+      try {
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+          insets: { top: 59, bottom: 34, left: 0, right: 0 },
+        });
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            ),
+        );
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollHeight <= innerHeight,
+          ),
+          true,
+          "The Settings list fits a notched screen without double-counting safe areas.",
+        );
+      } finally {
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: {} });
+        await cdp.detach();
+      }
+    }
+    for (const label of [
+      "Connections",
+      "Password",
+      "Notifications",
+      "Profile",
+      "Allowances",
+    ]) {
+      await sections.getByRole("link", { name: label, exact: true }).tap();
+      await page.getByRole("heading", { name: label, exact: true }).waitFor();
+      assert.equal(await sections.isVisible(), false);
+      await page.getByRole("link", { name: "Back to settings" }).tap();
+      await sections.waitFor();
+    }
+    // Refresh and browser back retain a real, linkable section, not local tab state.
+    await sections.getByRole("link", { name: "Allowances" }).tap();
+    await page
+      .getByRole("heading", { name: "Allowances", exact: true })
+      .waitFor();
+    await page.reload();
+    const monthly = page.getByRole("group", { name: "Monthly usage" });
+    await monthly.waitFor();
+    const date = (value: string) =>
+      new Date(value).toLocaleDateString("en-NZ", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+    await monthly
+      .getByText(`${date(period.start)} – ${date(period.end)} · UTC`, {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await monthly
+        .getByRole("progressbar", { name: "AI review used" })
+        .getAttribute("aria-valuetext"),
+      "36% used",
+    );
+    assert.equal(
+      await monthly
+        .getByRole("progressbar", { name: "X API used" })
+        .getAttribute("aria-valuetext"),
+      "28% used",
+    );
+    assert.equal(
+      (await page.getByRole("main").innerText()).includes("US$"),
+      false,
+    );
+    assert.equal(await page.getByText(/per upload|Next period/).count(), 0);
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        true,
+      );
+      assert.equal(await sections.isVisible(), width > 600);
+    }
+    // A zero allowance is not 0% available; over-budget usage must not look unused.
+    await db.query(
+      "UPDATE users SET pro_limits=jsonb_set(pro_limits,'{x_usd}','0') WHERE id=$1",
+      [id],
+    );
+    await db.query(
+      "UPDATE api_usage SET estimated_usd=0.75 WHERE user_id=$1 AND provider='openai'",
+      [id],
+    );
+    await page.reload();
+    await monthly.getByText("150% used", { exact: true }).waitFor();
+    await monthly.getByText("No allowance", { exact: true }).waitFor();
+    assert.equal(
+      await monthly
+        .getByRole("progressbar", { name: "AI review used" })
+        .getAttribute("value"),
+      "0.5",
+    );
+    assert.equal(
+      (await page.getByRole("main").innerText()).includes("US$"),
+      false,
+    );
+    // Free users keep saved capacity, not a misleading monthly reset or paid usage.
+    await setPlan(id, id, "free", false);
+    await db.query(
+      `INSERT INTO drafts(id,owner_id,content)
+       SELECT gen_random_uuid(),$1,'{"title":"","author":{"name":"Settings author","handle":""},"posts":[]}'::jsonb FROM generate_series(1,11)`,
+      [id],
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByText("Free plan", { exact: true }).waitFor();
+    assert.equal(await monthly.count(), 0);
+    const drafts = page.getByRole("progressbar", { name: "Saved drafts used" });
+    assert.equal(await drafts.getAttribute("aria-valuetext"), "11 / 10 used");
+    assert.equal(await drafts.getAttribute("value"), "10");
+    await page
+      .getByRole("link", { name: "View drafts", exact: true })
+      .waitFor();
+    await page.getByRole("link", { name: "Back to settings" }).click();
+    await sections.getByRole("link", { name: "Profile", exact: true }).click();
+    // This disabled state proves hydration before exercising the navigation guard.
+    await page
+      .getByRole("button", { name: "Save profile", disabled: true })
+      .waitFor();
+    await page.getByLabel("Display name", { exact: true }).fill("Unsaved name");
+    const dismissed = page.waitForEvent("dialog");
+    const cancelledBack = page
+      .getByRole("link", { name: "Back to settings" })
+      .click();
+    await (await dismissed).dismiss();
+    await cancelledBack;
+    assert.equal(
+      await page.getByLabel("Display name", { exact: true }).inputValue(),
+      "Unsaved name",
+    );
+    const accepted = page.waitForEvent("dialog");
+    const confirmedBack = page
+      .getByRole("link", { name: "Back to settings" })
+      .click();
+    await (await accepted).accept();
+    await confirmedBack;
+    await sections.waitFor();
+    await page.goBack();
+    await page.getByRole("heading", { name: "Profile", exact: true }).waitFor();
+    assert.equal(
+      await page.getByLabel("Display name", { exact: true }).inputValue(),
+      "Settings author",
+    );
+    assert.deepEqual(errors, []);
+    const native = await browser.newContext({
+      javaScriptEnabled: false,
+      viewport: { width: 390, height: 844 },
+      storageState: await context.storageState(),
+    });
+    const nativePage = await native.newPage();
+    await nativePage.goto(`${baseURL}/settings`);
+    await nativePage
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("link", { name: "Notifications", exact: true })
+      .click();
+    await nativePage.getByRole("button", { name: "Save preferences" }).click();
+    await nativePage
+      .getByRole("heading", { name: "Notifications", exact: true })
+      .waitFor();
+    await nativePage.getByRole("link", { name: "Back to settings" }).click();
+    await nativePage
+      .getByRole("navigation", { name: "Settings sections" })
+      .waitFor();
+  } finally {
+    await browser.close();
+    await db.query("DELETE FROM api_usage WHERE user_id=$1", [id]);
+    await db.query("DELETE FROM drafts WHERE owner_id=$1", [id]);
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
+  }
+});
+
 test(
   "videos autoplay inline and retain their position between feed and editor",
   { timeout: 60000 },
@@ -847,6 +1083,8 @@ test(
         200,
       );
       await page.getByRole("link", { name: "Account settings" }).click();
+      await page.getByRole("link", { name: "Profile", exact: true }).click();
+      await page.waitForURL(`${baseURL}/settings?tab=profile`);
       const originalHandle = await page
         .getByLabel("X handle", { exact: true })
         .inputValue();
@@ -979,12 +1217,16 @@ test(
         false,
         "Tapping the backdrop closes admin.",
       );
+      assert.equal(new URL(page.url()).searchParams.get("tab"), "profile");
       assert.equal(
         await page.getByLabel("X handle", { exact: true }).inputValue(),
         "test~",
         "Backdrop dismissal preserves the underlying form.",
       );
       await page.getByLabel("X handle", { exact: true }).fill(originalHandle);
+      // Mobile Settings intentionally has no mascot; its admin gesture lives on Drafts.
+      await page.getByRole("link", { name: "Drafts", exact: true }).click();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
       const secretMascot = page.getByRole("button", {
         name: "Back to top",
         exact: true,
@@ -1038,7 +1280,7 @@ test(
       await page.getByRole("link", { name: "Accounts", exact: true }).click();
       assert.equal(
         new URL(page.url()).pathname,
-        "/settings",
+        "/",
         "Sidebar navigation stays inside the overlay.",
       );
       await page.getByRole("textbox", { name: "Search accounts" }).fill(prefix);
@@ -3895,7 +4137,7 @@ for (const scenario of [
           .getByRole("link", { name: "Allowances", exact: true })
           .click();
         await page
-          .getByRole("heading", { name: "Media storage", exact: true })
+          .getByRole("progressbar", { name: "Media storage used", exact: true })
           .waitFor();
         await page.getByRole("link", { name: "Profile", exact: true }).click();
         assert.equal(
@@ -5707,7 +5949,7 @@ for (const scenario of [
         }
         await joining.reload();
         await joining
-          .getByRole("heading", { name: "Change your password", exact: true })
+          .getByRole("heading", { name: "Password", exact: true })
           .waitFor();
         await joining
           .getByRole("button", { name: "Sign out", exact: true })
