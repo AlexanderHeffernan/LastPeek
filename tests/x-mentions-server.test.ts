@@ -124,6 +124,19 @@ test("X mentions bound costs, isolate caches and never confuse failures with mis
       ],
     };
     assert.equal((await check("legacy")).missing, true);
+    // Missing users return no billable resource, even with HTTP 200 errors-only bodies.
+    const missingCosts = (
+      await db.query(
+        "SELECT estimated_usd FROM api_usage WHERE user_id=$1 AND model='mention-check' AND outcome='success'",
+        [ids[0]],
+      )
+    ).rows;
+    assert.equal(missingCosts.length, 3);
+    assert.ok(
+      missingCosts.every(
+        (row) => row.estimated_usd !== null && Number(row.estimated_usd) === 0,
+      ),
+    );
     raw = {
       errors: [
         {
@@ -134,6 +147,14 @@ test("X mentions bound costs, isolate caches and never confuse failures with mis
       ],
     };
     await assert.rejects(check("wrongresource"), rejects(503));
+    const uncertainCosts = (
+      await db.query(
+        "SELECT estimated_usd FROM api_usage WHERE user_id=$1 AND model='mention-check' AND outcome='error' AND http_status IN (200,500)",
+        [ids[0]],
+      )
+    ).rows;
+    assert.equal(uncertainCosts.length, 2);
+    assert.ok(uncertainCosts.every((row) => row.estimated_usd === null));
     const before = calls;
     assert.equal((await check("MISSING200")).missing, true);
     assert.equal(calls, before);

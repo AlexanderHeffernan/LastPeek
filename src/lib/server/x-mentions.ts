@@ -182,7 +182,8 @@ export async function lookupMentions(
   await finishXRead(
     claim.id,
     "User",
-    raw,
+    // Only a validated missing-user response proves no billable user was returned.
+    result?.missing ? { data: [] } : raw,
     status,
     result ? "success" : "error",
   );
