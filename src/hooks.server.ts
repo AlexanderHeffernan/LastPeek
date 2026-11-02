@@ -4,6 +4,7 @@ import { referrerPolicy } from "$lib/referrer-policy";
 import { db } from "$lib/server/db";
 import { deliverPush } from "$lib/server/notifications";
 import { syncXCredits } from "$lib/server/x-usage";
+import { recordBrowserSession } from "$lib/server/browser-sessions";
 export function init() {
   const timer = setInterval(() => {
     void deliverPush().catch(() =>
@@ -48,6 +49,12 @@ export const handle: Handle = async ({ event, resolve }) => {
       { status: 403 },
     );
   event.locals.user = await sessionUser(event);
+  if (event.locals.user && event.locals.pushSession)
+    await recordBrowserSession(
+      event.locals.pushSession,
+      event.locals.user.id,
+      event.request.headers.get("user-agent"),
+    );
   if (event.locals.user)
     await db.query(
       `UPDATE users SET last_seen_at=now() WHERE id=$1

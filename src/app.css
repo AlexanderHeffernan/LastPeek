@@ -1069,6 +1069,13 @@ progress {
   display: grid;
   gap: 20px;
 }
+.security-password-heading {
+  margin: 28px 0 16px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  font-size: 16px;
+  font-weight: 600;
+}
 .profile-fields {
   display: grid;
   gap: 16px;

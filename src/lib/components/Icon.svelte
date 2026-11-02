@@ -35,12 +35,16 @@
   import CheckCircle from "phosphor-svelte/lib/CheckCircle";
   import ChatCircleDots from "phosphor-svelte/lib/ChatCircleDots";
   import PlugsConnected from "phosphor-svelte/lib/PlugsConnected";
+  import Monitor from "phosphor-svelte/lib/Monitor";
+  import DeviceMobile from "phosphor-svelte/lib/DeviceMobile";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    monitor: Monitor,
+    mobile: DeviceMobile,
     agents: PlugsConnected,
     done: CheckCircle,
     review: ChatCircleDots,

@@ -11,6 +11,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import PushControl from "$lib/components/PushControl.svelte";
   import AgentConnections from "$lib/components/AgentConnections.svelte";
+  import BrowserSessions from "$lib/components/BrowserSessions.svelte";
   import { notificationKinds } from "$lib/notifications";
   let { data, form } = $props();
   const sections = $derived([
@@ -21,7 +22,7 @@
       : []),
     { id: "notifications", label: "Notifications", icon: "bell" },
     { id: "allowances", label: "Allowances", icon: "chart" },
-    { id: "password", label: "Password", icon: "lock" },
+    { id: "security", label: "Security", icon: "lock" },
   ]);
   const selected = $derived(
     sections.find((section) => section.id === page.url.searchParams.get("tab"))
@@ -32,7 +33,11 @@
       page.url.searchParams.has("/importX") ||
       page.url.searchParams.has("/disconnectX")
         ? "connections"
-        : "profile"),
+        : page.url.searchParams.get("tab") === "password" ||
+            page.url.searchParams.has("/password") ||
+            page.url.searchParams.has("/revokeSession")
+          ? "security"
+          : "profile"),
   );
   const detailOpen = $derived(
     [...page.url.searchParams.keys()].some(
@@ -706,7 +711,14 @@
         </div>
       {/if}
     </section>
-    <section hidden={selected !== "password"} aria-label="Password">
+    <section hidden={selected !== "security"} aria-label="Security">
+      <BrowserSessions
+        sessions={data.browserSessions}
+        confirmation={form?.sessionConfirmation}
+        error={form?.sessionError}
+        errorTarget={form?.sessionTarget}
+      />
+      <h3 class="security-password-heading">Password</h3>
       <form
         method="POST"
         action="?/password"
@@ -763,7 +775,7 @@
         <span class="small muted"
           >At least 12 characters. Changing it signs out your other sessions.</span
         >
-        {#if passwordError || (selected === "password" && form?.message && page.status >= 400)}<p
+        {#if passwordError || (selected === "security" && form?.message && page.status >= 400)}<p
             class="action-error"
             role="alert"
           >
@@ -776,7 +788,7 @@
               : passwordSaved ||
                   (page.status === 200 &&
                     form?.message &&
-                    selected === "password")
+                    selected === "security")
                 ? "Password changed. Other sessions have been signed out."
                 : ""}</span
           >

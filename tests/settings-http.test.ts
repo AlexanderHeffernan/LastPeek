@@ -93,3 +93,107 @@ test("settings identity follows connected X without rewriting shared history", a
   ).rows[0].content;
   assert.deepEqual(after, before);
 });
+
+test("security session actions require owner, origin and explicit confirmation", async (t) => {
+  const owner = randomUUID(),
+    stranger = randomUUID();
+  const current = token(),
+    other = token(),
+    foreign = token();
+  const client = await request.newContext({
+    extraHTTPHeaders: {
+      Cookie: `lastpeek_session=${current}`,
+      Origin: origin,
+      Accept: "text/html",
+    },
+  });
+  t.after(async () => {
+    await client.dispose();
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, stranger],
+    ]);
+  });
+  for (const id of [owner, stranger])
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Session author','unused')",
+      [id, `${id}@example.test`],
+    );
+  for (const [value, id] of [
+    [current, owner],
+    [other, owner],
+    [foreign, stranger],
+  ])
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [hash(value), id],
+    );
+  const ids = (
+    await db.query(
+      "SELECT id::text,hash FROM sessions WHERE user_id=ANY($1::uuid[])",
+      [[owner, stranger]],
+    )
+  ).rows;
+  const target = (value: string) =>
+    `legacy:${ids.find((row) => row.hash === hash(value))!.id}`;
+  const action = `${origin}/settings?/revokeSession`;
+  for (const invalidOrigin of ["https://elsewhere.example", "null", ""]) {
+    const denied = await client.post(action, {
+      form: { session: target(other), confirmed: "yes" },
+      headers: { Origin: invalidOrigin },
+    });
+    assert.equal(denied.status(), 403);
+  }
+  for (const value of [current, foreign]) {
+    const denied = await client.post(action, {
+      form: { session: target(value), confirmed: "yes" },
+    });
+    assert.equal(denied.status(), 404);
+  }
+  const unconfirmed = await client.post(action, {
+    form: { session: target(other) },
+  });
+  assert.equal(unconfirmed.status(), 200);
+  assert.ok((await unconfirmed.text()).includes("Sign out browser"));
+  assert.equal(
+    (await db.query("SELECT 1 FROM sessions WHERE hash=$1", [hash(other)]))
+      .rowCount,
+    1,
+  );
+  const listed = await client.get(`${origin}/settings?tab=security`);
+  const html = await listed.text();
+  for (const value of [
+    current,
+    other,
+    hash(current),
+    hash(other),
+    foreign,
+    hash(foreign),
+  ])
+    assert.equal(
+      html.includes(value),
+      false,
+      "Session capabilities never enter Settings HTML.",
+    );
+  const revoked = await client.post(action, {
+    form: { session: target(other), confirmed: "yes" },
+  });
+  assert.equal(revoked.status(), 200);
+  const blocked = await client.get(`${origin}/settings`, {
+    headers: { Cookie: `lastpeek_session=${other}` },
+    maxRedirects: 0,
+  });
+  assert.equal(blocked.status(), 303);
+  const remaining = await client.post(action, {
+    form: { session: "others", confirmed: "yes" },
+  });
+  assert.equal(remaining.status(), 200);
+  assert.equal(
+    (await client.get(`${origin}/settings?tab=security`)).status(),
+    200,
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM sessions WHERE hash=$1", [hash(foreign)]))
+      .rowCount,
+    1,
+  );
+});

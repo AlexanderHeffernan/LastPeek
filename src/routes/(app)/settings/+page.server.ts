@@ -7,7 +7,12 @@ import {
   signIn,
   signOut,
   rateLimit,
+  sameOrigin,
 } from "$lib/server/auth";
+import {
+  browserSessions,
+  revokeBrowserSessions,
+} from "$lib/server/browser-sessions";
 import { planUsage } from "$lib/server/plans";
 import { hasFeatureAccess } from "$lib/server/features";
 import {
@@ -46,6 +51,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   ).rows[0].bytes;
   const usage = await planUsage(user.id);
   return {
+    browserSessions: await browserSessions(user.id, locals.pushSession!),
     agentsEnabled: await hasFeatureAccess(user.id, "agents"),
     agentConnections:
       url.searchParams.get("tab") === "agents"
@@ -71,6 +77,36 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 export const actions: Actions = {
   agent: updateAgentConnection,
+  revokeSession: async (event) => {
+    sameOrigin(event);
+    const user = requireUser(event.locals);
+    const current = event.locals.pushSession!;
+    const form = await event.request.formData();
+    const target = String(form.get("session") || "");
+    const sessions = await browserSessions(user.id, current);
+    if (
+      target !== "others" &&
+      !sessions.some((session) => session.id === target && !session.current)
+    )
+      return fail(404, {
+        sessionError:
+          "This session is no longer available. Reload and try again.",
+        sessionTarget: target,
+      });
+    if (form.get("confirmed") !== "yes") return { sessionConfirmation: target };
+    try {
+      await rateLimit(`sessions:${user.id}`, 30, 900);
+      await revokeBrowserSessions(user.id, current, target);
+    } catch (cause) {
+      if (isHttpError(cause))
+        return fail(cause.status, {
+          sessionError: cause.body.message,
+          sessionTarget: target,
+        });
+      throw cause;
+    }
+    return { sessionsRevoked: true };
+  },
   notifications: async ({ locals, request }) => {
     const user = requireUser(locals);
     const form = await request.formData();

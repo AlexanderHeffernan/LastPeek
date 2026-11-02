@@ -712,7 +712,7 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     }
     for (const label of [
       "Connections",
-      "Password",
+      "Security",
       "Notifications",
       "Profile",
       "Allowances",
@@ -2660,7 +2660,7 @@ test(
       );
       assert.equal(blocked.status(), 400);
       await page.keyboard.press("Escape");
-      await page.getByRole("link", { name: "Password", exact: true }).click();
+      await page.getByRole("link", { name: "Security", exact: true }).click();
       await page.getByLabel("New password", { exact: true }).fill(password);
       await page
         .getByRole("button", { name: "Set password", exact: true })
@@ -6597,7 +6597,7 @@ for (const scenario of [
         );
         const changedPassword = `changed-${randomUUID()}`;
         await joining
-          .getByRole("link", { name: "Password", exact: true })
+          .getByRole("link", { name: "Security", exact: true })
           .click();
         await joining
           .getByLabel("Current password", { exact: true })
@@ -6634,7 +6634,7 @@ for (const scenario of [
         }
         await joining.reload();
         await joining
-          .getByRole("heading", { name: "Password", exact: true })
+          .getByRole("heading", { name: "Security", exact: true })
           .waitFor();
         await joining
           .getByRole("button", { name: "Sign out", exact: true })
