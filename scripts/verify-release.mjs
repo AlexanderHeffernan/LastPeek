@@ -320,6 +320,7 @@ try {
               test: exact(name),
             })),
             { file: "tests/x-publishing.test.ts" },
+            { file: "tests/x-mentions.test.ts" },
           ];
       // Start the historically slow WebKit work first. Each job owns its entire
       // mutable stack, including accounts/rate limits and server-origin cookies.

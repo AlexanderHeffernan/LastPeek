@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import XSourcePost from "./XSourcePost.svelte";
+  import MentionEditor from "./MentionEditor.svelte";
   import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
   import type { XSourcePost as SourcePost } from "$lib/x-post";
   import twitter from "twitter-text";
@@ -31,6 +32,7 @@
     sourcePost = null,
     updatedAt,
     publishing,
+    mentionsURL,
   }: {
     content: Content;
     media: Media[];
@@ -45,10 +47,12 @@
     sourcePost?: SourcePost | null;
     updatedAt?: string;
     publishing?: import("svelte").Snippet;
+    mentionsURL?: string;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
   let confirmation = $state<ConfirmDialog>();
+  let invalidMentions = $state<Record<string, string[]>>({});
   const active = $derived(
     content.posts.some((p) => p.id === activeId)
       ? activeId
@@ -193,7 +197,18 @@
               >{/if}{/if}
         </div>
         <div class:editable-post={editing}>
-          {#if editing}<Textarea
+          {#if editing && mentionsURL}<MentionEditor
+              bind:value={post.text}
+              bind:invalid={
+                () => invalidMentions[post.id] ?? [],
+                (handles) => (invalidMentions[post.id] = handles)
+              }
+              url={mentionsURL}
+              id={`post-text-${post.id}`}
+              label={`Post ${index + 1} text`}
+              placeholder={index ? "Add another post" : "What’s happening?"}
+              {onchange}
+            />{:else if editing}<Textarea
               class="post-editor"
               id={`post-text-${post.id}`}
               aria-label={`Post ${index + 1} text`}
@@ -208,6 +223,10 @@
                   class="post-link">{part.text}</span
                 >{:else if part.href}<a
                   href={part.href}
+                  class:invalid-mention={editing &&
+                    invalidMentions[post.id]?.includes(
+                      part.text.slice(1).toLowerCase(),
+                    )}
                   tabindex={editing ? -1 : undefined}
                   target="_blank"
                   rel="noopener noreferrer">{part.text}</a
@@ -406,6 +425,11 @@
 {/if}
 
 <style>
+  .post-text a.invalid-mention {
+    color: #ff7aa2;
+    text-decoration: underline wavy;
+    text-underline-offset: 3px;
+  }
   .timeline-author {
     flex-wrap: nowrap;
   }

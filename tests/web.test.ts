@@ -1647,7 +1647,7 @@ test(
       const flags = operator({ action: "admin_flags" });
       assert.deepEqual(
         flags.flags.map((flag: { feature: string }) => flag.feature),
-        ["x-publishing"],
+        ["x-mentions", "x-publishing"],
       );
       await page
         .getByRole("textbox", { name: "Search users for feature flags" })

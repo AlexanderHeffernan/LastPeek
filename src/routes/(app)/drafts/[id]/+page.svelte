@@ -490,6 +490,9 @@
       bind:content
       {media}
       sourcePost={data.sourcePost}
+      mentionsURL={data.mentionsEnabled
+        ? `/api/drafts/${data.draft.id}/mentions`
+        : undefined}
       editing
       onchange={changed}
       onupload={upload}

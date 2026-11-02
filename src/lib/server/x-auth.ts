@@ -406,3 +406,72 @@ export async function importXAvatar(profile: XProfile, userId: string) {
   }
   await storeAvatar(Buffer.concat(chunks), userId);
 }
+
+/** Commit token rotation independently of the operation's quota transaction. */
+export async function refreshXAccess(
+  userId: string,
+  xId: string,
+  scopes: string[],
+) {
+  const renewed = await transaction(async (client) => {
+    await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    const account = (
+      await client.query(
+        "SELECT * FROM x_accounts WHERE user_id=$1 FOR UPDATE",
+        [userId],
+      )
+    ).rows[0];
+    if (
+      !account ||
+      account.x_id !== xId ||
+      !scopes.every((scope) => account.scope.split(" ").includes(scope))
+    )
+      error(409, "Reconnect the intended X account to continue.");
+    if (account.expires_at.getTime() > Date.now() + 30000) return true;
+    if (!account.refresh_token) return false;
+    try {
+      const response = await fetch("https://api.x.com/2/oauth2/token", {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${process.env.X_CLIENT_ID}:${process.env.X_CLIENT_SECRET}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: await decryptXToken(account.refresh_token),
+        }),
+      });
+      if (!response.ok) throw new Error();
+      const refreshed = z
+        .object({
+          access_token: z.string().min(1).max(8192),
+          refresh_token: z.string().min(1).max(8192),
+          expires_in: z.number().positive().max(31536000),
+          scope: z.string(),
+        })
+        .parse(await response.json());
+      if (!scopes.every((scope) => refreshed.scope.split(" ").includes(scope)))
+        throw new Error();
+      await client.query(
+        "UPDATE x_accounts SET access_token=$2,refresh_token=$3,expires_at=$4,scope=$5,updated_at=now() WHERE user_id=$1",
+        [
+          userId,
+          await encryptXToken(refreshed.access_token),
+          await encryptXToken(refreshed.refresh_token),
+          new Date(Date.now() + refreshed.expires_in * 1000),
+          refreshed.scope,
+        ],
+      );
+      return true;
+    } catch {
+      await client.query(
+        "UPDATE x_accounts SET refresh_token=NULL,expires_at=now() WHERE user_id=$1",
+        [userId],
+      );
+      return false;
+    }
+  });
+  if (!renewed) error(409, "Couldn’t renew X access. Reconnect X to continue.");
+}

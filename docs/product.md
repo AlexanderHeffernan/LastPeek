@@ -40,6 +40,10 @@ Over-quota accounts keep editing, sharing, human feedback, copying, downloading 
 
 AI review and X source reads are released plan capabilities, not feature flags. Experimental X publishing uses the separate `x-publishing` grant. API budgets reserve conservatively before requests; known costs reconcile against usage, while unknown costs keep their reservation. Global safety caps still apply. Site admin's financial model is hypothetical, separate from live allowances and not a provider invoice.
 
+## Experimental X mentions
+
+The separate `x-mentions` experiment adds optional account suggestions while editing for Pro authors. It requires a connected X account with `users.read`; manual mentions and posting remain usable without it. After at least three handle characters and a short typing pause, a compact account picker inserts the selected handle without altering surrounding text. Leaving a text field checks its completed mentions; only a confirmed missing account gets rose text and an inline “not found on X” explanation. Provider failures are not invalid mentions and neither state blocks posting. Lookups use the existing X allowance and instance safety budget, with per-author caching and bounded results. No accounts receive the experiment just by deploying it.
+
 ## Experimental X publishing
 
 Pro authors explicitly granted `x-publishing` can publish ordered threads, replies and native quotes with up to 280 weighted characters per post, including media-only posts. Each post supports up to four photos, one GIF or one video. X's own access restrictions still apply: native quotes require Enterprise API access. Publishing is optional; local accounts and review workflows do not require it. Request `tweet.write` and `media.write` only through the author's explicit Allow posting / Connect X action, then return to the draft without posting automatically. Existing text-only grants need upgrading before uploading media.

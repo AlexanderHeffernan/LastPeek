@@ -20,6 +20,7 @@ try {
     "DELETE FROM rate_limits WHERE window_at<now()-interval '2 days'",
   );
   await db.query("DELETE FROM x_source_posts WHERE expires_at<now()");
+  await db.query("DELETE FROM x_mention_cache WHERE expires_at<now()");
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
   for (const file of await readdir(xMediaDir).catch(() => [] as string[])) {
     const path = join(xMediaDir, file);
