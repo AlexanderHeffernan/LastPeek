@@ -226,11 +226,16 @@ test("mobile / friends drill-in and notification header", async () => {
       ),
       "0px",
     );
+    const actions = page.getByRole("button", {
+      name: "Notification actions",
+      exact: true,
+    });
+    assert.ok((await actions.boundingBox())!.y < 52);
+    await actions.click();
     const settings = page.getByRole("link", {
       name: "Notification settings",
       exact: true,
     });
-    assert.ok((await settings.boundingBox())!.y < 52);
     await settings.click();
     await page.waitForURL(`${baseURL}/settings?tab=notifications`);
     await page
@@ -253,6 +258,122 @@ test("mobile / friends drill-in and notification header", async () => {
   } finally {
     await browser.close();
     await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
+  }
+});
+
+test("notifications / action menu on desktop and mobile", async () => {
+  const id = randomUUID();
+  const session = token();
+  const browser = await engine.launch();
+  try {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Alex','unused')",
+      [id, `${id}@example.test`],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+      [tokenHash(session), id],
+    );
+    // Keep simulated write failures interceptable after navigation in WebKit.
+    const context = await browser.newContext({
+      hasTouch: true,
+      serviceWorkers: "block",
+    });
+    await context.addCookies([
+      { name: "lastpeek_session", value: session, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    for (const width of [1280, 390, 320]) {
+      await db.query(
+        "INSERT INTO notifications(id,user_id,kind) VALUES($1,$2,'feedback')",
+        [randomUUID(), id],
+      );
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`${baseURL}/notifications`);
+      const actions = page.getByRole("button", {
+        name: "Notification actions",
+        exact: true,
+      });
+      const mark = page.getByRole("button", {
+        name: "Mark all as read",
+        exact: true,
+      });
+      const remove = page.getByRole("button", {
+        name: "Delete all",
+        exact: true,
+      });
+      assert.equal(await mark.isVisible(), false);
+      assert.equal(await remove.isVisible(), false);
+      await actions.click();
+      await mark.waitFor();
+      assert.ok(await remove.isVisible());
+      const settings = page.getByRole("link", {
+        name: "Notification settings",
+        exact: true,
+      });
+      assert.ok(await settings.isVisible());
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+        width,
+      );
+      // A rejected write must keep an actionable error beside the menu controls.
+      await page.route("**/notifications?/read", (route) =>
+        route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({
+            type: "error",
+            status: 500,
+            error: { message: "Unavailable" },
+          }),
+        }),
+      );
+      await mark.click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "Couldn’t update notifications" })
+        .waitFor();
+      await page.unroute("**/notifications?/read");
+      const read = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url().endsWith("?/read"),
+      );
+      await mark.click();
+      assert.equal((await read).status(), 200);
+      await page
+        .getByText("· Unread", { exact: false })
+        .waitFor({ state: "hidden" });
+      await actions.click();
+      assert.equal(await mark.isVisible(), false);
+      await remove.click();
+      const confirmation = page.getByRole("alertdialog", {
+        name: "Delete all notifications?",
+      });
+      await confirmation
+        .getByRole("button", { name: "Keep notifications" })
+        .click();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Delete notification from LastPeek" })
+          .count(),
+        1,
+      );
+      await actions.click();
+      await remove.click();
+      await confirmation
+        .getByRole("button", { name: "Delete all notifications", exact: true })
+        .click();
+      await page.getByRole("heading", { name: "Not a peep." }).waitFor();
+      await actions.click();
+      assert.equal(await remove.isVisible(), false);
+      await settings.click();
+      await page.waitForURL(`${baseURL}/settings?tab=notifications`);
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
   }
 });
 
@@ -2955,6 +3076,9 @@ test(
         beforeRequests,
       );
       await page.goto(`${baseURL}/notifications`);
+      await page
+        .getByRole("button", { name: "Notification actions", exact: true })
+        .click();
       await page.getByRole("button", { name: "Mark all as read" }).click();
       await page
         .getByRole("button", { name: "Mark all as read" })
@@ -3059,6 +3183,9 @@ test(
         .first()
         .click();
       await page
+        .getByRole("button", { name: "Notification actions", exact: true })
+        .click();
+      await page
         .getByRole("button", { name: "Delete all", exact: true })
         .click();
       assert.equal(
@@ -3084,6 +3211,9 @@ test(
           .count(),
         beforeDelete - 1,
       );
+      await page
+        .getByRole("button", { name: "Notification actions", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "Delete all", exact: true })
         .click();

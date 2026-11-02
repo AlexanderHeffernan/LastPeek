@@ -3,13 +3,11 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "$lib/components/Icon.svelte";
   import Brand from "$lib/components/Brand.svelte";
-  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import NotificationActions from "$lib/components/NotificationActions.svelte";
   import { notificationMessage } from "$lib/notifications";
   import { relativeTime } from "$lib/contracts";
   import type { SubmitFunction } from "$app/forms";
   let { data } = $props();
-  let confirmation: ConfirmDialog;
-  let deleteAllForm: HTMLFormElement;
   let busy = $state(false),
     actionError = $state("");
   const manage: SubmitFunction = () => {
@@ -27,44 +25,17 @@
       }
     };
   };
-  async function deleteAll() {
-    if (
-      await confirmation.ask({
-        title: "Delete all notifications?",
-        description:
-          "This clears your notification history. Friend requests, drafts and feedback are kept.",
-        confirmLabel: "Delete all notifications",
-        cancelLabel: "Keep notifications",
-      })
-    )
-      deleteAllForm.requestSubmit();
-  }
 </script>
 
 <svelte:head><title>Notifications · LastPeek</title></svelte:head>
 <main class="notifications-page" aria-label="Notifications">
   <header>
     <h1>Notifications</h1>
-    <Button
-      variant="ghost"
-      href="/settings?tab=notifications"
-      aria-label="Notification settings"><Icon name="settings" /></Button
-    >
+    <NotificationActions
+      count={data.notifications.length}
+      unread={data.unreadNotifications}
+    />
   </header>
-  {#if data.notifications.length}<div class="notification-actions">
-      {#if data.unreadNotifications}<form
-          method="POST"
-          action="?/read"
-          use:enhance={manage}
-        >
-          <Button variant="outline" type="submit" disabled={busy}
-            >Mark all as read</Button
-          >
-        </form>{/if}
-      <Button variant="outline" disabled={busy} onclick={deleteAll}
-        >Delete all</Button
-      >
-    </div>{/if}
   {#if actionError}<p class="action-error" role="alert">{actionError}</p>{/if}
   {#each data.notifications as item (item.id)}
     <div class="notification-row" class:unread={!item.read_at}>
@@ -114,15 +85,6 @@
     </div>{/each}
 </main>
 
-<ConfirmDialog bind:this={confirmation} />
-<form
-  hidden
-  bind:this={deleteAllForm}
-  method="POST"
-  action="?/deleteAll"
-  use:enhance={manage}
-></form>
-
 <style>
   .notifications-page {
     max-width: 600px;
@@ -138,12 +100,6 @@
   h1 {
     font-size: 20px;
     margin: 0;
-  }
-  .notification-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 0 8px 8px;
   }
   .notification-row {
     display: flex;

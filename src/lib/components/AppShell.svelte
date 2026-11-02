@@ -5,6 +5,7 @@
   import { afterNavigate } from "$app/navigation";
   import Brand from "$lib/components/Brand.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import NotificationActions from "$lib/components/NotificationActions.svelte";
   import { avatarURL } from "$lib/contracts";
   import type { Snippet } from "svelte";
   let {
@@ -181,13 +182,10 @@
     {#if mobileTitle}
       <h1 class="mobile-title">{mobileTitle}</h1>
       {#if page.url.pathname === "/notifications"}
-        <Button
-          variant="ghost"
-          size="icon"
-          class="mobile-header-action"
-          href="/settings?tab=notifications"
-          aria-label="Notification settings"><Icon name="settings" /></Button
-        >
+        <NotificationActions
+          count={page.data.notifications?.length ?? 0}
+          unread={page.data.unreadNotifications}
+        />
       {:else if page.url.searchParams.get("view") !== "requests"}
         <Button
           variant="ghost"
