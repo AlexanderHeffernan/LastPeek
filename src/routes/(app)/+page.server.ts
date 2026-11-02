@@ -1,9 +1,9 @@
 import { fail, redirect, isHttpError } from "@sveltejs/kit";
-import { db } from "$lib/server/db";
+import { db, transaction } from "$lib/server/db";
 import { createDraft } from "$lib/server/drafts";
 import { requireUser } from "$lib/server/auth";
 import { sourcePost } from "$lib/server/x-post";
-import { isPro } from "$lib/server/plans";
+import { isPro, claimDraft } from "$lib/server/plans";
 import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
 import {
   blankContent,
@@ -125,12 +125,13 @@ export const actions = {
       content.source = { kind, url: parsed.data };
     }
     try {
-      await createDraft(id, user.id, content);
+      if (content.source) await createDraft(id, user.id, content);
+      else await transaction((client) => claimDraft(client, user.id));
     } catch (cause) {
       if (isHttpError(cause))
         return fail(cause.status, { error: cause.body.message, kind: null });
       throw cause;
     }
-    redirect(303, `/drafts/${id}`);
+    redirect(303, `/drafts/${id}${content.source ? "" : "?new"}`);
   },
 } satisfies Actions;

@@ -17,7 +17,6 @@ export const POST: RequestHandler = async (event) => {
   sameOrigin(event);
   const user = requireUser(event.locals),
     id = event.params.id;
-  await ownedDraft(id, user.id);
   const raw = await readBody(event.request, 1_000_000);
   let body;
   try {
@@ -27,6 +26,12 @@ export const POST: RequestHandler = async (event) => {
   }
   if (!body || typeof body !== "object" || Array.isArray(body))
     error(400, "Send a valid draft action.");
+  if (body.action === "save") {
+    if (!Number.isInteger(body.version))
+      error(400, "A draft version is required.");
+    return json(await saveDraft(id, user.id, body.content, body.version));
+  }
+  await ownedDraft(id, user.id);
   if (body.action === "complete") {
     if (body.completed !== true || !Number.isInteger(body.version))
       error(400, "Save your latest edits before marking this as posted.");
@@ -36,11 +41,6 @@ export const POST: RequestHandler = async (event) => {
   if (body.action === "posted-link") {
     await linkPostedX(user.id, id, body.choice, body.url);
     return json({ ok: true });
-  }
-  if (body.action === "save") {
-    if (!Number.isInteger(body.version))
-      error(400, "A draft version is required.");
-    return json(await saveDraft(id, user.id, body.content, body.version));
   }
   if (body.action === "publish") {
     if (!Number.isInteger(body.version))

@@ -16,7 +16,7 @@ import { setPlan, entitlement } from "../src/lib/server/plans";
 import { passwordHash, token, hash as tokenHash } from "../src/lib/server/auth";
 import { mediaPath } from "../src/lib/server/media";
 import { avatarPath } from "../src/lib/server/avatars";
-import type { Content } from "../src/lib/contracts";
+import { blankContent, type Content } from "../src/lib/contracts";
 import { X_SOURCE_UNAVAILABLE, type XSourcePost } from "../src/lib/x-post";
 
 // Only run against a disposable development instance whose DATABASE_URL matches the server.
@@ -1527,13 +1527,13 @@ test(
       const avatarId = (await currentAvatar.json()).avatar;
       const createdDrafts: string[] = [];
       for (let i = 0; i < 2; i++) {
-        const created = await author.request.post(`${baseURL}/?/create`, {
-          form: {},
-          headers: { Origin: origin, Accept: "text/html" },
-          maxRedirects: 0,
+        const id = randomUUID();
+        await action(author.request, id, {
+          action: "save",
+          content: blankContent("Author"),
+          version: 0,
         });
-        assert.equal(created.status(), 303);
-        createdDrafts.push(created.headers().location.split("/").at(-1)!);
+        createdDrafts.push(id);
       }
       const uploaded = await author.request.post(
         `${baseURL}/api/drafts/${createdDrafts[0]}/media`,
@@ -1554,12 +1554,11 @@ test(
         (await readFile(avatarPath(retiredAvatarId))).length +
         (await readFile(avatarPath(avatarId))).length;
       await login(memberPage, emails[1]);
-      const memberDraft = await member.request.post(`${baseURL}/?/create`, {
-        form: {},
-        headers: { Origin: origin, Accept: "text/html" },
-        maxRedirects: 0,
+      await action(member.request, randomUUID(), {
+        action: "save",
+        content: blankContent("Member"),
+        version: 0,
       });
-      assert.equal(memberDraft.status(), 303);
       assert.equal(
         (await member.request.get(`${baseURL}/avatars/${avatarId}`)).status(),
         404,
@@ -3517,6 +3516,145 @@ test(
   },
 );
 
+test("new drafts save only after interaction", { timeout: 45000 }, async () => {
+  const id = randomUUID();
+  const account = `new-draft-${id}@example.test`;
+  const browser = await engine.launch();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const crashes: string[] = [];
+  page.on("pageerror", (error) => crashes.push(error.message));
+  page.on("dialog", (dialog) => dialog.dismiss());
+  try {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Writer',$3)",
+      [id, account, await passwordHash(password)],
+    );
+    await login(page, account);
+    await page.clock.install();
+    controlledClocks.add(page);
+    const count = async () =>
+      Number(
+        (await db.query("SELECT count(*) FROM drafts WHERE owner_id=$1", [id]))
+          .rows[0].count,
+      );
+    await page
+      .getByRole("button", { name: "Write your first post", exact: true })
+      .click();
+    await page.getByLabel("Post 1 text", { exact: true }).focus();
+    await page.clock.fastForward(16000);
+    assert.equal(
+      await count(),
+      0,
+      "opening, focusing and periodic refresh do not save",
+    );
+    await page
+      .getByRole("link", { name: "Back to drafts", exact: true })
+      .click();
+    await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+    assert.equal(await count(), 0);
+
+    for (const text of ["x", " ", ""]) {
+      await page
+        .getByRole("button", { name: "New post", exact: true })
+        .first()
+        .click();
+      const editor = page.getByLabel("Post 1 text", { exact: true });
+      // Wait for editor hydration; then leave before the debounce fires.
+      await editor.focus();
+      await editor.fill(text || "z");
+      if (!text) await editor.fill("");
+      if (text === "x") await page.goBack();
+      else
+        await page
+          .getByRole("link", { name: "Back to drafts", exact: true })
+          .click();
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+      const saved = await db.query(
+        "SELECT content FROM drafts WHERE owner_id=$1 ORDER BY created_at DESC",
+        [id],
+      );
+      assert.equal(saved.rows[0].content.posts[0].text, text);
+    }
+    assert.equal(
+      await count(),
+      3,
+      "even whitespace and an edit cleared before autosave are retained",
+    );
+
+    await setPlan(id, id, "pro", false);
+    await page.goto(`${baseURL}/drafts/${randomUUID()}?new`);
+    await edited(page, () =>
+      page.getByLabel("Post 1 text", { exact: true }).fill("a"),
+    );
+    assert.equal(
+      await page
+        .getByLabel("Post 1 text", { exact: true })
+        .evaluate((field) => field === document.activeElement),
+      true,
+      "First save preserves the Pro editor's focus",
+    );
+    await page.waitForURL(/\/drafts\/[0-9a-f-]{36}$/);
+    await edited(page, () =>
+      page.getByLabel("Post 1 text", { exact: true }).fill("ab"),
+    );
+    await page.reload();
+    assert.equal(
+      await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
+      "ab",
+    );
+    assert.equal(
+      await count(),
+      4,
+      "first save changes the URL without duplicating the draft",
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${baseURL}/drafts/${randomUUID()}?new`);
+    const image = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: "#ff6b5b" },
+    })
+      .png()
+      .toBuffer();
+    const attached = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/media") && response.status() === 201,
+    );
+    await page.getByLabel("Add media to post 1").setInputFiles({
+      name: "only-media.png",
+      mimeType: "image/png",
+      buffer: image,
+    });
+    await attached;
+    await page.clock.fastForward(900);
+    await page.getByText("All changes saved", { exact: true }).waitFor();
+    await page
+      .getByRole("link", { name: "Back to drafts", exact: true })
+      .click();
+    await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+    const mediaDraft = (
+      await db.query(
+        "SELECT content FROM drafts WHERE owner_id=$1 ORDER BY created_at DESC",
+        [id],
+      )
+    ).rows[0].content;
+    assert.equal(mediaDraft.posts[0].text, "");
+    assert.equal(mediaDraft.posts[0].media.length, 1);
+    assert.equal(await count(), 5);
+    assert.deepEqual(crashes, []);
+  } finally {
+    await browser.close();
+    const files = await db.query("SELECT id FROM media WHERE owner_id=$1", [
+      id,
+    ]);
+    await db.query("DELETE FROM drafts WHERE owner_id=$1", [id]);
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
+    await Promise.all(
+      files.rows.map((file) => rm(mediaPath(file.id), { force: true })),
+    );
+  }
+});
+
 for (const scenario of [
   "authentication and navigation",
   "draft feed and queue",
@@ -4748,14 +4886,16 @@ for (const scenario of [
           .click();
         await page.getByLabel("Post 1 text", { exact: true }).waitFor();
         await page.waitForLoadState("networkidle");
-        const id = page.url().split("/").at(-1)!;
+        const id = new URL(page.url()).pathname;
+        assert.ok(new URL(page.url()).searchParams.has("new"));
         await page.getByRole("link", { name: "LastPeek home" }).click();
         await page
           .getByRole("button", { name: "New post", exact: true })
           .first()
           .click();
         await page.getByLabel("Post 1 text", { exact: true }).waitFor();
-        assert.notEqual(page.url().split("/").at(-1), id);
+        assert.notEqual(new URL(page.url()).pathname, id);
+        assert.ok(new URL(page.url()).searchParams.has("new"));
         await page.getByRole("link", { name: "LastPeek home" }).click();
         await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
         assert.equal(

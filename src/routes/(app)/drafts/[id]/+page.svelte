@@ -2,7 +2,13 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { onMount, untrack } from "svelte";
   import { Popover } from "bits-ui";
-  import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
+  import {
+    beforeNavigate,
+    goto,
+    invalidateAll,
+    replaceState,
+  } from "$app/navigation";
+  import { page } from "$app/state";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import AIReview from "$lib/components/AIReview.svelte";
@@ -35,6 +41,8 @@
     }),
     media: Media[] = $state(initial.media);
   let version = $state(initial.draft.edit_version);
+  let touched = $state(false);
+  let inFlightSave: Promise<boolean> | undefined;
   let saved = $state(JSON.stringify(initialContent)),
     timer: ReturnType<typeof setTimeout>;
   let saving = $state(false),
@@ -85,20 +93,40 @@
     error: string;
     active: boolean;
   }[] = $state([]);
-  const dirty = $derived(JSON.stringify(content) !== saved);
+  const dirty = $derived(
+    JSON.stringify(content) !== saved || (version === 0 && touched),
+  );
   const uploading = $derived(pending.some((p) => p.active));
   onMount(() => {
     origin = location.origin;
     if (dirty) changed();
     const refresh = setInterval(() => {
-      if (document.visibilityState === "visible") void invalidateAll();
+      if (version > 0 && document.visibilityState === "visible")
+        void invalidateAll();
     }, 15000);
     return () => {
       clearTimeout(timer);
       clearInterval(refresh);
     };
   });
-  beforeNavigate(({ cancel }) => {
+  beforeNavigate(({ cancel, to, willUnload, type }) => {
+    if (
+      initial.draft.edit_version === 0 &&
+      !willUnload &&
+      to &&
+      dirty &&
+      !uploading &&
+      !error
+    ) {
+      cancel();
+      void (async () => {
+        while (dirty) {
+          if (!(await save())) return;
+        }
+        await goto(to.url, { replaceState: type === "popstate" });
+      })();
+      return;
+    }
     if (
       (dirty || uploading || saving) &&
       !confirm("There are unsaved changes or uploads. Leave this draft?")
@@ -106,7 +134,7 @@
       cancel();
   });
   async function api(body: object) {
-    const response = await fetch(`/api/drafts/${data.draft.id}`, {
+    const response = await fetch(`/api/drafts/${initial.draft.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -119,6 +147,7 @@
     return result;
   }
   function changed() {
+    touched = true;
     status = "Unsaved changes";
     error = "";
     clearTimeout(timer);
@@ -126,10 +155,14 @@
       void save();
     }, 850);
   }
-  async function save(): Promise<boolean> {
+  function save(): Promise<boolean> {
+    return (inFlightSave ??= persist().finally(() => {
+      inFlightSave = undefined;
+    }));
+  }
+  async function persist(): Promise<boolean> {
     clearTimeout(timer);
-    if (saving) return false;
-    if (JSON.stringify(content) === saved) {
+    if (!dirty) {
       status = "All changes saved";
       return true;
     }
@@ -149,6 +182,10 @@
         ...JSON.parse(snapshot),
         author: content.author,
       });
+      if (page.url.searchParams.has("new")) {
+        replaceState(`/drafts/${initial.draft.id}`, page.state);
+        await invalidateAll();
+      }
       status = "All changes saved";
       return true;
     } catch (e) {
@@ -357,9 +394,14 @@
     item.error = "";
     item.progress = 0;
     try {
+      if (version === 0) {
+        touched = true;
+        if (!(await save()))
+          throw new Error(error || "Save the draft before uploading.");
+      }
       const uploaded: Media = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `/api/drafts/${data.draft.id}/media`);
+        xhr.open("POST", `/api/drafts/${initial.draft.id}/media`);
         xhr.timeout = 180000;
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable)
@@ -412,7 +454,8 @@
     deleting = true;
     clearTimeout(timer);
     try {
-      await api({ action: "delete" });
+      if (version > 0) await api({ action: "delete" });
+      touched = false;
       saved = JSON.stringify(content);
       await goto("/");
     } catch (e) {
@@ -490,6 +533,7 @@
       bind:content
       {media}
       sourcePost={data.sourcePost}
+      mentionsReady={version > 0}
       mentionsURL={data.mentionsEnabled
         ? `/api/drafts/${data.draft.id}/mentions`
         : undefined}

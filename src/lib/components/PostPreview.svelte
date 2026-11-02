@@ -33,6 +33,7 @@
     updatedAt,
     publishing,
     mentionsURL,
+    mentionsReady = true,
   }: {
     content: Content;
     media: Media[];
@@ -48,6 +49,7 @@
     updatedAt?: string;
     publishing?: import("svelte").Snippet;
     mentionsURL?: string;
+    mentionsReady?: boolean;
   } = $props();
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
@@ -205,6 +207,7 @@
                 (handles) => (invalidMentions[post.id] = handles)
               }
               url={mentionsURL}
+              enabled={mentionsReady}
               id={`post-text-${post.id}`}
               label={`Post ${index + 1} text`}
               placeholder={index ? "Add another post" : "What’s happening?"}

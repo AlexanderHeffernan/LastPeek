@@ -105,6 +105,19 @@ export async function saveDraft(
   version: number,
 ) {
   return transaction(async (client) => {
+    if (version === 0) {
+      if (!/^[0-9a-f-]{36}$/i.test(id)) error(400, "Invalid draft ID.");
+      const parsed = contentSchema.safeParse(raw);
+      if (!parsed.success) error(400, parsed.error.issues[0].message);
+      if (parsed.data.source)
+        error(400, "Create replies and quotes from an X post link.");
+      await claimDraft(client, userId);
+      await client.query(
+        `INSERT INTO drafts(id,owner_id,content,edit_version) VALUES($1,$2,$3,0)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, userId, JSON.stringify(parsed.data)],
+      );
+    }
     // Serialize reference validation with media cleanup and draft deletion.
     await client.query(
       "SELECT id FROM drafts WHERE id=$1 AND owner_id=$2 FOR UPDATE",

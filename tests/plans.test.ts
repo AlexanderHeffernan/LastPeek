@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import pg from "pg";
 import { monthlyPeriod } from "../src/lib/plans";
+import { blankContent } from "../src/lib/contracts";
 
 test("plan entitlements protect current periods, enforce quotas and preserve usage across toggles", async (t) => {
   const original = process.env.DATABASE_URL!;
@@ -13,15 +14,10 @@ test("plan entitlements protect current periods, enforce quotas and preserve usa
   const connection = new URL(original);
   connection.searchParams.set("options", `-c search_path=${schema}`);
   process.env.DATABASE_URL = connection.href;
-  const { db, transaction } = await import("../src/lib/server/db");
-  const {
-    entitlement,
-    setPlan,
-    setAllowances,
-    planAllowances,
-    claimDraft,
-    planUsage,
-  } = await import("../src/lib/server/plans");
+  const { db } = await import("../src/lib/server/db");
+  const { saveDraft } = await import("../src/lib/server/drafts");
+  const { entitlement, setPlan, setAllowances, planAllowances, planUsage } =
+    await import("../src/lib/server/plans");
   const { startOpenAIUsage, finishOpenAIUsage } =
     await import("../src/lib/server/usage");
   t.after(async () => {
@@ -117,14 +113,7 @@ test("plan entitlements protect current periods, enforce quotas and preserve usa
   );
   assert.equal((await entitlement(existing)).plan, "free");
   await setAllowances(existing, "free", { ...catalog.free, drafts: 1 });
-  const create = () =>
-    transaction(async (client) => {
-      await claimDraft(client, free);
-      await client.query(
-        "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,'{}')",
-        [randomUUID(), free],
-      );
-    });
+  const create = () => saveDraft(randomUUID(), free, blankContent("Free"), 0);
   const results = await Promise.allSettled([create(), create()]);
   assert.equal(
     results.filter((result) => result.status === "fulfilled").length,
@@ -145,6 +134,23 @@ test("plan entitlements protect current periods, enforce quotas and preserve usa
   await db.query("DELETE FROM drafts WHERE owner_id=$1", [free]);
   await setAllowances(existing, "free", { ...catalog.free, drafts: 1 });
   await create();
+  const savedDraft = (
+    await db.query("SELECT * FROM drafts WHERE owner_id=$1", [free])
+  ).rows[0];
+  await assert.rejects(
+    saveDraft(savedDraft.id, existing, blankContent("Intruder"), 0),
+    (cause) => (cause as { status: number }).status === 404,
+  );
+  await setAllowances(existing, "free", { ...catalog.free, drafts: 0 });
+  const edited = structuredClone(savedDraft.content);
+  edited.posts[0].text = "x";
+  await saveDraft(savedDraft.id, free, edited, savedDraft.edit_version);
+  assert.equal(
+    (await db.query("SELECT content FROM drafts WHERE id=$1", [savedDraft.id]))
+      .rows[0].content.posts[0].text,
+    "x",
+    "Existing drafts remain editable over quota",
+  );
   for (const [now, start, end] of [
     [
       "2027-02-28T09:00:00Z",

@@ -24,9 +24,9 @@ type Progress = {
 
 export async function xPublishing(
   userId: string,
-  draftId: string,
+  draftId?: string,
 ): Promise<XPublishing> {
-  await ownedDraft(draftId, userId);
+  if (draftId) await ownedDraft(draftId, userId);
   const account = (
     await db.query(
       "SELECT x_id,profile,scope,expires_at,refresh_token IS NOT NULL AS refreshable FROM x_accounts WHERE user_id=$1",
@@ -34,7 +34,9 @@ export async function xPublishing(
     )
   ).rows[0];
   const publication = (
-    await db.query("SELECT * FROM x_publications WHERE draft_id=$1", [draftId])
+    await db.query("SELECT * FROM x_publications WHERE draft_id=$1", [
+      draftId ?? null,
+    ])
   ).rows[0];
   const progress = publication?.progress as Progress | null;
   const next = progress?.posts.find((p) => !p.tweetId);

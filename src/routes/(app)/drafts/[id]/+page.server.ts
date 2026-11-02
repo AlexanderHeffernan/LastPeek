@@ -5,12 +5,32 @@ import { isPro } from "$lib/server/plans";
 import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
 import { db } from "$lib/server/db";
+import { blankContent } from "$lib/contracts";
+import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
-export const load: PageServerLoad = async ({ params, locals }) => {
-  const draft = await ownedDraft(params.id, requireUser(locals).id);
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+  const user = requireUser(locals);
+  if (!/^[0-9a-f-]{36}$/i.test(params.id)) error(404, "Draft not found.");
+  const fresh =
+    url.searchParams.has("new") &&
+    !(await db.query("SELECT id FROM drafts WHERE id=$1", [params.id]))
+      .rowCount;
+  const draft = fresh
+    ? {
+        id: params.id,
+        owner_id: user.id,
+        content: blankContent(user.name, user.handle, user.avatar_id),
+        edit_version: 0,
+        share_token: null,
+        friend_token: null,
+        shared_revision: null,
+        posted_at: null,
+        updated_at: new Date(),
+      }
+    : await ownedDraft(params.id, user.id);
   const [media, comments] = await Promise.all([
-    draftMedia(draft.id),
-    draftComments(draft.id),
+    fresh ? [] : draftMedia(draft.id),
+    fresh ? [] : draftComments(draft.id),
   ]);
   return {
     postedLink:
@@ -20,7 +40,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
           [draft.id],
         )
       ).rows[0] ?? null,
-    xPublishing: await xPublishing(draft.owner_id, draft.id),
+    xPublishing: await xPublishing(
+      draft.owner_id,
+      fresh ? undefined : draft.id,
+    ),
     mentionsEnabled: await isPro(draft.owner_id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),

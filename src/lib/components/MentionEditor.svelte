@@ -14,6 +14,7 @@
     value = $bindable(""),
     invalid = $bindable([]),
     url,
+    enabled = true,
     id,
     label,
     placeholder,
@@ -22,6 +23,7 @@
     value: string;
     invalid?: string[];
     url: string;
+    enabled?: boolean;
     id: string;
     label: string;
     placeholder: string;
@@ -103,7 +105,7 @@
     problem = "";
     open = false;
     loading = false;
-    if (!current || dismissedValue === value) return;
+    if (!enabled || !current || dismissedValue === value) return;
     const timer = setTimeout(async () => {
       open = true;
       loading = true;
@@ -138,7 +140,7 @@
     );
   }
   async function check() {
-    if (dismissedValue === value) return;
+    if (!enabled || dismissedValue === value) return;
     const revision = ++validation;
     const snapshot = value;
     const handles = [
