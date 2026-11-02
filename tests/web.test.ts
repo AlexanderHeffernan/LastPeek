@@ -652,6 +652,9 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`${baseURL}/settings`);
     await page.waitForLoadState("load");
+    // Finish the first worker installation before this journey reloads the page;
+    // cancelling its script fetch can emit a WebKit access-control pageerror.
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
     const sections = page.getByRole("navigation", {
       name: "Settings sections",
     });
