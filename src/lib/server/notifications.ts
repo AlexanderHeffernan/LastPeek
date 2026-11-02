@@ -6,6 +6,7 @@ import {
   notificationMessage,
   type NotificationKind,
   type NotificationPreferences,
+  type PushDevice,
 } from "../notifications";
 
 export async function notificationPreferences(
@@ -78,6 +79,55 @@ export const activePushSession = `(
   EXISTS (SELECT 1 FROM sessions WHERE 'legacy:'||hash=s.session_id AND user_id=s.user_id AND expires_at>now())
   OR EXISTS (SELECT 1 FROM auth_sessions WHERE 'auth:'||id=s.session_id AND "userId"=s.user_id AND "expiresAt">now())
 )`;
+
+export async function pushDevices(
+  userId: string,
+  currentSession?: string,
+): Promise<PushDevice[]> {
+  const result = await db.query<{
+    id: string;
+    current: boolean;
+    created_at: Date;
+    user_agent: string | null;
+  }>(
+    `SELECT s.id,s.session_id=$2 AS current,s.created_at,a."userAgent" AS user_agent
+     FROM push_subscriptions s LEFT JOIN auth_sessions a
+       ON 'auth:'||a.id=s.session_id AND a."userId"=s.user_id
+     WHERE s.user_id=$1 AND ${activePushSession} ORDER BY s.created_at DESC,s.id`,
+    [userId, currentSession ?? ""],
+  );
+  return result.rows.map((row) => {
+    const ua = row.user_agent ?? "";
+    const browser = /Edg(?:e|A|iOS)?\//.test(ua)
+      ? "Edge"
+      : /(?:Firefox|FxiOS)\//.test(ua)
+        ? "Firefox"
+        : /(?:Chrome|CriOS)\//.test(ua)
+          ? "Chrome"
+          : /Safari\//.test(ua)
+            ? "Safari"
+            : "Browser";
+    const platform = /iPad/.test(ua)
+      ? "iPad"
+      : /iPhone/.test(ua)
+        ? "iPhone"
+        : /Android/.test(ua)
+          ? "Android"
+          : /Windows/.test(ua)
+            ? "Windows"
+            : /Macintosh|Mac OS X/.test(ua)
+              ? "Mac"
+              : /Linux/.test(ua)
+                ? "Linux"
+                : "";
+    return {
+      id: row.id,
+      label: platform ? `${browser} on ${platform}` : browser,
+      current: row.current,
+      enabledAt: row.created_at.toISOString(),
+    };
+  });
+}
 
 let sending = false;
 export async function deliverPush() {

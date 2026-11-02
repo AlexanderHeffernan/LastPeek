@@ -5,7 +5,7 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 ## MVP contract
 
 - Invite-only authors. Local passwords, server-side sessions and email-bound invitation links; no email delivery dependency. The owner creates/revokes invitations in site admin Invitations and chooses Free or Pro. Bearer-link reviewers never have to sign up; friend-only reviews require an existing signed-in account. Invitation links permit registration for the specified email, not mailbox verification.
-- Authors write a single post or ordered thread, without titles. Each post has text and up to four images (including animated GIFs), or one video. Handle/name are editable in account settings; optional X sign-up imports the profile, and existing authors can link X and choose individual fields to import. Imported fields remain editable, not a verified-identity badge. Working drafts use the current profile; shared revisions retain the identity captured when shared.
+- Authors write a single post or ordered thread, without titles. Each post has text and up to four images (including animated GIFs), or one video. Name and photo are editable in account settings; optional X sign-up imports the profile, and existing authors can link X and choose whether to import name and photo. The handle always comes from the connected X account; unconnected accounts show no handle. Working drafts use the current profile; shared revisions retain the identity captured when shared.
 - Images and videos are private files, not public static uploads. Upload limits, per-author storage quotas, file inspection, progress, retry and honest unsupported-file errors are core features.
 - Autosave uses optimistic concurrency checks. Sharing creates a persistent review link; subsequent saves update that link automatically. Immutable snapshots remain internal to anchor feedback to the text reviewed. Never silently overwrite concurrent edits.
 - Share links are random bearer capabilities. Anyone possessing one can read and comment; this is unlisted access, not recipient authentication. Authors can revoke and later create a different link. Active review links automatically expose the shared opening post and author identity in link-preview metadata and a generated image, including the first attached image or a video thumbnail. Messaging platforms may fetch and retain these previews after edits or revocation. Never include unshared content, feedback, or draft content in logs or analytics.
@@ -53,6 +53,31 @@ Post to X sits to the right of the final add-post button, using the X logo in pl
 Successful publishing retains the draft and feedback and exposes View on X. Preparing/uploading/processing states stay on the button. Media must finish processing before its post is sent; upload failure never silently posts without attachments. Private JPEG conversion and H.264/AAC MP4 preparation leave originals and shared reviews unchanged. X upload limits are 5 MB per photo, 15 MB per GIF and LastPeek's 50 MB video cap after preparation, with a bounded conversion time.
 
 Partial threads retain confirmed post IDs and offer Continue posting for remaining posts only, bound to the same saved version and X account. A closed page stops advancing the job after its in-flight operation; resumption requires explicit confirmation. Edits after partial publication cannot change the remaining publication. A lost response during post creation blocks retry to prevent duplicates; media operations can be restarted safely without creating a post. Edits never update X, and completed drafts cannot publish again. No automatic reconciliation runs. Deleting the LastPeek draft does not delete anything on X. Real-account compatibility and billing still require an explicitly authorised live trial.
+
+## Agent connections
+
+Agents is an account-flagged private trial, initially enabled only for the owner's test account.
+It is a Settings section shared by desktop and mobile. Users connect compatible
+remote HTTP MCP clients with OAuth, choose plain-language permissions, and can change permissions
+or disconnect each connection independently. Consent defaults to read access; writing, feedback,
+resolution and sharing require explicit selection. Compact connections show the app-provided name
+and last authenticated use—not verified agent identity or online presence. Permission details open
+in a desktop dialog or a mobile page, with approval/expiry dates. Disconnected rows disappear;
+expired connections remain distinguishable and removable. A compact setup card sits above the
+connection list on both desktop and mobile. New permissions require OAuth reauthorization.
+Consent offers 30 days, 90 days (default), 1 year or Until disconnected. Active connections can
+change expiry in their permission editor; changing permissions alone never extends expiry.
+Disconnected and expired connections require fresh consent. Access tokens renew silently through
+rotating refresh credentials; an agent unused for 30 days may need to sign in again.
+
+The initial tools list/read/create/edit text drafts and threads, list/read shared reviews, send
+revision-anchored feedback, resolve author feedback, list accepted friends and manage sharing.
+Existing attachment references can be preserved while editing; uploading/downloading bytes,
+source-post creation, deletion, X publishing, notifications and account changes are not agent tools
+in this version. Existing ownership, review access, quotas and optimistic concurrency still apply.
+Editing a shared draft advances its review as it does on the website. An authorized agent acts as
+the user; feedback uses that account’s identity. Sharing permission can change the review audience.
+No agent may read private reviews merely because it knows their address.
 
 ## Next, not now
 

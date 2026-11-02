@@ -1052,7 +1052,7 @@ progress {
   align-items: center;
   gap: 12px;
   min-height: 40px;
-  margin: 0 0 32px;
+  margin: 0 0 16px;
 }
 .settings-index-heading > [data-slot="button"],
 .settings-detail-heading > [data-slot="button"] {
@@ -1060,22 +1060,31 @@ progress {
   flex-shrink: 0;
 }
 .settings-body section > p {
-  margin: 0 0 28px;
+  margin: 0 0 16px;
 }
 .settings section[hidden] {
   display: none;
 }
 .settings form {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 .profile-fields {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   border: 0;
   padding: 0;
   margin: 0;
   min-width: 0;
+}
+.profile-identity {
+  align-items: center;
+}
+@media (min-width: 900px) {
+  .profile-identity {
+    grid-template-columns: 88px minmax(0, 1fr);
+    column-gap: 24px;
+  }
 }
 .settings-save {
   display: flex;
@@ -1239,7 +1248,7 @@ progress {
   }
   .settings-detail-heading {
     min-height: 64px;
-    margin: 0 -8px 24px;
+    margin: 0 -8px 16px;
   }
   .settings-index-heading > [data-slot="button"],
   .settings-detail-heading > [data-slot="button"] {
@@ -1413,11 +1422,25 @@ progress {
   margin: 24px 0;
 }
 .profile-photo {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  margin: 4px 0 8px;
-  gap: 12px;
+  position: relative;
+  width: 88px;
+  height: 88px;
+}
+.profile-photo .remove-photo {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--background);
+}
+.profile-photo .remove-photo::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 .profile-photo .photo-picker {
   position: relative;

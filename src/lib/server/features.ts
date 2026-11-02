@@ -1,6 +1,14 @@
 import { db, transaction } from "./db";
 import { featureSchema, featureChangeSchema, type Feature } from "../features";
 
+export async function hasFeatureAccess(userId: string, feature: Feature) {
+  const grant = await db.query(
+    "SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature=$2",
+    [userId, feature],
+  );
+  return grant.rowCount === 1;
+}
+
 export async function featureAccess(email: string) {
   const user = await db.query<{ id: string; email: string }>(
     "SELECT id,email FROM users WHERE lower(email)=$1",

@@ -10,15 +10,19 @@
   import { avatarURL } from "$lib/contracts";
   import Icon from "$lib/components/Icon.svelte";
   import PushControl from "$lib/components/PushControl.svelte";
+  import AgentConnections from "$lib/components/AgentConnections.svelte";
   import { notificationKinds } from "$lib/notifications";
   let { data, form } = $props();
-  const sections = [
+  const sections = $derived([
     { id: "profile", label: "Profile", icon: "users" },
     { id: "connections", label: "Connections", icon: "link" },
+    ...(data.agentsEnabled
+      ? [{ id: "agents", label: "Agents", icon: "agents" }]
+      : []),
     { id: "notifications", label: "Notifications", icon: "bell" },
     { id: "allowances", label: "Allowances", icon: "chart" },
     { id: "password", label: "Password", icon: "lock" },
-  ];
+  ]);
   const selected = $derived(
     sections.find((section) => section.id === page.url.searchParams.get("tab"))
       ?.id ||
@@ -40,10 +44,10 @@
     hydrated = true;
   });
   let name = $state(untrack(() => data.user.name));
-  let handle = $state(untrack(() => data.user.handle));
   let photo = $state<File>();
   let photoInput = $state<HTMLInputElement | null>(null);
   let photoPreview = $state("");
+  let photoFailed = $state(false);
   let removePhoto = $state(false);
   let profileBusy = $state(false);
   let profileError = $state("");
@@ -67,19 +71,16 @@
     preferences = { ...data.notificationPreferences };
   });
   const profileDirty = $derived(
-    name !== data.user.name ||
-      handle !== data.user.handle ||
-      !!photo ||
-      removePhoto,
+    name !== data.user.name || !!photo || removePhoto,
   );
   const dirty = $derived(
     profileDirty || notificationsDirty || !!currentPassword || !!newPassword,
   );
   $effect(() => {
     name = data.user.name;
-    handle = data.user.handle;
   });
   $effect(() => {
+    photoFailed = false;
     if (!photo) {
       photoPreview = "";
       return;
@@ -96,7 +97,6 @@
   }
   function discardEdits() {
     name = data.user.name;
-    handle = data.user.handle;
     photo = undefined;
     removePhoto = false;
     if (photoInput) photoInput.value = "";
@@ -200,16 +200,25 @@
       <Button
         variant="ghost"
         class="icon-button"
-        href="/settings"
-        aria-label="Back to settings"><Icon name="back" size={24} /></Button
+        href={selected === "agents" && page.url.searchParams.has("edit")
+          ? "/settings?tab=agents"
+          : "/settings"}
+        aria-label={selected === "agents" && page.url.searchParams.has("edit")
+          ? "Back to agents"
+          : "Back to settings"}><Icon name="back" size={24} /></Button
       >
       <h2 id={`${selected}-heading`}>
-        {sections.find((section) => section.id === selected)?.label}
+        {selected === "agents" && page.url.searchParams.has("edit")
+          ? "Permissions"
+          : sections.find((section) => section.id === selected)?.label}
       </h2>
       {#if selected === "allowances"}<span class="allowance-plan"
           >{data.usage.plan === "pro" ? "Pro" : "Free"} plan</span
         >{/if}
     </header>
+    {#if selected === "agents" && data.agentConnections}
+      <AgentConnections data={data.agentConnections} {form} />
+    {/if}
     <section
       hidden={selected !== "notifications"}
       aria-labelledby="notifications-heading"
@@ -255,10 +264,11 @@
               : "Save preferences"}</Button
         >
       </form>
-      {#if selected === "notifications"}<PushControl />{/if}
+      {#if selected === "notifications"}<PushControl
+          devices={data.pushDevices}
+        />{/if}
     </section>
     <section hidden={selected !== "profile"} aria-labelledby="profile-heading">
-      <p class="small muted">Your identity in post previews.</p>
       <form
         method="POST"
         action="?/profile"
@@ -291,7 +301,10 @@
           };
         }}
       >
-        <fieldset disabled={profileBusy} class="profile-fields">
+        <fieldset
+          disabled={profileBusy}
+          class="profile-fields profile-identity"
+        >
           <div class="profile-photo">
             <Button
               variant="ghost"
@@ -303,9 +316,12 @@
               onclick={() => photoInput?.click()}
             >
               <span class="avatar" aria-hidden="true"
-                >{#if photoPreview || (data.user.avatar_id && !removePhoto)}<img
+                >{#if !photoFailed && (photoPreview || (data.user.avatar_id && !removePhoto))}<img
                     src={photoPreview || avatarURL(data.user.avatar_id!)}
                     alt=""
+                    onerror={() => {
+                      photoFailed = true;
+                    }}
                   />{:else}{name.slice(0, 1).toUpperCase()}{/if}</span
               >
               <span class="photo-picker-overlay" aria-hidden="true"
@@ -334,14 +350,17 @@
               }}
             />
             {#if photo || (data.user.avatar_id && !removePhoto)}<Button
-                variant="outline"
+                variant="secondary"
+                class="remove-photo"
+                aria-label="Remove photo"
+                title="Remove photo"
                 type="button"
                 onclick={() => {
                   photo = undefined;
                   removePhoto = !!data.user.avatar_id;
                   if (photoInput) photoInput.value = "";
                   profileSaved = false;
-                }}>Remove photo</Button
+                }}><Icon name="close" size={16} /></Button
               >{/if}
           </div>
           <input
@@ -356,14 +375,7 @@
               required
               maxlength={80}
               autocomplete="name"
-            /></label
-          >
-          <label
-            >X handle<Input
-              name="handle"
-              bind:value={handle}
-              placeholder="@yourname"
-              maxlength={16}
+              placeholder="Your display name"
             /></label
           >
         </fieldset>
@@ -588,14 +600,6 @@
               >
               <Checkbox name="name" disabled={xBusy} />
             </label>
-            <label class="profile-choice">
-              <span
-                ><span class="small muted">X handle</span><strong
-                  >@{data.xProfile.username}</strong
-                ></span
-              >
-              <Checkbox name="handle" disabled={xBusy} />
-            </label>
           </fieldset>
           {#if xError || form?.xImportError}<div
               class="action-error"
@@ -739,6 +743,7 @@
                 name="current"
                 bind:value={currentPassword}
                 autocomplete="current-password"
+                placeholder="Enter your current password"
                 required
                 maxlength={256}
               /></label
@@ -747,6 +752,7 @@
               type="password"
               name="password"
               bind:value={newPassword}
+              placeholder="At least 12 characters"
               minlength={12}
               maxlength={256}
               autocomplete="new-password"

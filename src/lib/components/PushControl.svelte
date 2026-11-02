@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { invalidateAll } from "$app/navigation";
   import { Button } from "$lib/components/ui/button/index.js";
   import { registerServiceWorker } from "$lib/register-service-worker";
+  import type { PushDevice } from "$lib/notifications";
+  let { devices = [] }: { devices?: PushDevice[] } = $props();
+  const others = $derived(devices.filter((device) => !device.current));
   let supported = $state(false),
     ready = $state(false),
     enabled = $state(false),
@@ -79,6 +83,7 @@
           );
         enabled = true;
       }
+      await invalidateAll();
     } catch (cause) {
       message =
         cause instanceof Error
@@ -109,6 +114,27 @@
     enable push. Otherwise, use a browser that supports Web Push.
   </p>{/if}
 {#if message}<p class="action-error" role="alert">{message}</p>{/if}
+{#if others.length}
+  <section class="other-devices" aria-label="Other enabled devices">
+    <h3>Other enabled devices</h3>
+    <ul>
+      {#each others as device (device.id)}
+        <li>
+          <span>{device.label}</span>
+          <span class="small muted"
+            >Enabled <time datetime={device.enabledAt}
+              >{new Date(device.enabledAt).toLocaleDateString("en-NZ", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}</time
+            ></span
+          >
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 
 <style>
   .push-device {
@@ -117,8 +143,8 @@
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
-    margin: 28px 0 12px;
-    padding-top: 20px;
+    margin: 20px 0 8px;
+    padding-top: 16px;
     border-top: 1px solid var(--line);
   }
   h3 {
@@ -127,5 +153,21 @@
   }
   p {
     margin: 5px 0;
+  }
+  .other-devices {
+    margin-top: 20px;
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+  }
+  li {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
   }
 </style>

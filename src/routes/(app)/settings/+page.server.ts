@@ -9,7 +9,15 @@ import {
   rateLimit,
 } from "$lib/server/auth";
 import { planUsage } from "$lib/server/plans";
-import { notificationPreferences } from "$lib/server/notifications";
+import { hasFeatureAccess } from "$lib/server/features";
+import {
+  notificationPreferences,
+  pushDevices,
+} from "$lib/server/notifications";
+import {
+  agentConnections,
+  updateAgentConnection,
+} from "$lib/server/agent-connections";
 import { authorSchema } from "$lib/contracts";
 import { avatarLimit, storeAvatar } from "$lib/server/avatars";
 import {
@@ -38,7 +46,17 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   ).rows[0].bytes;
   const usage = await planUsage(user.id);
   return {
+    agentsEnabled: await hasFeatureAccess(user.id, "agents"),
+    agentConnections:
+      url.searchParams.get("tab") === "agents"
+        ? await agentConnections({ locals, url })
+        : null,
     notificationPreferences: await notificationPreferences(user.id),
+    pushDevices:
+      url.searchParams.get("tab") === "notifications" ||
+      url.searchParams.has("/notifications")
+        ? await pushDevices(user.id, locals.pushSession)
+        : [],
     xEnabled: xAuthEnabled(),
     hasPassword: account.has_password as boolean,
     xProfile: linked ? (linked.profile as XProfile) : null,
@@ -52,6 +70,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   };
 };
 export const actions: Actions = {
+  agent: updateAgentConnection,
   notifications: async ({ locals, request }) => {
     const user = requireUser(locals);
     const form = await request.formData();
@@ -105,14 +124,8 @@ export const actions: Actions = {
       }
     }
     await db.query(
-      "UPDATE users SET name=CASE WHEN $1 THEN $2 ELSE name END,handle=CASE WHEN $3 THEN $4 ELSE handle END WHERE id=$5",
-      [
-        form.get("name") === "on",
-        profile.name,
-        form.get("handle") === "on",
-        profile.username,
-        user.id,
-      ],
+      "UPDATE users SET name=CASE WHEN $1 THEN $2 ELSE name END WHERE id=$3",
+      [form.get("name") === "on", profile.name, user.id],
     );
     await db.query(
       "UPDATE x_accounts SET import_pending=false WHERE user_id=$1",
@@ -155,9 +168,8 @@ export const actions: Actions = {
   profile: async ({ locals, request }) => {
     const user = requireUser(locals);
     const form = await request.formData();
-    const parsed = authorSchema.safeParse({
+    const parsed = authorSchema.pick({ name: true }).safeParse({
       name: String(form.get("name") || ""),
-      handle: String(form.get("handle") || "").trim(),
     });
     if (!parsed.success)
       return fail(400, { message: parsed.error.issues[0].message });
@@ -176,9 +188,8 @@ export const actions: Actions = {
     } else if (form.get("removePhoto") === "yes") {
       await db.query("UPDATE users SET avatar_id=NULL WHERE id=$1", [user.id]);
     }
-    await db.query("UPDATE users SET name=$1,handle=$2 WHERE id=$3", [
+    await db.query("UPDATE users SET name=$1 WHERE id=$2", [
       parsed.data.name,
-      parsed.data.handle.replace(/^@/, ""),
       user.id,
     ]);
     return { message: "Profile saved." };

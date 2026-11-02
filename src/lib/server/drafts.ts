@@ -11,6 +11,21 @@ import {
 import { db, transaction } from "./db";
 import { notify } from "./notifications";
 import { token } from "./auth";
+import { claimDraft } from "./plans";
+
+export async function createDraft(
+  id: string,
+  userId: string,
+  content: Content,
+) {
+  await transaction(async (client) => {
+    await claimDraft(client, userId);
+    await client.query(
+      "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
+      [id, userId, JSON.stringify(content)],
+    );
+  });
+}
 
 export type Draft = {
   id: string;
@@ -98,7 +113,7 @@ export async function saveDraft(
     await ownedDraft(id, userId, client);
     const content = await validateContent(raw, id, client);
     const profile = await client.query(
-      "SELECT name,handle,avatar_id AS avatar FROM users WHERE id=$1",
+      "SELECT u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id AS avatar FROM users u LEFT JOIN x_accounts x ON x.user_id=u.id WHERE u.id=$1",
       [userId],
     );
     content.author = profile.rows[0];

@@ -12,6 +12,9 @@ export default defineConfig({
       serviceWorker: { register: false },
       // Kit 3 reads the fixed CSRF/adapter origin at build time, not server startup.
       paths: { origin: process.env.ORIGIN || undefined },
+      // hooks.server.ts applies the same form-Origin guard before sessions load,
+      // with one exception for cookie-independent OAuth token exchanges.
+      csrf: { trustedOrigins: ["*"] },
       csp: {
         directives: {
           "default-src": ["self"],

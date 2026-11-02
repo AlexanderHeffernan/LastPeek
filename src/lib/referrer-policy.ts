@@ -6,6 +6,7 @@ export function referrerPolicy(routeId: string | null) {
     "/(app)/settings",
     "/(app)/drafts/[id]",
     "/(app)/notifications",
+    "/oauth/authorize",
   ].includes(routeId ?? "")
     ? "strict-origin"
     : "no-referrer";

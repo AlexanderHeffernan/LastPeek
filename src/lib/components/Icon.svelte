@@ -34,12 +34,14 @@
   import GearSix from "phosphor-svelte/lib/GearSix";
   import CheckCircle from "phosphor-svelte/lib/CheckCircle";
   import ChatCircleDots from "phosphor-svelte/lib/ChatCircleDots";
+  import PlugsConnected from "phosphor-svelte/lib/PlugsConnected";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    agents: PlugsConnected,
     done: CheckCircle,
     review: ChatCircleDots,
     bell: Bell,

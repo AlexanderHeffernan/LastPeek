@@ -1,8 +1,9 @@
 import { fail, redirect, isHttpError } from "@sveltejs/kit";
-import { db, transaction } from "$lib/server/db";
+import { db } from "$lib/server/db";
+import { createDraft } from "$lib/server/drafts";
 import { requireUser } from "$lib/server/auth";
 import { sourcePost } from "$lib/server/x-post";
-import { isPro, claimDraft } from "$lib/server/plans";
+import { isPro } from "$lib/server/plans";
 import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
 import {
   blankContent,
@@ -124,13 +125,7 @@ export const actions = {
       content.source = { kind, url: parsed.data };
     }
     try {
-      await transaction(async (client) => {
-        await claimDraft(client, user.id);
-        await client.query(
-          "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
-          [id, user.id, JSON.stringify(content)],
-        );
-      });
+      await createDraft(id, user.id, content);
     } catch (cause) {
       if (isHttpError(cause))
         return fail(cause.status, { error: cause.body.message, kind: null });

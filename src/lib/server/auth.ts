@@ -192,7 +192,7 @@ export async function sessionUser(event: RequestEvent): Promise<User | null> {
     setAuthCookies(cookies, result.headers);
     if (!result.response) return null;
     const user = await db.query(
-      "SELECT id,name,handle,avatar_id,email,is_admin FROM users WHERE id=$1",
+      "SELECT u.id,u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id,u.email,u.is_admin FROM users u LEFT JOIN x_accounts x ON x.user_id=u.id WHERE u.id=$1",
       [result.response.user.id],
     );
     event.locals.pushSession = `auth:${result.response.session.id}`;
@@ -202,7 +202,7 @@ export async function sessionUser(event: RequestEvent): Promise<User | null> {
   const value = cookies.get("lastpeek_session");
   if (!value) return null;
   const result = await db.query(
-    "SELECT u.id,u.name,u.handle,u.avatar_id,u.email,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=$1 AND s.expires_at>now()",
+    "SELECT u.id,u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id,u.email,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN x_accounts x ON x.user_id=u.id WHERE s.hash=$1 AND s.expires_at>now()",
     [hash(value)],
   );
   if (result.rowCount) event.locals.pushSession = `legacy:${hash(value)}`;

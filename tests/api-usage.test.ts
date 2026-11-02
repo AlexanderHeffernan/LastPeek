@@ -524,9 +524,11 @@ test("usage attributes requests, snapshots rates and distinguishes unknown costs
 
   const { setFeatureAccess } = await import("../src/lib/server/features");
   await assert.rejects(
+    // @ts-expect-error Retired flags must also fail runtime operator validation.
     setFeatureAccess("a@example.test", "ai-review", true, "test"),
   );
   await assert.rejects(
+    // @ts-expect-error Retired flags must also fail runtime operator validation.
     setFeatureAccess("a@example.test", "x-source-posts", true, "test"),
   );
   const c = randomUUID();

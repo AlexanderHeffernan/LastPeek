@@ -12,7 +12,9 @@ X publishing is a released Pro capability. It requires a connected account with 
 
 Mention suggestions are also a released Pro capability and require a connected X account with `users.read`. Suggestions start after three characters and a 650 ms pause, with at most five results (US$0.05 reserved per uncached search). Completed handles are checked when the editor loses focus (US$0.01 reserved each). Per-author caches last 15 minutes for results, five minutes for confirmed missing handles and one minute for failures/in-flight requests. Selected suggestions reuse the search result without another user read. Thirty uncached attempts per 15 minutes, the account's X allowance and the existing instance cap all apply. Costs reconcile through the existing user-read ledger; unknown responses keep their reservation. Live search access, ranking and billing still need an authorised real-account smoke test. Provider outages, access errors and exhausted allowances never mark handles invalid or block posting.
 
-Migration 027 retires `x-publishing` and `x-mentions`, removes their grants and preserves their audit history. No experiments are currently registered; the feature-flag framework remains for future experiments. Retired flag commands are rejected.
+Migration 027 retires `x-publishing` and `x-mentions`, removes their grants and preserves their audit history. Retired flag commands are rejected.
+
+`agents` controls the private MCP trial and defaults off for every account. Grant it individually through Feature flags or the confirmed `set_feature_access` operator tool. The initial hosted rollout is restricted to heffernan.alexander@icloud.com. It gates Settings access, OAuth consent, code/refresh exchanges and every MCP request/tool call; removing the grant blocks existing tokens on their next request without deleting the user's connections. OAuth discovery and public-client registration remain available so clients can initiate authorization, but confer no account access. General Settings improvements are not trial-gated.
 
 ## Site administration
 

@@ -17,7 +17,7 @@ test("X publishing confirms, cancels holds, and advances thread jobs", async () 
   const userId = randomUUID(),
     draftId = randomUUID();
   const xId = `${Date.now()}17`;
-  const content = blankContent("Posting tester", "editable_not_x");
+  const content = blankContent("Posting tester", "actual_account");
   content.posts[0].text = "Ready for a second look 👀\nhttps://example.com/a";
   const session = token();
   const browser = await (

@@ -24,6 +24,29 @@ export function init() {
   credits.unref();
 }
 export const handle: Handle = async ({ event, resolve }) => {
+  const contentType =
+    event.request.headers
+      .get("content-type")
+      ?.split(";")[0]
+      .trim()
+      .toLowerCase() ?? "";
+  // OAuth clients exchange PKCE-bound codes without a browser Origin or cookie.
+  // Keep every other form protected, including forms with missing/opaque origins.
+  if (
+    event.url.pathname !== "/oauth/token" &&
+    ["POST", "PUT", "PATCH", "DELETE"].includes(event.request.method) &&
+    [
+      "",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data",
+      "text/plain",
+    ].includes(contentType) &&
+    event.request.headers.get("origin") !== event.url.origin
+  )
+    return new Response(
+      `Cross-site ${event.request.method} form submissions are forbidden`,
+      { status: 403 },
+    );
   event.locals.user = await sessionUser(event);
   if (event.locals.user)
     await db.query(

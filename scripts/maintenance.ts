@@ -22,6 +22,14 @@ try {
   await db.query("DELETE FROM x_source_posts WHERE expires_at<now()");
   await db.query("DELETE FROM x_mention_cache WHERE expires_at<now()");
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
+  await db.query("DELETE FROM agent_codes WHERE expires_at<now()");
+  await db.query("DELETE FROM agent_tokens WHERE expires_at<now()");
+  await db.query(
+    "DELETE FROM agent_connections WHERE (revoked_at IS NOT NULL OR expires_at<now()) AND created_at<now()-interval '90 days'",
+  );
+  await db.query(
+    "DELETE FROM agent_clients c WHERE c.created_at<now()-interval '1 day' AND NOT EXISTS (SELECT 1 FROM agent_connections a WHERE a.client_id=c.id)",
+  );
   for (const file of await readdir(xMediaDir).catch(() => [] as string[])) {
     const path = join(xMediaDir, file);
     if ((await stat(path)).mtimeMs < Date.now() - 86400000)

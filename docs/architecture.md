@@ -47,7 +47,7 @@ Migration 020 stores typed inbox events, per-user event preferences, per-device/
 
 VAPID keys are generated once and persisted in PostgreSQL, never sent to clients except for the public key. Include `push_keys` in database backups; changing the key requires devices to resubscribe. Subscription writes are same-origin, authenticated, bounded and limited to known browser push hosts (Google, Mozilla, Apple and Windows); arbitrary endpoints cannot trigger server-side requests. Push messages contain generic text and an opaque inbox-event ID, never identity, draft text, feedback or review tokens. Notification clicks navigate only to a same-origin resolver that rechecks the owner and current private grant. Subscriptions are bound to the current Better Auth or legacy session, so logout/password reset/session expiration prevents future delivery. Previously delivered device notifications cannot be recalled.
 
-Settings requests permission only from a user gesture and supports enabling/disabling the current device. On iOS/iPadOS, push requires a supported Home Screen installation; desktop/browser support is detected. The service worker handles push and clicks without caching authenticated content or replaying writes. The in-app inbox works when push is unsupported or refused. Browser-vendor transport delivery and real iOS OS notifications require device-level smoke tests; automated Chromium checks inject an actual service-worker push event, not a live vendor delivery.
+Settings requests permission only from a user gesture and supports enabling/disabling the current device. Other enabled subscriptions appear only for the owner's valid sessions, with coarse browser/platform labels derived from existing sign-in metadata and subscription creation dates; legacy sessions without metadata say Browser. These are subscriptions, not online or guaranteed-delivery claims. Endpoints, keys and session identifiers are never returned with the list. On iOS/iPadOS, push requires a supported Home Screen installation; desktop/browser support is detected. The service worker handles push and clicks without caching authenticated content or replaying writes. The in-app inbox works when push is unsupported or refused. Browser-vendor transport delivery and real iOS OS notifications require device-level smoke tests; automated Chromium checks inject an actual service-worker push event, not a live vendor delivery.
 
 ## Security and bounded operation
 
@@ -75,7 +75,58 @@ Plan defaults are 10 drafts / 250 MB for Free and 100 drafts / 2,048 MB for Pro,
 
 Profile avatars accept JPEG, PNG, WebP or AVIF up to 5 MB and 16 megapixels. The server strips metadata, applies orientation, crops to 256×256 and encodes WebP. Private files live under the media volume's `avatars` directory, count toward storage quotas, and require the owner session or a current review capability referencing that avatar in a shared revision. Working drafts capture the current profile on save; shared snapshots retain their original avatar. Maintenance removes avatars unreferenced by profiles, drafts or revisions after 24 hours, as well as stale orphan files.
 
+Current profile handles are derived directly from `x_accounts.profile.username` by session, friend and working-draft reads/writes, including MCP. No connection means an empty handle. Profile forms accept only name/photo changes and X import offers only name/photo choices. The legacy `users.handle` column remains for rolling compatibility, but is not a current identity source. Immutable review snapshots retain their captured handles; connecting or disconnecting X never rewrites them.
+
 `npm run maintenance` expires sessions/rate buckets, removes uploads unattached for 24 hours, and removes stale orphan files. Shared revisions retain their media until draft deletion. Run maintenance hourly in deployment. No automatic draft expiry in this MVP. Administrators recover accounts with the documented local CLI, not email. Backups consist of a database dump and the matching private media directory, taken while writes are stopped. Restore must be rehearsed before a real beta.
+
+## User-delegated MCP
+
+The `agents` experiment defaults off. Account grants gate Settings and consent, code/refresh
+exchanges and every authenticated MCP request/tool call. Revoking trial access blocks existing
+tokens on their next request; discovery and client registration alone never grant user authority.
+
+`/mcp` is a stateless Streamable HTTP endpoint using the official MCP SDK, JSON responses and
+per-request bearer authentication. Browser sessions do not authorize MCP, and cross-origin browser
+requests are rejected. Discovery lives at `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server`. `/oauth/register` supports rate-limited public-client
+dynamic registration, exact registered HTTPS (or HTTP loopback) callbacks, and no metadata URL
+fetching. `/oauth/authorize` requires same-origin authenticated consent; authorization codes are
+five-minute, hashed, single-use, and bound to client, callback, resource and PKCE S256 challenge.
+`/oauth/token` exchanges codes and rotates 30-day refresh tokens transactionally, issuing one-hour
+access tokens. All token material is hashed at rest. Consent offers 30 days, 90 days (default),
+365 days or no connection deadline. Migration 029 permits a null connection expiry; every token
+exchange and resource request still enforces any finite deadline and revocation. Active connection
+expiry can be changed in Settings without changing scopes or resurrecting an expired grant.
+Permission-only saves preserve the existing deadline. Refresh credentials expire after 30 days
+without renewal, including for indefinite connections; active clients renew them silently.
+No external authorization service is required.
+
+SvelteKit’s built-in form CSRF guard cannot exempt an OAuth token endpoint. The request hook
+therefore enforces the same mutating-form Origin check before loading sessions, exempting only
+`/oauth/token`, which never authorizes with cookies. All missing, opaque and cross-site form
+Origins remain rejected elsewhere; JSON/multipart operations retain their operation-level checks.
+
+Migration 028 stores clients, connections, codes and tokens. Each request intersects token scopes
+with the connection’s currently enabled permissions and checks revocation, expiry and the exact
+MCP resource. Tool calls repeat this check; disabling a permission changes both tool discovery and
+execution on the next request. A refresh preserves the original delegated ceiling unless the
+client explicitly narrows it, while reporting currently effective permissions. The owner can
+re-enable only permissions approved at consent. New authority requires a new consent flow.
+Revocation blocks subsequent requests, not operations already authorized and in flight.
+
+`agent-tools.ts` adapts typed inputs to existing draft operations. `feedback.ts` is shared by browser
+and agent feedback, preserving identity, snapshot anchors, access-revocation locks and notifications.
+No MCP tool uses X credentials, publishes externally, deletes drafts, exposes admin operations or
+fetches arbitrary URLs. Draft/comment content is untrusted data, not tool instructions. Neither
+credentials nor content are logged. `last_used_at` records authenticated requests, including MCP
+initialization; client names are unverified registration metadata, not identities inferred from
+user-agent headers. Maintenance prunes expired credentials and old disconnected connections.
+
+Disconnected connections remain server-side for credential revocation but are omitted from the
+management list. Unapproved permissions are visible but disabled in the editor; existing OAuth
+credentials cannot silently gain authority. New permissions require approval from the client flow.
+Portal ingress authentication may prevent external clients from reaching a private preview URL.
+Automated official-SDK HTTP checks do not establish an external client’s complete OAuth UX.
 
 ## Development and delivery
 

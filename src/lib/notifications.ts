@@ -22,6 +22,12 @@ export const notificationKinds = [
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number]["id"];
 export type NotificationPreferences = Record<NotificationKind, boolean>;
+export type PushDevice = {
+  id: string;
+  label: string;
+  current: boolean;
+  enabledAt: string;
+};
 export const defaultNotificationPreferences: NotificationPreferences = {
   friend_request: true,
   friend_accepted: true,

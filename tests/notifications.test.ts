@@ -14,7 +14,7 @@ test("notification outbox persists, retries, honors preferences and drops revoke
   connection.searchParams.set("options", `-c search_path=${schema}`);
   process.env.DATABASE_URL = connection.href;
   const { db, transaction } = await import("../src/lib/server/db");
-  const { notify, deliverPush, pushKeys } =
+  const { notify, deliverPush, pushKeys, pushDevices } =
     await import("../src/lib/server/notifications");
   t.after(async () => {
     t.mock.restoreAll();
@@ -45,7 +45,7 @@ test("notification outbox persists, retries, honors preferences and drops revoke
   };
   const endpoints = ["ok", "retry", "gone", "expired", "auth"];
   await db.query(
-    `INSERT INTO auth_sessions(id,token,"userId","expiresAt") VALUES('live-auth','secret',$1,now()+interval '1 day')`,
+    `INSERT INTO auth_sessions(id,token,"userId","expiresAt","userAgent") VALUES('live-auth','secret',$1,now()+interval '1 day','Mozilla/5.0 (Linux; Android 14) Chrome/130.0 Safari/537.36')`,
     [user],
   );
   for (const endpoint of endpoints)
@@ -64,6 +64,34 @@ test("notification outbox persists, retries, honors preferences and drops revoke
         keys.auth,
       ],
     );
+  const devices = await pushDevices(user, "auth:live-auth");
+  assert.equal(
+    devices.length,
+    4,
+    "Expired/revoked session subscriptions are excluded",
+  );
+  assert.deepEqual(
+    await pushDevices(actor),
+    [],
+    "Device lists are owner-scoped",
+  );
+  assert.equal(devices.filter((device) => device.current).length, 1);
+  assert.equal(
+    devices.find((device) => device.current)?.label,
+    "Chrome on Android",
+  );
+  assert.equal(
+    devices
+      .filter((device) => !device.current)
+      .every((device) => device.label === "Browser"),
+    true,
+    "Legacy sessions have no device metadata",
+  );
+  assert.deepEqual(
+    Object.keys(devices[0]).sort(),
+    ["current", "enabledAt", "id", "label"],
+    "No endpoint, keys or session identifier is exposed",
+  );
   await assert.rejects(
     transaction(async (client) => {
       await notify(client, { userId: user, actorId: actor, kind: "feedback" });

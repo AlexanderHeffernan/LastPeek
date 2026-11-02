@@ -3,6 +3,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import { cn } from "$lib/utils.js";
 
+  let trigger = $state<HTMLButtonElement | null>(null);
   // Shadcn Vega's Select, composed for the app's single-value fields.
   let {
     value = $bindable(""),
@@ -32,6 +33,7 @@
   items={options}
 >
   <SelectPrimitive.Trigger
+    bind:ref={trigger}
     {id}
     aria-label={ariaLabel}
     data-slot="select-trigger"
@@ -49,6 +51,7 @@
   <!-- Option clicks must not reactivate a wrapping label's trigger. -->
   <SelectPrimitive.Content
     onclick={(event) => event.preventDefault()}
+    collisionBoundary={trigger?.closest('[role="dialog"], dialog') ?? undefined}
     sideOffset={4}
     align="start"
     data-slot="select-content"

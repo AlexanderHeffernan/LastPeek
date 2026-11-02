@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -26,6 +26,249 @@ const artifacts = ".amp/in/artifacts";
 const engine = process.env.TEST_BROWSER === "webkit" ? webkit : chromium;
 // File-wide cleanup also runs when a focused selection skips the final journey.
 after(() => db.end());
+
+test("agents / OAuth consent, permission editing and disconnect on desktop and mobile", async (t) => {
+  const browser = await engine.launch();
+  const context = await browser.newContext();
+  const account = randomUUID(),
+    clientId = token(),
+    session = token();
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM users WHERE id=$1", [account]);
+    await db.query("DELETE FROM agent_clients WHERE id=$1", [clientId]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,handle,password_hash) VALUES($1,$2,'Agent owner','agent_owner','unused')",
+    [account, `${account}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'agents')",
+    [account],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [tokenHash(session), account],
+  );
+  await db.query(
+    "INSERT INTO agent_clients(id,name,redirect_uris) VALUES($1,'Browser test agent',$2)",
+    [clientId, JSON.stringify([`${origin}/settings?tab=agents`])],
+  );
+  await context.addCookies([
+    { name: "lastpeek_session", value: session, url: origin },
+  ]);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(`${origin}/settings?tab=agents`);
+  await page.getByRole("heading", { name: "No agents connected" }).waitFor();
+  const setup = page.getByRole("region", { name: "Connect your agent" });
+  const connections = page.getByRole("region", { name: "Your connections" });
+  assert.ok(
+    (await setup.boundingBox())!.y + (await setup.boundingBox())!.height <=
+      (await connections.boundingBox())!.y,
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Agents", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  // Finish app startup before full-document OAuth navigation; WebKit can report
+  // an access-control error if navigation interrupts the worker script load.
+  await page.evaluate(() =>
+    navigator.serviceWorker.ready.then(() => undefined),
+  );
+  await page.clock.install();
+  await page.evaluate(`Object.assign(navigator.clipboard, {
+    writeText: async text => { sessionStorage.setItem("agent-copied-address", text); }
+  })`);
+  await page
+    .getByRole("button", { name: "Copy MCP address", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Copied MCP address" }).waitFor();
+  assert.equal(
+    await page.evaluate(() => sessionStorage.getItem("agent-copied-address")),
+    `${origin}/mcp`,
+  );
+  await page.clock.fastForward(2500);
+  await page
+    .getByRole("button", { name: "Copy MCP address", exact: true })
+    .waitFor();
+  await page.clock.resume();
+  const verifier = randomBytes(32).toString("base64url");
+  const query = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${origin}/settings?tab=agents`,
+    response_type: "code",
+    code_challenge_method: "S256",
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+    scope: "drafts:read drafts:write reviews:read",
+  });
+  await page.goto(`${origin}/oauth/authorize?${query}`);
+  assert.equal(
+    await page.getByRole("combobox", { name: "Connection expiry" }).innerText(),
+    "90 days",
+  );
+  const accountCard = page.getByRole("region", { name: "Connecting as" });
+  await accountCard.getByText("Agent owner", { exact: true }).waitFor();
+  assert.equal(
+    await accountCard.getByText("@agent_owner", { exact: true }).count(),
+    0,
+  );
+  // A real toggle establishes hydrated checkbox handlers before submitting consent.
+  await page.getByRole("checkbox", { name: "Create and edit drafts" }).check();
+  await page
+    .getByRole("checkbox", { name: "Create and edit drafts" })
+    .uncheck();
+  await page.getByRole("combobox", { name: "Connection expiry" }).click();
+  await page
+    .getByRole("option", { name: "Until disconnected", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Allow connection" }).click();
+  const card = page.getByRole("article", {
+    name: "Browser test agent connection",
+  });
+  await card
+    .getByRole("button", { name: "Browser test agent actions" })
+    .click();
+  await page
+    .getByRole("link", { name: "Edit permissions", exact: true })
+    .click();
+  const editor = page.getByRole("dialog", {
+    name: "Browser test agent permissions",
+  });
+  await editor.waitFor();
+  assert.equal(await editor.getByRole("checkbox").count(), 6);
+  assert.equal(
+    await editor
+      .getByRole("checkbox", { name: "Create and edit drafts" })
+      .isDisabled(),
+    true,
+  );
+  await editor.getByRole("checkbox", { name: "Read shared reviews" }).uncheck();
+  const desktopExpiry = editor.getByRole("combobox", {
+    name: "Connection expiry",
+  });
+  await desktopExpiry.click();
+  const lastExpiryOption = await page
+    .getByRole("option", { name: "Until disconnected", exact: true })
+    .boundingBox();
+  const permissionBounds = await editor.boundingBox();
+  assert.ok(
+    lastExpiryOption &&
+      permissionBounds &&
+      lastExpiryOption.y + lastExpiryOption.height <=
+        permissionBounds.y + permissionBounds.height,
+    "Expiry options must not be clipped by the scrollable dialog",
+  );
+  await page.getByRole("option", { name: "1 year", exact: true }).click();
+  assert.equal(await desktopExpiry.innerText(), "1 year");
+  await desktopExpiry.press("Enter");
+  await page.getByRole("option", { name: "1 year", exact: true }).waitFor();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  assert.equal(await desktopExpiry.innerText(), "Keep current expiry");
+  const save = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/settings" &&
+      response.request().method() === "POST",
+  );
+  await editor.getByRole("button", { name: "Save changes" }).click();
+  assert.equal((await save).status(), 200);
+  await editor.waitFor({ state: "hidden" });
+  assert.deepEqual(
+    (
+      await db.query("SELECT scopes FROM agent_connections WHERE user_id=$1", [
+        account,
+      ])
+    ).rows[0].scopes,
+    ["drafts:read"],
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT expires_at FROM agent_connections WHERE user_id=$1",
+        [account],
+      )
+    ).rows[0].expires_at,
+    null,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("link", { name: "Back to settings" }).waitFor();
+  assert.equal(await setup.isVisible(), true);
+  assert.equal(await connections.isVisible(), true);
+  await page.getByRole("link", { name: "Back to settings" }).click();
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("link", { name: "Agents", exact: true })
+    .click();
+  await page.waitForURL(`${origin}/settings?tab=agents`);
+  await card.waitFor();
+  await page.reload();
+  await page.getByRole("heading", { name: "Agents", exact: true }).waitFor();
+  await card.waitFor();
+  await card
+    .getByRole("button", { name: "Browser test agent actions" })
+    .click();
+  await page
+    .getByRole("link", { name: "Edit permissions", exact: true })
+    .click();
+  const mobileEditor = page.getByRole("region", {
+    name: "Browser test agent permissions",
+  });
+  await mobileEditor.waitFor();
+  await page.getByRole("link", { name: "Back to agents" }).click();
+  await card.waitFor();
+  await page.goBack();
+  await mobileEditor.waitFor();
+  await mobileEditor
+    .getByRole("checkbox", { name: "Read my drafts" })
+    .uncheck();
+  await mobileEditor
+    .getByRole("combobox", { name: "Connection expiry" })
+    .click();
+  await page.getByRole("option", { name: "30 days", exact: true }).click();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await mobileEditor.getByRole("button", { name: "Save changes" }).click();
+  await card.getByText("No permissions enabled", { exact: true }).waitFor();
+  assert.ok(
+    (
+      await db.query(
+        "SELECT expires_at FROM agent_connections WHERE user_id=$1",
+        [account],
+      )
+    ).rows[0].expires_at > new Date(),
+  );
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.setViewportSize({ width: 320, height: 740 });
+  await card
+    .getByRole("button", { name: "Browser test agent actions" })
+    .click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Cancel" })
+    .click();
+  await card
+    .getByRole("button", { name: "Browser test agent actions" })
+    .click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Disconnect", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "No agents connected" }).waitFor();
+  assert.equal(await card.count(), 0);
+  await page.reload();
+  await page.getByRole("heading", { name: "No agents connected" }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
 const password = `test-only-${randomUUID()}`;
 const userId = randomUUID(),
   strangerId = randomUUID();
@@ -413,6 +656,14 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
       name: "Settings sections",
     });
     assert.equal(await sections.getByRole("link").count(), 5);
+    assert.equal(
+      await sections.getByRole("link", { name: "Agents" }).count(),
+      0,
+    );
+    assert.equal(
+      (await context.request.get(`${baseURL}/settings?tab=agents`)).status(),
+      404,
+    );
     await page
       .getByRole("link", { name: "Back to drafts", exact: true })
       .focus();
@@ -1360,13 +1611,13 @@ test(
       await page.getByRole("link", { name: "Account settings" }).click();
       await page.getByRole("link", { name: "Profile", exact: true }).click();
       await page.waitForURL(`${baseURL}/settings?tab=profile`);
-      const originalHandle = await page
-        .getByLabel("X handle", { exact: true })
+      const originalName = await page
+        .getByLabel("Display name", { exact: true })
         .inputValue();
-      await page.getByLabel("X handle", { exact: true }).fill("test");
-      await page.getByLabel("X handle", { exact: true }).press("~");
+      await page.getByLabel("Display name", { exact: true }).fill("test");
+      await page.getByLabel("Display name", { exact: true }).press("~");
       assert.equal(
-        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        await page.getByLabel("Display name", { exact: true }).inputValue(),
         "test~",
       );
       assert.equal(new URL(page.url()).pathname, "/settings");
@@ -1386,7 +1637,7 @@ test(
         .getByRole("button", { name: "Close site admin", exact: true })
         .click();
       assert.equal(
-        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        await page.getByLabel("Display name", { exact: true }).inputValue(),
         "test~",
         "Opening and closing admin preserves the underlying form.",
       );
@@ -1494,11 +1745,11 @@ test(
       );
       assert.equal(new URL(page.url()).searchParams.get("tab"), "profile");
       assert.equal(
-        await page.getByLabel("X handle", { exact: true }).inputValue(),
+        await page.getByLabel("Display name", { exact: true }).inputValue(),
         "test~",
         "Backdrop dismissal preserves the underlying form.",
       );
-      await page.getByLabel("X handle", { exact: true }).fill(originalHandle);
+      await page.getByLabel("Display name", { exact: true }).fill(originalName);
       // Mobile Settings intentionally has no mascot; its admin gesture lives on Drafts.
       await page.getByRole("link", { name: "Drafts", exact: true }).click();
       await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
@@ -1768,7 +2019,7 @@ test(
       const flags = operator({ action: "admin_flags" });
       assert.deepEqual(
         flags.flags.map((flag: { feature: string }) => flag.feature),
-        [],
+        ["agents"],
       );
       await page
         .getByRole("textbox", { name: "Search users for feature flags" })
@@ -4058,19 +4309,19 @@ for (const scenario of [
       if (scenario === "profile and X import") {
         await login(page, email);
         await page.getByRole("link", { name: "Account settings" }).click();
-        await page.getByLabel("X handle", { exact: true }).fill("not valid!");
-        await page.getByRole("button", { name: "Save profile" }).click();
+        assert.equal(
+          await page.getByLabel("X handle", { exact: true }).count(),
+          0,
+        );
         await page
-          .getByRole("status")
-          .filter({ hasText: "Use an X handle" })
-          .waitFor();
-        await page.getByLabel("X handle", { exact: true }).fill("@alex");
+          .getByLabel("Display name", { exact: true })
+          .fill("Alex profile");
         await page.getByRole("button", { name: "Save profile" }).click();
         await page.getByText("Profile saved.", { exact: true }).waitFor();
         await page.reload();
         assert.equal(
-          await page.getByLabel("X handle", { exact: true }).inputValue(),
-          "alex",
+          await page.getByLabel("Display name", { exact: true }).inputValue(),
+          "Alex profile",
         );
         // WebKit bypasses image mocks in service-worker-controlled pages. Isolate
         // only the mocked X onboarding; keep real workers in the author/reviewer
@@ -4146,7 +4397,7 @@ for (const scenario of [
             name: /^X handle @/,
           });
           assert.equal(await xName.isChecked(), false);
-          assert.equal(await xHandle.isChecked(), false);
+          assert.equal(await xHandle.count(), 0);
           await xDialog.getByText("Name from X", { exact: true }).click();
           assert.equal(await xName.isChecked(), true);
           await xName.press("Space");
@@ -4168,7 +4419,6 @@ for (const scenario of [
           await refreshing;
           try {
             assert.equal(await xName.isDisabled(), true);
-            assert.equal(await xHandle.isDisabled(), true);
             assert.equal(
               await xDialog.isVisible(),
               true,
@@ -4184,8 +4434,8 @@ for (const scenario of [
             "Name from X",
           );
           assert.equal(
-            await page.getByLabel("X handle", { exact: true }).inputValue(),
-            "alex",
+            await page.getByLabel("X handle", { exact: true }).count(),
+            0,
           );
           await page.reload();
           assert.equal(await page.getByRole("checkbox").count(), 0);
@@ -4208,14 +4458,13 @@ for (const scenario of [
           await page
             .getByRole("button", { name: "Save profile", disabled: true })
             .waitFor();
-          await xHandle.check();
           await page
             .getByRole("button", { name: "Apply selection", exact: true })
             .click();
           await xDialog.waitFor({ state: "hidden" });
           assert.equal(
-            await page.getByLabel("X handle", { exact: true }).inputValue(),
-            "handle_from_x",
+            await page.getByLabel("X handle", { exact: true }).count(),
+            0,
           );
           assert.equal(
             await page.getByLabel("Display name", { exact: true }).inputValue(),
@@ -4338,7 +4587,6 @@ for (const scenario of [
         await page.reload();
         await page.waitForLoadState("networkidle");
         await page.getByLabel("Display name", { exact: true }).fill("Alex");
-        await page.getByLabel("X handle", { exact: true }).fill("alex");
         await page
           .getByRole("button", { name: "Save profile", exact: true })
           .click();
@@ -5055,7 +5303,14 @@ for (const scenario of [
         scenario === "composer and media" ||
         scenario === "live review and revocation"
       ) {
-        await db.query("UPDATE users SET handle='alex' WHERE id=$1", [userId]);
+        await db.query(
+          "INSERT INTO x_accounts(user_id,x_id,access_token,expires_at,scope,profile) VALUES($1,$2,'test-only',now()+interval '1 day','users.read',$3)",
+          [
+            userId,
+            randomUUID(),
+            { id: randomUUID(), name: "Alex", username: "alex" },
+          ],
+        );
         await login(page, email);
         const photo = await sharp({
           create: {
@@ -5992,9 +6247,6 @@ for (const scenario of [
           await page
             .getByLabel("Display name", { exact: true })
             .fill("Alex Updated");
-          await page
-            .getByLabel("X handle", { exact: true })
-            .fill("@alex_updated");
           await page.getByRole("button", { name: "Save profile" }).click();
           await page.getByText("Profile saved.", { exact: true }).waitFor();
           const replacementPhoto = await sharp({
@@ -6047,9 +6299,13 @@ for (const scenario of [
           );
           await edited(page, () => page.goto(`${baseURL}/drafts/${id}`));
           await page
-            .getByText("@alex_updated", { exact: true })
+            .getByText("Alex Updated", { exact: true })
             .first()
             .waitFor();
+          assert.equal(
+            await page.getByText("@alex_updated", { exact: true }).count(),
+            0,
+          );
           assert.equal(
             await page
               .getByText("Shared version history", { exact: true })
