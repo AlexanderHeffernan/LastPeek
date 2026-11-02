@@ -161,17 +161,18 @@
       </div>
       <div class="post-body">
         <div class="post-author" class:timeline-author={timeline}>
-          <strong>{content.author.name || "Your name"}</strong><span
-            class="handle"
-            >{content.author.handle
-              ? `@${content.author.handle.replace(/^@/, "")}`
-              : ""}</span
-          >{#if updatedAt}<time
+          <strong>{content.author.name || "Your name"}</strong
+          >{#if content.author.handle}<span class="handle"
+              >@{content.author.handle.replace(/^@/, "")}</span
+            >{/if}{#if updatedAt}<span
+              class="post-time-separator"
+              aria-hidden="true">·</span
+            ><time
               datetime={updatedAt}
               title={`Updated ${new Date(updatedAt).toLocaleString()}`}
-              ><span aria-hidden="true"> · </span><span class="sr-only"
-                >Updated
-              </span>{relativeTime(updatedAt)}</time
+              ><span class="sr-only">Updated </span>{relativeTime(
+                updatedAt,
+              )}</time
             >{/if}{#if content.posts.length > 1}<span class="post-position"
               >{index + 1}/{content.posts.length}</span
             >{#if editing && post.id === active}<Button
@@ -442,6 +443,9 @@
   }
   .timeline-author .handle {
     flex-shrink: 2;
+  }
+  .post-time-separator {
+    color: #71767b;
   }
   .timeline-author time {
     flex-shrink: 0;
