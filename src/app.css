@@ -1445,6 +1445,18 @@ progress {
   border-radius: 50%;
   border: 2px solid var(--background);
 }
+.profile-photo .remove-photo:focus-visible {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--background);
+}
+@media (hover: hover) {
+  .profile-photo .remove-photo:hover {
+    background: var(--destructive);
+    border-color: var(--destructive);
+    color: var(--background);
+  }
+}
 .profile-photo .remove-photo::after {
   content: "";
   position: absolute;
