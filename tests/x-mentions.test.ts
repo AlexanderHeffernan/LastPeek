@@ -31,10 +31,6 @@ test("X mention composer selects accounts, preserves text and distinguishes inva
       content,
     ]);
     await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-mentions')",
-      [userId],
-    );
-    await db.query(
       "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
       [hash(session), userId],
     );
@@ -158,7 +154,7 @@ test("X mention composer selects accounts, preserves text and distinguishes inva
       1,
       "one lookup per distinct search, not one per keystroke or repeated focus",
     );
-    // The real endpoint, not the browser mock, must enforce origin, ownership and grants.
+    // Pro works without grants; the real endpoint still enforces origin, ownership and plan.
     const endpoint = `${base}/api/drafts/${draftId}/mentions`;
     const send = (origin: string) =>
       context.request.post(endpoint, {
@@ -175,7 +171,7 @@ test("X mention composer selects accounts, preserves text and distinguishes inva
       draftId,
       userId,
     ]);
-    await db.query("DELETE FROM feature_grants WHERE user_id=$1", [userId]);
+    await db.query("UPDATE users SET plan='free' WHERE id=$1", [userId]);
     assert.equal((await send(base)).status(), 403);
     assert.deepEqual(errors, []);
     assert.equal(await page.evaluate(() => localStorage.length), 0);

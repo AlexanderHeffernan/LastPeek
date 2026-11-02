@@ -5,7 +5,6 @@ import { isPro } from "$lib/server/plans";
 import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
 import { db } from "$lib/server/db";
-import { hasFeature } from "$lib/server/features";
 import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals }) => {
   const draft = await ownedDraft(params.id, requireUser(locals).id);
@@ -22,9 +21,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         )
       ).rows[0] ?? null,
     xPublishing: await xPublishing(draft.owner_id, draft.id),
-    mentionsEnabled:
-      (await hasFeature(draft.owner_id, "x-mentions")) &&
-      (await isPro(draft.owner_id)),
+    mentionsEnabled: await isPro(draft.owner_id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
     draft: {

@@ -62,12 +62,9 @@ test("X mentions bound costs, isolate caches and never confuse failures with mis
         ],
       );
     }
+    await db.query("UPDATE users SET plan='free' WHERE id=$1", [ids[0]]);
     await assert.rejects(search(), rejects(403));
-    for (const id of ids)
-      await db.query(
-        "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-mentions')",
-        [id],
-      );
+    await db.query("UPDATE users SET plan='pro' WHERE id=$1", [ids[0]]);
     const simultaneous = await Promise.allSettled([search(), search()]);
     assert.ok(
       simultaneous.some(
@@ -140,12 +137,6 @@ test("X mentions bound costs, isolate caches and never confuse failures with mis
     const before = calls;
     assert.equal((await check("MISSING200")).missing, true);
     assert.equal(calls, before);
-    await db.query("DELETE FROM feature_grants WHERE user_id=$1", [ids[0]]);
-    await assert.rejects(check("AmpCode"), rejects(403));
-    await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-mentions')",
-      [ids[0]],
-    );
     await db.query("UPDATE users SET plan='free' WHERE id=$1", [ids[0]]);
     await assert.rejects(check("AmpCode"), rejects(403));
     await db.query("UPDATE users SET plan='pro' WHERE id=$1", [ids[0]]);
@@ -154,7 +145,7 @@ test("X mentions bound costs, isolate caches and never confuse failures with mis
     assert.equal(
       calls,
       before,
-      "disabled access and exhausted global cap never call X",
+      "Free access and exhausted global cap never call X",
     );
     const ledger = (
       await db.query(

@@ -290,10 +290,7 @@ test("X OAuth binds browser/session, consumes invitations once, and never merges
       ),
       status(403),
     );
-    await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-publishing')",
-      [ownerId],
-    );
+    await db.query("UPDATE users SET plan='pro' WHERE id=$1", [ownerId]);
     const publishingStart = async () =>
       new URL(
         await redirectFrom(

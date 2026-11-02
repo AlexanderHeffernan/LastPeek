@@ -34,10 +34,6 @@ test("X publishing confirms, cancels holds, and advances thread jobs", async () 
       content,
     ]);
     await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-publishing')",
-      [userId],
-    );
-    await db.query(
       "INSERT INTO x_accounts(user_id,x_id,access_token,refresh_token,expires_at,scope,profile) VALUES($1,$2,$3,$4,now()+interval '1 hour','tweet.read users.read offline.access tweet.write',$5)",
       [
         userId,

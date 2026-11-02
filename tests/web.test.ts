@@ -370,13 +370,13 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
       .waitFor();
     assert.equal(
       await monthly
-        .getByRole("progressbar", { name: "AI review used" })
+        .getByRole("progressbar", { name: "AI feedback used" })
         .getAttribute("aria-valuetext"),
       "36% used",
     );
     assert.equal(
       await monthly
-        .getByRole("progressbar", { name: "X API used" })
+        .getByRole("progressbar", { name: "X features used" })
         .getAttribute("aria-valuetext"),
       "28% used",
     );
@@ -418,7 +418,7 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     await monthly.getByText("No allowance", { exact: true }).waitFor();
     assert.equal(
       await monthly
-        .getByRole("progressbar", { name: "AI review used" })
+        .getByRole("progressbar", { name: "AI feedback used" })
         .getAttribute("value"),
       "0.5",
     );
@@ -1647,28 +1647,29 @@ test(
       const flags = operator({ action: "admin_flags" });
       assert.deepEqual(
         flags.flags.map((flag: { feature: string }) => flag.feature),
-        ["x-mentions", "x-publishing"],
+        [],
       );
       await page
         .getByRole("textbox", { name: "Search users for feature flags" })
         .waitFor();
-      for (const action of ["feature-access", "all-feature-access"]) {
-        assert.equal(
-          (
-            await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
-              data: {
-                action,
-                ...(action === "feature-access" ? { userId: ids[1] } : {}),
-                feature: "x-source-posts",
-                enabled: false,
-              },
-              headers: { Origin: origin },
-            })
-          ).status(),
-          400,
-          "Retired flags cannot be changed.",
-        );
-      }
+      for (const feature of ["x-source-posts", "x-publishing", "x-mentions"])
+        for (const action of ["feature-access", "all-feature-access"]) {
+          assert.equal(
+            (
+              await owner.request.post(`${baseURL}/siteadmin/snapshot`, {
+                data: {
+                  action,
+                  ...(action === "feature-access" ? { userId: ids[1] } : {}),
+                  feature,
+                  enabled: false,
+                },
+                headers: { Origin: origin },
+              })
+            ).status(),
+            400,
+            "Retired flags cannot be changed.",
+          );
+        }
       await page
         .getByRole("link", { name: "Access history", exact: true })
         .click();
@@ -5124,6 +5125,7 @@ for (const scenario of [
           assert.equal(
             await preview
               .getByRole("paragraph", { includeHidden: true })
+              .filter({ hasText: linkedText })
               .innerText(),
             linkedText,
           );

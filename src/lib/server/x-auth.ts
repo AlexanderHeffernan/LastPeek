@@ -16,7 +16,7 @@ import {
   token,
 } from "./auth";
 import { avatarLimit, storeAvatar } from "./avatars";
-import { hasFeature } from "./features";
+import { isPro } from "./plans";
 import { ownedDraft } from "./drafts";
 import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
 
@@ -69,11 +69,8 @@ export async function startXAuth(event: RequestEvent): Promise<never> {
   const invite = String(form.get("invite") || "");
   const publishDraft = String(form.get("publishDraft") || "");
   if (publishDraft) {
-    if (
-      !event.locals.user ||
-      !(await hasFeature(event.locals.user.id, "x-publishing"))
-    )
-      error(403, "X posting isn’t enabled for this account.");
+    if (!event.locals.user || !(await isPro(event.locals.user.id)))
+      error(403, "X posting requires Pro.");
     await ownedDraft(publishDraft, event.locals.user.id);
   }
   let email: string | null = null;

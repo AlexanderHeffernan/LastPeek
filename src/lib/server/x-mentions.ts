@@ -8,7 +8,6 @@ import {
   type MentionResult,
 } from "../x-mentions";
 import { db, transaction } from "./db";
-import { hasFeature } from "./features";
 import { isPro, reserveAPI } from "./plans";
 import { rateLimit } from "./auth";
 import { decryptXToken, refreshXAccess } from "./x-auth";
@@ -19,8 +18,7 @@ export async function lookupMentions(
   input: unknown,
 ): Promise<MentionResult> {
   const { kind, query: supplied } = mentionRequest.parse(input);
-  if (!(await hasFeature(userId, "x-mentions")) || !(await isPro(userId)))
-    error(403, "Mention lookup isn’t enabled for this account.");
+  if (!(await isPro(userId))) error(403, "Mention lookup requires Pro.");
   const query = supplied.toLowerCase();
   const account = (
     await db.query("SELECT x_id FROM x_accounts WHERE user_id=$1", [userId])
@@ -57,8 +55,6 @@ export async function lookupMentions(
     ).rows[0];
     if (hit) return { cached: hit.content };
     const period = await reserveAPI(client, userId, "x", cents / 100);
-    if (!(await hasFeature(userId, "x-mentions")))
-      error(403, "Mention lookup isn’t enabled for this account.");
     const connected = (
       await client.query(
         "SELECT access_token FROM x_accounts WHERE user_id=$1 AND x_id=$2",

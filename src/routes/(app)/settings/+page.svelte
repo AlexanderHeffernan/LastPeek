@@ -667,7 +667,7 @@
           <p class="allowance-period">
             {periodDate(data.usage.start)} – {periodDate(data.usage.end)} · UTC
           </p>
-          {#each [{ label: "AI review", icon: "sparkle", used: data.usage.ai, limit: data.usage.limits.ai_usd }, { label: "X API", icon: "x", used: data.usage.x, limit: data.usage.limits.x_usd }] as item}
+          {#each [{ label: "AI feedback", icon: "sparkle", used: data.usage.ai, limit: data.usage.limits.ai_usd }, { label: "X features", icon: "x", used: data.usage.x, limit: data.usage.limits.x_usd }] as item}
             <div class="allowance-row" class:at-limit={item.used >= item.limit}>
               <Icon name={item.icon} size={22} />
               <div class="allowance-meter">

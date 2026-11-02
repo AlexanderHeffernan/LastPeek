@@ -4,7 +4,6 @@ import { z } from "zod";
 import twitter from "twitter-text";
 import { db, transaction } from "./db";
 import { ownedDraft, validateContent } from "./drafts";
-import { hasFeature } from "./features";
 import { isPro, reserveAPI } from "./plans";
 import { rateLimit } from "./auth";
 import { decryptXToken, refreshXAccess, xAuthEnabled } from "./x-auth";
@@ -44,10 +43,7 @@ export async function xPublishing(
     progress?.posts.some((p) => p.sending) &&
     (!publication.lease_until || publication.lease_until <= new Date());
   return {
-    enabled:
-      xAuthEnabled() &&
-      (await hasFeature(userId, "x-publishing")) &&
-      (await isPro(userId)),
+    enabled: xAuthEnabled() && (await isPro(userId)),
     account: account
       ? {
           id: account.x_id,
@@ -98,8 +94,8 @@ export async function postToX(
   xId: string,
 ) {
   await ownedDraft(draftId, userId);
-  if (!xAuthEnabled() || !(await hasFeature(userId, "x-publishing")))
-    error(403, "X posting isn’t enabled for this account.");
+  if (!xAuthEnabled()) error(503, "X posting isn’t configured.");
+  if (!(await isPro(userId))) error(403, "X posting requires Pro.");
   await rateLimit(`x-posting:${userId}`, 1200, 900);
   await refreshXAccess(userId, xId, [
     "tweet.write",
@@ -110,8 +106,6 @@ export async function postToX(
   // the confirmed job, but no worker or page load ever starts publishing.
   const claim = await transaction(async (client) => {
     const period = await reserveAPI(client, userId, "x", 0);
-    if (!(await hasFeature(userId, "x-publishing")))
-      error(403, "X posting isn’t enabled for this account.");
     await client.query(
       "SELECT id FROM drafts WHERE id=$1 AND owner_id=$2 FOR UPDATE",
       [draftId, userId],

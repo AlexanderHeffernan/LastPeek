@@ -84,11 +84,12 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
         { id: xId, username: "actual_account", name: "Real X account" },
       ],
     );
+    await db.query("UPDATE users SET plan='free' WHERE id=$1", [userId]);
+    assert.equal((await xPublishing(userId, draftId)).enabled, false);
     await assert.rejects(post(), rejects(403));
-    await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'x-publishing')",
-      [userId],
-    );
+    assert.equal(refreshes, 0, "Free access never refreshes provider tokens");
+    await db.query("UPDATE users SET plan='pro' WHERE id=$1", [userId]);
+    assert.equal((await xPublishing(userId, draftId)).enabled, true);
     await assert.rejects(postToX(otherId, draftId, 1, xId), rejects(404));
     await assert.rejects(post(1, "999"), rejects(409));
     await assert.rejects(post(2), rejects(409));
