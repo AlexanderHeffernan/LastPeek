@@ -12,12 +12,21 @@ Migration 033 adds same-draft comment reply roots, immutable attachment/time anc
 conversation read boundaries. `feedback.ts` owns both owner and reviewer writes. Owner comments
 serialize against the edit version and snapshot saved content even before sharing; reviewer writes
 retain capability/grant locks and the revision actually reviewed. Replies to replies flatten to the
-root. `discussions.ts` derives inbox membership from ownership or participation plus current review
+root. `discussions.ts` resolves notification destinations from ownership or participation plus current review
 access. Reply notifications go to currently accessible account participants and the owner; their
-destination rechecks access. Read receipts advance monotonically to observed comment timestamps;
-opening an inbox conversation marks the currently available conversation read. Legacy resolution
+destination rechecks access. There is no standalone discussion inbox. The old read endpoint/table
+remain for rolling compatibility, but new browsers no longer write read receipts. Legacy resolution
 fields and tools remain compatible. Authors can hide resolved roots in the browser; a new reply
 reopens the root in the same transaction as its comment write.
+
+Migration 036 stores short-lived per-draft viewer presence. Visible review pages heartbeat every
+five seconds; rows expire from display after twenty seconds and maintenance prunes them after a
+minute. Each page instance is identified by a hash of an HTTP-only random browser cookie plus a
+per-instance nonce, so leaving one tab does not remove another. Signed-in identities come from
+the session, never the submitted guest name, and are deduplicated in the viewer list. Every request
+rechecks ownership or the current review capability/grant; listing and avatar access also exclude
+viewers whose access was revoked. This is recent viewing of this draft, not account-wide online
+status. A draft/comment activity stamp refreshes review data without replacing unsent composition.
 
 Feedback reads return the original post/source from its immutable revision for local comparison.
 Sharing the draft also shares existing author questions and their attached review context. Private

@@ -75,6 +75,7 @@ export async function adminData(
       plans: await planAllowances(),
       financialModel: await financialModel(),
       invitations: [],
+      accountRequests: [],
     };
   const [overview, directory, costs, history, flags] = await Promise.all([
     adminOverview(),
@@ -96,6 +97,20 @@ export async function adminData(
     history,
     plans: await planAllowances(),
     financialModel: await financialModel(),
+    accountRequests: isOwner(user)
+      ? (
+          await db.query(
+            `SELECT r.email,r.name,r.created_at FROM account_requests r
+       WHERE NOT EXISTS (SELECT 1 FROM users u WHERE lower(u.email)=r.email)
+       AND NOT EXISTS (SELECT 1 FROM invites i WHERE lower(i.email)=r.email
+         AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>now())
+       ORDER BY r.created_at DESC LIMIT 200`,
+          )
+        ).rows.map((row) => ({
+          ...row,
+          created_at: row.created_at.toISOString(),
+        }))
+      : [],
     invitations: (
       await db.query(
         "SELECT id,email,plan,created_at,expires_at,used_at,revoked_at FROM invites WHERE email IS NOT NULL ORDER BY created_at DESC,id DESC",

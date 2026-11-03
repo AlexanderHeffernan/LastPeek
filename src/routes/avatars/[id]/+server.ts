@@ -29,6 +29,15 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
       ) OR EXISTS (
         SELECT 1 FROM notifications n JOIN users u ON u.id=n.actor_id
         WHERE n.user_id=$2 AND u.avatar_id=$1
+      ) OR EXISTS (
+        SELECT 1 FROM review_presence p JOIN users u ON u.id=p.user_id
+        JOIN drafts d ON d.id=p.draft_id
+        WHERE u.avatar_id=$1 AND p.seen_at>now()-interval '20 seconds'
+          AND (d.owner_id=$2 OR d.id=$3::uuid)
+          AND (p.user_id=d.owner_id OR d.share_token IS NOT NULL OR
+            (d.friend_token IS NOT NULL AND EXISTS (
+              SELECT 1 FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
+              WHERE fr.draft_id=d.id AND fr.recipient_id=p.user_id)))
       )
     )`,
     [

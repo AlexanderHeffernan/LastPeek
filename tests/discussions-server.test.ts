@@ -17,7 +17,7 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     await import("../src/lib/server/feedback");
   const { createDraft, publishDraft, saveDraft, draftComments } =
     await import("../src/lib/server/drafts");
-  const { discussionInbox, discussionDestination } =
+  const { discussionDestination } =
     await import("../src/lib/server/discussions");
   const { blankContent } = await import("../src/lib/contracts");
   t.after(async () => {
@@ -58,7 +58,7 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     2,
   );
   assert.equal(
-    (await discussionInbox(owner)).length,
+    (await draftComments(draft)).length,
     1,
     "author can ask before sharing",
   );
@@ -104,13 +104,6 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     question.id,
   );
   assert.equal(comments.find((c) => c.id === follow.id)?.media_time, 3.25);
-  assert.equal(
-    (await discussionInbox(reviewer)).length,
-    1,
-    "one inbox row per conversation, not per reply",
-  );
-  assert.equal((await discussionInbox(reviewer))[0].unread, true);
-  assert.equal((await discussionInbox(outsider)).length, 0);
   assert.ok(
     (await discussionDestination(reviewer, follow.id)).href.startsWith(
       `/r/${shared.token}`,
@@ -152,7 +145,6 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     }),
   );
   await db.query("UPDATE drafts SET share_token=NULL WHERE id=$1", [draft]);
-  assert.deepEqual(await discussionInbox(reviewer), []);
   await assert.rejects(discussionDestination(reviewer, follow.id), {
     status: 404,
   });
@@ -160,8 +152,8 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     status: 404,
   });
   assert.equal(
-    (await discussionInbox(owner)).length,
-    2,
+    (await draftComments(draft)).length,
+    4,
     "revocation preserves author discussion history",
   );
   const existingReply = blankContent("Other");

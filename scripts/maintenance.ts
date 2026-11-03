@@ -14,6 +14,9 @@ try {
     "DELETE FROM notifications WHERE created_at<now()-interval '90 days'",
   );
   await db.query("DELETE FROM sessions WHERE expires_at<now()");
+  await db.query(
+    "DELETE FROM review_presence WHERE seen_at<now()-interval '1 minute'",
+  );
   await db.query('DELETE FROM auth_sessions WHERE "expiresAt"<now()');
   await db.query('DELETE FROM auth_verifications WHERE "expiresAt"<now()');
   await db.query(

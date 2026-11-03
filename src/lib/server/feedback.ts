@@ -173,12 +173,6 @@ async function writeComment(
         draftId,
         commentId: id,
       });
-    if (userId)
-      await client.query(
-        `INSERT INTO discussion_reads(user_id,comment_id) VALUES($1,$2)
-       ON CONFLICT(user_id,comment_id) DO UPDATE SET read_at=now()`,
-        [userId, parentId ?? id],
-      );
     return { id, revision };
   });
 }

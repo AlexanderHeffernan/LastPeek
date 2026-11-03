@@ -7,10 +7,12 @@
   import type { AdminData } from "$lib/admin";
   let {
     invitations,
+    accountRequests,
     owner,
     send,
   }: {
     invitations: AdminData["invitations"];
+    accountRequests: AdminData["accountRequests"];
     owner: boolean;
     send: (command: object) => Promise<any>;
   } = $props();
@@ -93,6 +95,36 @@
       }}><Icon name="plus" size={16} />Invite</Button
     >{/if}
 </div>
+{#if owner && accountRequests.length}
+  <h3>Account requests</h3>
+  <table aria-label="Account requests">
+    <tbody
+      >{#each accountRequests as request (request.email)}
+        <tr
+          ><th scope="row"
+            >{request.name}<br /><span class="muted">{request.email}</span></th
+          >
+          <td data-label="Requested">{date(request.created_at)}</td>
+          <td
+            ><Button
+              variant="outline"
+              aria-label={`Invite ${request.name}`}
+              onclick={() => {
+                email = request.email;
+                plan = "free";
+                link = "";
+                failure = "";
+                copied = false;
+                revoke = null;
+                dialog?.showModal();
+              }}>Invite</Button
+            ></td
+          ></tr
+        >
+      {/each}</tbody
+    >
+  </table>
+{/if}
 <div class="filters">
   <Input
     type="search"

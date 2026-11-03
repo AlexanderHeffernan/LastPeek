@@ -32,6 +32,10 @@
   <Dialog.Content
     class="media-viewer flex flex-col gap-0 p-0"
     showCloseButton={false}
+    onclick={(event) => {
+      if (!(event.target as Element).closest("img,video,button,a"))
+        index = null;
+    }}
     onCloseAutoFocus={(event) => {
       if (!pendingComment) return;
       event.preventDefault();

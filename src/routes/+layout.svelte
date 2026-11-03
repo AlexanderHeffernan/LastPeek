@@ -6,6 +6,8 @@
   import SiteAdmin from "$lib/components/SiteAdmin.svelte";
   import PortraitOrientation from "$lib/components/PortraitOrientation.svelte";
   import AppShell from "$lib/components/AppShell.svelte";
+  import GuestAccess from "$lib/components/GuestAccess.svelte";
+  import { writable } from "svelte/store";
   import { appleLaunchImages } from "$lib/pwa";
   import { referrerPolicy } from "$lib/referrer-policy";
   import { registerServiceWorker } from "$lib/register-service-worker";
@@ -30,6 +32,15 @@
     }
     document.documentElement.dataset.theme = theme;
   });
+  const guestName = writable("");
+  let guestAccess = $state<GuestAccess>();
+  setContext("guest-name", guestName);
+  setContext("guest-access", (oncontinue?: () => void) =>
+    guestAccess?.show(oncontinue),
+  );
+  const guestReview = $derived(
+    page.route.id === "/r/[token]" && !page.data.reviewer,
+  );
   $effect(() => {
     const user = shellUser;
     const ids = [...presence.users.keys()];
@@ -183,15 +194,20 @@
     />
   {/each}
 </svelte:head>
-<div class="app-content" class:signed-in={!!shellUser}>
-  {#if shellUser}
-    <AppShell user={shellUser} canViewAdmin={page.data.canViewAdmin}>
+<div class="app-content" class:with-shell={!!shellUser || guestReview}>
+  {#if shellUser || guestReview}
+    <AppShell
+      user={shellUser ?? { name: $guestName || "Guest", avatar_id: null }}
+      guest={guestReview}
+      canViewAdmin={page.data.canViewAdmin}
+    >
       {@render children()}
     </AppShell>
   {:else}
     {@render children()}
   {/if}
 </div>
+{#if guestReview}<GuestAccess bind:this={guestAccess} />{/if}
 <PortraitOrientation />
 {#if page.data.canViewAdmin}
   <dialog
@@ -221,7 +237,7 @@
     </div>
   </dialog>
 {/if}
-{#if !shellUser}
+{#if !shellUser && !guestReview}
   <footer class="footer-note">
     LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
       >Source code</a

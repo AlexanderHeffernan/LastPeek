@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
   import DiscussionComposer from "$lib/components/DiscussionComposer.svelte";
+  import ReviewPresence from "$lib/components/ReviewPresence.svelte";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Select } from "$lib/components/ui/select/index.js";
   import { applyAIEdit } from "$lib/ai";
@@ -123,13 +124,8 @@
   onMount(() => {
     origin = location.origin;
     if (dirty) changed();
-    const refresh = setInterval(() => {
-      if (version > 0 && document.visibilityState === "visible")
-        void invalidateAll();
-    }, 15000);
     return () => {
       clearTimeout(timer);
-      clearInterval(refresh);
     };
   });
   beforeNavigate(({ cancel, to, willUnload, type }) => {
@@ -601,6 +597,7 @@
       aria-label="Back to drafts"><Icon name="back" size={20} /></Button
     >
     <h1>{postKind}</h1>
+    {#if version > 0}<ReviewPresence draftId={data.draft.id} />{/if}
     <Button
       variant="ghost"
       class="edit-shortcut"
@@ -722,7 +719,7 @@
       <div class="secondary-actions">
         <div class="desktop-draft-actions">
           {#if !data.draft.posted_at}<Button
-              variant="ghost"
+              variant="secondary"
               class="icon-button"
               title="Mark as posted"
               aria-label="Mark as posted"
@@ -731,7 +728,7 @@
               ><Icon name="done" size={20} /></Button
             >{/if}
           <Button
-            variant="ghost"
+            variant="destructive"
             class="icon-button danger"
             title="Delete draft"
             aria-label="Delete draft"
@@ -847,7 +844,6 @@
                       else commentBody = value;
                     }
                   }
-                  user={data.user}
                   replyName={inline ? commentParent?.name : undefined}
                   postLabel={!inline && commentPost
                     ? `Post ${content.posts.findIndex((p) => p.id === commentPost) + 1}`
@@ -1131,7 +1127,6 @@
   }
   .desktop-draft-actions :global(.icon-button) {
     border-radius: 999px;
-    background: var(--secondary);
   }
   .action-error {
     grid-column: 1 / -1;

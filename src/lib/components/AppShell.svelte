@@ -10,24 +10,24 @@
   import type { Snippet } from "svelte";
   let {
     user,
+    guest = false,
     canViewAdmin,
     children,
   }: {
     user: { name: string; avatar_id: string | null };
+    guest?: boolean;
     canViewAdmin: boolean;
     children: Snippet;
   } = $props();
   const openAdmin = getContext<() => void>("open-siteadmin");
   const mobileTitle = $derived(
-    page.url.pathname === "/feedback"
-      ? "Discussions"
-      : page.url.pathname === "/notifications"
-        ? "Notifications"
-        : page.url.pathname === "/friends"
-          ? page.url.searchParams.get("view") === "requests"
-            ? "Add friends"
-            : "Friends"
-          : null,
+    page.url.pathname === "/notifications"
+      ? "Notifications"
+      : page.url.pathname === "/friends"
+        ? page.url.searchParams.get("view") === "requests"
+          ? "Add friends"
+          : "Friends"
+        : null,
   );
   let shell = $state<HTMLDivElement>();
   let header = $state<HTMLElement>();
@@ -42,7 +42,8 @@
   const navigation = { reveal: () => {} };
   setContext("mobile-navigation", navigation);
   afterNavigate(() => navigation.reveal());
-  onMount(() => {
+  $effect(() => {
+    if (guest) return;
     const refresh = setInterval(() => {
       if (document.visibilityState === "visible")
         void fetch("/api/notifications")
@@ -237,19 +238,6 @@
     <Button
       variant="ghost"
       class="icon-button drafts-link"
-      href="/feedback"
-      aria-current={page.url.pathname === "/feedback" ? "page" : undefined}
-      aria-label="Discussions"
-      title="Discussions"
-      ><Icon
-        name="comment"
-        size={30}
-        weight={page.url.pathname === "/feedback" ? "fill" : "regular"}
-      /></Button
-    >
-    <Button
-      variant="ghost"
-      class="icon-button drafts-link"
       href="/friends"
       aria-current={page.url.pathname === "/friends" ? "page" : undefined}
       aria-label="Friends"
@@ -294,11 +282,12 @@
     class="icon-button account-link"
     href="/settings"
     aria-current={page.url.pathname === "/settings" ? "page" : undefined}
-    aria-label="Account settings"
-    title="Account settings"
+    aria-label={guest ? "Guest account" : "Account settings"}
+    title={guest ? `${user.name} · Guest` : "Account settings"}
     ><UserIdentity
       name={user.name}
       avatarId={user.avatar_id}
+      {guest}
       avatarOnly
     /></Button
   >

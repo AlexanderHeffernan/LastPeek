@@ -8,6 +8,14 @@ The current review overhaul supersedes the flat-feedback, All/Open/Resolved and 
 “Earlier feedback” descriptions in the baseline below. Keep the theme-aware coral identity,
 native post presentation, shared controls and responsive shell.
 
+- Guest reviews now reuse the same desktop rail and mobile shell, with no guest topbar or footer.
+  This supersedes the guest layout and name-on-send guidance below. On first opening, a shared
+  Dialog offers a name, Continue as guest, Sign in and Request an account. Remember the name for
+  the browser session. Guest navigation and the page's back arrow open a compact account prompt
+  without changing the route or discarding feedback. Never trap external browser navigation.
+  Sign-in opens separately so the draft and unsent comment stay in place. Guest avatars use
+  Phosphor's dashed user circle; comments retain the entered name and a small Guest label.
+  Account requests remain invite-only and appear in the owner's Invitations queue.
 - One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
   before sharing and reply in the same space as reviewers. Keep a single reply indentation level;
   all replies stay visible without reply-count disclosures. Name, handle,
@@ -15,12 +23,13 @@ native post presentation, shared controls and responsive shell.
   the 40px avatar, with continuous avatar-column reply connectors, not stacked feedback cards.
   Reply composition stays inside its conversation in one row with send and cancel. The general
   composer remains in place and retains its text. Guests provide a name only when sending.
-- The desktop discussion column is 380px beside the 600px post when space permits. The page has
+- Draft and All Drafts share the same 1000px desktop application frame, including the 68px rail.
+  Discussion uses the remaining column beside the 600px post and 24px gap. The page has
   one document scroll, never an independently scrolling, viewport-height discussion sidebar.
   Only Discussion/AI review tabs stick during scrolling; sharing and destructive actions scroll away.
   Tabs have breathing room beneath the action strip. Private AI results stay
   mounted when switching tabs; changing tabs must not discard a comment or a finding.
-- Authors and reviewers share an avatar-led, auto-growing composer. The compact comment action
+- Authors and reviewers share an auto-growing composer without a redundant self-avatar. The compact comment action
   sits alongside the field, not stranded beneath it. Selected wording and media use removable
   context chips. Friendship actions sit in the comment action row so identity metadata stays compact.
 - Post/text/attachment context sits above the comment. Video feedback captures the current
@@ -30,8 +39,11 @@ native post presentation, shared controls and responsive shell.
 - Authors can resolve conversations, which fade out of the active discussion. A quiet bottom
   separator opens resolved conversations; the empty separator says Nothing resolved. A new reply
   reopens them. Discussion counts exclude resolved conversations and their replies.
-- The Discussions destination uses Unread/All, search and compact conversation rows. Opening a row
-  returns to the actual draft/comment. No separate messaging surface or dashboard metrics.
+- Discussion belongs to its draft, not a separate navigation destination. Recent feedback and
+  notifications link directly to the draft/comment; old `/feedback` bookmarks return to Drafts.
+- Other viewers appear as a compact avatar stack beside the Post heading, with hover names and
+  explicit guest identities. Entering/leaving viewers animate quietly. Mobile draft/review pages
+  omit the separate account/mascot header; keep the post heading and bottom navigation.
 - AI is private, not chat: one-click Quick review, Proofread, Clarity, Tighten, Tone and Thread
   flow stay above saved newest-first results. Findings offer Apply (when safe) and Dismiss, never
   Share to discussion. A lock beside the tab explains text-only provider/privacy/allowance details
@@ -58,7 +70,7 @@ quality; evaluate representative clean, faulty and subjective drafts when iterat
 - Settings → Personalisation offers Auto, Dark and Light. Auto is the default and follows OS changes immediately. Save the choice to the account; retain a cosmetic browser cookie for signed-out and offline pages. Server-render the preference before paint rather than flashing a different theme or weakening CSP for a boot script. Explicit changes cross-fade the page over 240ms using native view transitions; reduced motion and browsers without that API switch immediately. Never animate initial rendering or move the layout when changing appearance.
 - Light uses the product film's warm cream (`#fff6ed`), ink (`#22191b`), ivory surfaces and soft warm borders. Dark retains its near-black page (`#0b0b0c`), raised surfaces (`#161618`), hairline borders (`#2b2b2e`) and warm off-white text (`#f2f0ec`). Define both sides together with `light-dark()` semantic tokens in `src/app.css`; shared controls, post previews, feedback, menus and errors inherit them. Do not add page-specific theme overrides or fixed dark canvas/text colours. Actual photos/video canvases, scrims and the mascot's eyes retain their intentional colours.
 - Coral (`#ff6b5b`) belongs to LastPeek: the logo, primary actions, focus, and shared state. Use it sparingly. Light-mode filled controls and active navigation icons use brighter coral (`--primary-fill`, `#e05c4b`), with ink text on filled controls. Small coral text and links retain deeper `--primary` (`#b94032`) for contrast; the logo keeps the original coral. Dark-mode fills remain `#ff6b5b`. Destructive states use theme-aware rose so they never read as a primary action. No decorative gradients, rainbow statuses, or glowing dashboard chrome.
-- The mark is a coral speech bubble with two off-white eyes glancing right; the wordmark is “LastPeek” outlined from Outfit ExtraBold (OFL) with coral pupils in the “ee”. Each “e” is a solid eyeball with a coral iris and a thin lid slit (02A). Both live as SVG in `Brand.svelte`, so no font is loaded. The pupils follow a nearby mouse and rest looking right; the motion is decorative, so it stays still for touch and reduced motion. Keep `static/favicon.svg`, `favicon.ico` and `apple-touch-icon.png` in sync with the mark; do not replace it with a generic library eye.
+- The mark is a coral speech bubble with two off-white eyes glancing right; the wordmark is “LastPeek” outlined from Outfit (OFL), with ordinary e’s, never eyes in the typography. Both live as SVG in `Brand.svelte`, so no font is loaded. The mascot pupils follow a nearby mouse and rest looking right; the motion is decorative, so it stays still for touch and reduced motion. Keep `static/favicon.svg`, `favicon.ico` and `apple-touch-icon.png` in sync with the mark; do not replace it with a generic library eye.
 - Use system Arial/Helvetica for an X-like, local-first type stack. Clear hierarchy, quiet metadata, comfortable contrast. No required remote fonts or image services.
 - Signed-in pages use a centered application frame with a 68px fixed left navigation rail attached to the content, not the viewport edge: the mark alone at the top, Drafts and Feedback beneath it, and the account avatar at the bottom. The avatar opens settings and has visible hover, keyboard-focus and current-page treatments. Mobile places the account at the top left and mascot centered in a 52px row with tabs below. Page-specific search is the first item in the scrolling feed, not fixed chrome. Drafts/Feedback sit in a compact 48px bottom row with a reduced safe-area inset that still clears the home indicator and retains 44px touch targets. Admin has no visible navigation button: retain the desktop `~` shortcut and a mobile mascot long-press gesture for authorized admins. The header, tabs, bottom navigation and floating plus follow one clamped scroll offset without fading or direction thresholds; reverse immediately with the scroll and settle gently only after scrolling ends. Clamp iOS rubber-banding so it cannot spuriously reveal the bars. Transform fixed overlays rather than moving content, and keep the top safe-area background stationary. The floating plus remains visible as it lowers with navigation; it includes enabled quote/reply options. Signed-in pages have no footer. Signed-out and guest-review layouts keep their existing headers and footer.
 - The rail's mascot reacts through its eyes, never by moving, tilting or scaling the logo. On hover-capable pointers, a quick blink opens into tall, wide eyes with small pupils for a surprised double take. Finish the reaction even if the pointer leaves early, then ease back to rest; re-entering during the reaction must not restart it. There is no hover background. Mobile mascot taps trigger the same reaction and scroll to the top; ambient pointer-following stays off for touch. Respect reduced motion for all reactions and navigation transitions. Navigation icons are filled on their active page and outlined elsewhere, with a subtle circular background that fades in only on hover.

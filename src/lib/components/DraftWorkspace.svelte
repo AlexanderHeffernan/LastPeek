@@ -507,9 +507,6 @@
       {:else}
         <p class="feedback-empty">A second pair of eyes will show up here.</p>
       {/each}
-      <Button variant="ghost" href="/feedback" class="all-feedback"
-        >View discussions<Icon name="arrow" size={16} /></Button
-      >
     </aside>
   </main>
 </Tabs.Root>
@@ -631,9 +628,6 @@
   }
   .floating-create {
     display: none;
-  }
-  :global(.all-feedback) {
-    width: 100%;
   }
   .drafts-page {
     width: 100%;

@@ -3,6 +3,7 @@
   import { page } from "$app/state";
   import type { Presence } from "$lib/presence.svelte";
   import { avatarURL, presenceLabel } from "$lib/contracts";
+  import Icon from "./Icon.svelte";
   let {
     name,
     avatarId,
@@ -10,6 +11,7 @@
     userId,
     token,
     avatarOnly = false,
+    guest = false,
     showPresence = true,
     compact = false,
     discussion = false,
@@ -22,6 +24,7 @@
     userId?: string | null;
     token?: string;
     avatarOnly?: boolean;
+    guest?: boolean;
     showPresence?: boolean;
     compact?: boolean;
     discussion?: boolean;
@@ -52,7 +55,9 @@
           alt=""
           loading="lazy"
         />
-      {:else}{name.slice(0, 1).toUpperCase()}{/if}
+      {:else if guest}<Icon name="guest" size={34} />{:else}{name
+          .slice(0, 1)
+          .toUpperCase()}{/if}
     </span>
     {#if !avatarOnly && label === "Active now"}<span
         class="activity-dot"

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import { untrack, type Snippet } from "svelte";
-  import { fade, slide } from "svelte/transition";
+  import type { Snippet } from "svelte";
+  import { slide } from "svelte/transition";
   import { Button } from "$lib/components/ui/button/index.js";
   import FriendControl from "$lib/components/FriendControl.svelte";
   import UserIdentity from "$lib/components/UserIdentity.svelte";
@@ -56,30 +56,19 @@
   const comparedPost = $derived(
     content.posts.find((p) => p.id === comparing?.post_id),
   );
-  function markRead(node: HTMLElement, comment: Feedback) {
-    const viewer = untrack(() => page.data.user?.id ?? page.data.reviewer?.id);
-    const root = comment.parent_id ?? comment.id;
-    if (
-      !viewer ||
-      (viewer !== ownerId &&
-        !comments.some(
-          (c) =>
-            c.user_id === viewer && (c.id === root || c.parent_id === root),
-        ))
-    )
-      return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        void fetch(`/api/discussions/${comment.id}/read`, {
-          method: "POST",
-        }).catch(() => {});
+  // Enter: make room, then reveal. Exit reverses that order: fade, then close the gap.
+  function conversation(node: Element) {
+    const duration = matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? 0
+      : 360;
+    const layout = slide(node, { duration, easing: (t) => t });
+    return {
+      ...layout,
+      css: (t: number) => {
+        const height = Math.min(t / 0.6, 1);
+        return `${layout.css!(height, 1 - height)};opacity:${Math.max(0, (t - 0.6) / 0.4)}`;
       },
-      { threshold: 0.5 },
-    );
-    observer.observe(node);
-    return { destroy: () => observer.disconnect() };
+    };
   }
 </script>
 
@@ -94,7 +83,10 @@
     >
       <span></span>{roots.some((c) => c.resolved)
         ? `Resolved · ${roots.filter((c) => c.resolved).length}`
-        : "Nothing resolved"}<Icon name="down" size={14} /><span></span>
+        : "Nothing resolved"}{#if roots.some((c) => c.resolved)}<Icon
+          name="down"
+          size={14}
+        />{/if}<span></span>
     </button>
   {/if}
   {#each roots.filter((c) => !!c.resolved === resolved) as root (root.id)}
@@ -102,20 +94,7 @@
       .filter((c) => c.parent_id === root.id)
       .toReversed()}
     {#if !root.resolved || showResolved || [root, ...replies].some((c) => page.url.hash === `#feedback-${c.id}`)}<section
-        out:fade={{
-          duration:
-            typeof window !== "undefined" &&
-            matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? 0
-              : 200,
-        }}
-        in:slide={{
-          duration:
-            typeof window !== "undefined" &&
-            matchMedia("(prefers-reduced-motion: reduce)").matches
-              ? 0
-              : 180,
-        }}
+        transition:conversation
         class="discussion-thread"
         class:has-replies={replies.length > 0}
         aria-label={`Conversation from ${root.name}`}
@@ -123,7 +102,9 @@
         {@render entry(root)}
         {#if replies.length}<div class="discussion-replies">
             <div class="reply-entries">
-              {#each replies as reply (reply.id)}{@render entry(reply)}{/each}
+              {#each replies as reply (reply.id)}<div transition:conversation>
+                  {@render entry(reply)}
+                </div>{/each}
             </div>
           </div>{/if}
         {#if composer && replyingTo === root.id}<div class="thread-composer">
@@ -138,7 +119,6 @@
   {@const post = content.posts.find((p) => p.id === comment.post_id)}
   {@const file = media.find((m) => m.id === comment.media_id)}
   <article
-    use:markRead={comment}
     id={`feedback-${comment.id}`}
     tabindex="-1"
     class="feedback-card"
@@ -150,20 +130,19 @@
       avatarId={comment.avatar_id}
       handle={comment.handle}
       userId={comment.user_id}
+      guest={!comment.user_id}
       {token}
       compact
       discussion
     >
       {#snippet metadata()}
+        {#if !comment.user_id}<span class="author-label">Guest</span>{/if}
         {#if ownerId && comment.user_id === ownerId}<span class="author-label"
             >Author</span
           >{/if}
         <time datetime={comment.created_at}
           >{relativeTime(comment.created_at)}</time
         >
-        {#if comment.resolved && !comment.parent_id}<span class="small muted"
-            >Resolved</span
-          >{/if}
       {/snippet}
       <div class="comment-context">
         {#if comment.post_id && (content.posts.length > 1 || !post)}<span
@@ -342,6 +321,9 @@
     padding: 16px 0;
   }
   .discussion-thread:first-child {
+    border-top: 0;
+  }
+  .resolved-divider + .discussion-thread {
     border-top: 0;
   }
   .discussion-replies {

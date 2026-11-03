@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
-  import UserIdentity from "$lib/components/UserIdentity.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "$lib/components/Icon.svelte";
   import { mediaURL, type Media } from "$lib/contracts";
@@ -12,7 +11,6 @@
     id,
     label,
     name = "body",
-    user,
     replyName,
     postLabel,
     quote,
@@ -31,7 +29,6 @@
     id?: string;
     label: string;
     name?: string;
-    user: { name: string; avatar_id?: string | null };
     replyName?: string;
     postLabel?: string;
     quote?: string;
@@ -49,12 +46,6 @@
 </script>
 
 <div class="discussion-composer">
-  <UserIdentity
-    name={user.name}
-    avatarId={user.avatar_id}
-    avatarOnly
-    showPresence={false}
-  />
   <div class="composer-content">
     {#if postLabel || quote || media}<div class="composer-context">
         {#if media && !media.mime.startsWith("video/")}<img
@@ -114,9 +105,7 @@
 
 <style>
   .discussion-composer {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 10px;
+    display: block;
     padding: 10px 0 12px;
   }
   .composer-content {

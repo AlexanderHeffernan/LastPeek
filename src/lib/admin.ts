@@ -119,6 +119,7 @@ export type AdminData = {
   history: AccessChange[];
   plans: Record<Plan, Allowances>;
   financialModel: FinancialModel;
+  accountRequests: { email: string; name: string; created_at: string }[];
   invitations: {
     id: string;
     email: string;

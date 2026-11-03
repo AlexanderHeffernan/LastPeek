@@ -70,6 +70,105 @@ test("personalisation belongs to the signed-in account and rejects invalid appea
   assert.match(await anonymous.text(), /<html[^>]+data-theme="auto"/);
 });
 
+test("guest account requests are same-origin, private and never grant access", async (t) => {
+  const email = `${randomUUID()}@example.test`;
+  const client = await request.newContext();
+  const owner = process.env.LASTPEEK_OWNER_ID!,
+    admin = randomUUID();
+  const ownerSession = token(),
+    adminSession = token();
+  assert.ok(owner, "Use an unused test owner UUID, never a real account.");
+  assert.equal(
+    (await db.query("SELECT 1 FROM users WHERE id=$1", [owner])).rowCount,
+    0,
+  );
+  t.after(async () => {
+    await client.dispose();
+    await db.query("DELETE FROM account_requests WHERE email=$1", [email]);
+    await db.query("DELETE FROM invites WHERE created_by=$1", [owner]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, admin],
+    ]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash,is_admin) VALUES($1,$2,'Owner','unused',true),($3,$4,'Admin','unused',true)",
+    [owner, `${owner}@example.test`, admin, `${admin}@example.test`],
+  );
+  for (const [id, session] of [
+    [owner, ownerSession],
+    [admin, adminSession],
+  ])
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [hash(session), id],
+    );
+  const endpoint = `${origin}/api/account-requests`;
+  const rejected = await client.post(endpoint, {
+    headers: { Origin: "https://untrusted.example" },
+    data: { name: "Intruder", email },
+  });
+  assert.equal(rejected.status(), 403);
+  const bad = await client.post(endpoint, {
+    headers: { Origin: origin },
+    data: { name: " ", email },
+  });
+  assert.equal(bad.status(), 400);
+  for (const name of ["  Guest  ", "Duplicate"]) {
+    const response = await client.post(endpoint, {
+      headers: { Origin: origin },
+      data: { name, email: email.toUpperCase() },
+    });
+    assert.equal(response.status(), 200);
+    assert.deepEqual(await response.json(), { received: true });
+  }
+  assert.deepEqual(
+    (
+      await db.query("SELECT email,name FROM account_requests WHERE email=$1", [
+        email,
+      ])
+    ).rows,
+    [{ email, name: "Guest" }],
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM users WHERE email=$1", [email])).rowCount,
+    0,
+  );
+  assert.equal((await client.get(endpoint)).status(), 405);
+  assert.equal(
+    (await client.get(`${origin}/siteadmin/snapshot`)).status(),
+    404,
+  );
+  const queue = async (session: string) => {
+    const response = await client.get(
+      `${origin}/siteadmin/snapshot?view=invitations`,
+      { headers: { Cookie: `lastpeek_session=${session}` } },
+    );
+    assert.equal(response.status(), 200);
+    return (await response.json()).accountRequests;
+  };
+  assert.deepEqual(
+    (await queue(ownerSession)).map(
+      ({ email, name }: { email: string; name: string }) => ({ email, name }),
+    ),
+    [{ email, name: "Guest" }],
+  );
+  assert.deepEqual(
+    await queue(adminSession),
+    [],
+    "Only the owner sees prospective users' email addresses.",
+  );
+  const invitation = await client.post(`${origin}/siteadmin/snapshot`, {
+    headers: { Origin: origin, Cookie: `lastpeek_session=${ownerSession}` },
+    data: { action: "invite", email, plan: "free" },
+  });
+  assert.equal(invitation.status(), 200);
+  assert.deepEqual(
+    await queue(ownerSession),
+    [],
+    "An issued invitation clears the pending request queue.",
+  );
+});
+
 // A stale manually entered handle and a forged form must never override the
 // connected account. Disconnect changes working identity, not old revisions.
 test("settings identity follows connected X without rewriting shared history", async (t) => {

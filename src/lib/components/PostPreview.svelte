@@ -182,7 +182,7 @@
           text.contains(selection.focusNode)
             ? selection.toString()
             : "";
-        onfocuspost(post.id, quote);
+        onfocuspost(focusedPost === post.id && !quote ? "" : post.id, quote);
       }}
     >
       <div class="avatar" aria-hidden="true">
@@ -384,7 +384,8 @@
                   aria-label={`Comment on post ${index + 1}`}
                   title="Discuss this post, or select specific text"
                   aria-pressed={focusedPost === post.id}
-                  onclick={() => onfocuspost?.(post.id, "")}
+                  onclick={() =>
+                    onfocuspost?.(focusedPost === post.id ? "" : post.id, "")}
                   ><Icon name="comment" size={18} /></Button
                 >{/if}
               {#if editing}<label class="upload-button" title="Add media"

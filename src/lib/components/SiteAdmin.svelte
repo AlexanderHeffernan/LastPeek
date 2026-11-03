@@ -536,6 +536,7 @@
         {:else if data.view === "invitations"}
           <AdminInvitations
             invitations={data.invitations}
+            accountRequests={data.accountRequests}
             owner={data.isOwner}
             {send}
           />

@@ -41,12 +41,14 @@
   import Sun from "phosphor-svelte/lib/Sun";
   import Moon from "phosphor-svelte/lib/Moon";
   import Palette from "phosphor-svelte/lib/Palette";
+  import UserCircleDashed from "phosphor-svelte/lib/UserCircleDashed";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    guest: UserCircleDashed,
     expand: ArrowsOut,
     sun: Sun,
     moon: Moon,

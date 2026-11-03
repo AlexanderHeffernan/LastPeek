@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { Input } from "$lib/components/ui/input/index.js";
   import DiscussionComposer from "$lib/components/DiscussionComposer.svelte";
+  import ReviewPresence from "$lib/components/ReviewPresence.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Popover } from "bits-ui";
   import { enhance } from "$app/forms";
-  import { onMount, tick } from "svelte";
-  import { beforeNavigate, invalidateAll } from "$app/navigation";
-  import Brand from "$lib/components/Brand.svelte";
+  import { getContext, tick } from "svelte";
+  import type { Writable } from "svelte/store";
+  import { beforeNavigate } from "$app/navigation";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -14,9 +14,11 @@
   import type { Feedback } from "$lib/contracts";
   import { unresolvedCount } from "$lib/discussions";
   let { data, form } = $props();
+  const name = getContext<Writable<string>>("guest-name");
+  const guestAccess =
+    getContext<(oncontinue?: () => void) => void>("guest-access");
   let busy = $state(false),
     body = $state(""),
-    name = $state(""),
     postId = $state(""),
     quote = $state("");
   let feedbackRevision = $state<number | null>(null);
@@ -26,13 +28,11 @@
   let lastInline = $state(false);
   let mediaId = $state("");
   let mediaTime = $state<number | null>(null);
-  let identityDialog = $state<HTMLDialogElement>();
   let feedbackForm = $state<HTMLFormElement>();
   let approvalSubmit = $state<HTMLButtonElement>();
   let approvalPending = $state(false);
   let feedbackOpen = $state(false);
   let sent = $state(false);
-  let signingIn = $state(false);
   const postKind = $derived(
     data.content.source?.kind === "reply"
       ? "Reply"
@@ -50,8 +50,13 @@
   const previewImage = $derived(
     `${data.reviewURL}/preview.png?v=${data.revision}`,
   );
-  beforeNavigate(({ cancel }) => {
-    if ((body || replyBody) && !confirm("Leave without sending your feedback?"))
+  beforeNavigate(({ cancel, willUnload }) => {
+    if (
+      data.reviewer &&
+      !willUnload &&
+      (body || replyBody) &&
+      !confirm("Leave without sending your feedback?")
+    )
       cancel();
   });
   function focusPost(id: string, selected: string) {
@@ -71,20 +76,6 @@
     input?.focus({ preventScroll: true });
     input?.scrollIntoView({ block: "center" });
   }
-  onMount(() => {
-    name = sessionStorage.getItem("reviewer-name") || "";
-    const refresh = setInterval(() => {
-      if (
-        document.visibilityState === "visible" &&
-        !body &&
-        !replyBody &&
-        !postId &&
-        !busy
-      )
-        void invalidateAll();
-    }, 15000);
-    return () => clearInterval(refresh);
-  });
 </script>
 
 <svelte:window
@@ -122,13 +113,6 @@
     />
   {/if}
 </svelte:head>
-{#if !data.reviewer}
-  <header class="topbar">
-    <Brand href="/login" /><a class="small muted" href="/login"
-      >Sign in<Icon name="arrow" size={12} /></a
-    >
-  </header>
-{/if}
 <main class="draft-page review-page" class:guest-review={!data.reviewer}>
   <header class="draft-heading">
     <Button
@@ -143,13 +127,14 @@
           : "/login"}
       aria-label={data.reviewer ? "Back to drafts" : "Back"}
       onclick={(event) => {
-        if (!data.reviewer && history.length > 1) {
+        if (!data.reviewer) {
           event.preventDefault();
-          history.back();
+          guestAccess();
         }
       }}><Icon name="back" size={20} /></Button
     >
     <h1>{postKind}</h1>
+    <ReviewPresence token={data.token} />
     {#if data.private}<span class="small muted"
         ><Icon name="lock" size={16} />Friends only</span
       >{/if}
@@ -199,16 +184,19 @@
               ) ?? undefined;
             lastInline = inline;
             feedbackOpen = false;
-            if (!data.reviewer && !name.trim() && !signingIn) {
+            if (!data.reviewer && !$name.trim()) {
               cancel();
-              identityDialog?.showModal();
+              guestAccess(() =>
+                feedbackForm?.requestSubmit(
+                  approvalPending ? approvalSubmit : undefined,
+                ),
+              );
               return;
             }
             busy = true;
             return async ({ result, update }) => {
               await update({ reset: false, invalidateAll: true });
               busy = false;
-              signingIn = false;
               if (result.type === "success") {
                 if (inline) {
                   replyBody = "";
@@ -224,8 +212,6 @@
                 }
                 approvalPending = false;
                 sent = true;
-                identityDialog?.close();
-                sessionStorage.setItem("reviewer-name", name);
               }
             };
           }}
@@ -248,7 +234,7 @@
               name="mediaTime"
               value={mediaTime}
             />{/if}
-          <input type="hidden" name="name" value={name} />
+          <input type="hidden" name="name" value={$name} />
           <input type="hidden" name="currentRevision" value={data.revision} />
           <button
             hidden
@@ -268,7 +254,6 @@
                 else body = value;
               }
             }
-            user={data.reviewer ?? { name: name || "Guest" }}
             replyName={inline ? parent?.name : undefined}
             postLabel={!inline && postId
               ? `Post ${data.content.posts.findIndex((p) => p.id === postId) + 1}`
@@ -372,54 +357,6 @@
     </div>
   </aside>
 </main>
-<dialog
-  bind:this={identityDialog}
-  class="confirm-dialog"
-  aria-labelledby="identity-title"
->
-  <h2 id="identity-title">Who’s giving feedback?</h2>
-  <form
-    onsubmit={(event) => {
-      event.preventDefault();
-      identityDialog?.close();
-      feedbackForm?.requestSubmit(approvalPending ? approvalSubmit : undefined);
-    }}
-    class="stack"
-  >
-    <label
-      >Your name<Input
-        bind:value={name}
-        required
-        maxlength={80}
-        autocomplete="nickname"
-        placeholder="Name or username"
-      /></label
-    >
-    <Button type="submit">Send feedback<Icon name="arrow" size={16} /></Button>
-    <Button
-      variant="outline"
-      href="/login"
-      target="_blank"
-      rel="noopener noreferrer"
-      onclick={() => (signingIn = true)}
-      >Sign in instead<Icon name="arrow" size={16} /></Button
-    >
-    {#if signingIn}<Button
-        variant="outline"
-        onclick={() => {
-          identityDialog?.close();
-          feedbackForm?.requestSubmit(
-            approvalPending ? approvalSubmit : undefined,
-          );
-        }}>Continue signed in</Button
-      >{/if}
-    <Button
-      variant="ghost"
-      type="button"
-      onclick={() => identityDialog?.close()}>Keep writing</Button
-    >
-  </form>
-</dialog>
 
 <style>
   .discussion-heading {
@@ -432,14 +369,21 @@
   .feedback-form {
     display: block;
     padding: 0;
-    border-bottom: 1px solid var(--border);
   }
-  .review-submit > :global(button:first-child) {
+  .review-submit :global(button:first-child) {
     flex: 1;
+  }
+  .review-submit :global(button) {
+    border-radius: 999px 0 0 999px;
+  }
+  .review-submit :global(.share-toggle) {
+    border-radius: 0 999px 999px 0;
+  }
+  .draft-feedback {
+    border-top: 0;
   }
   .review-page {
     width: 100%;
-    max-width: 1004px;
     margin-inline: auto;
   }
   .guest-review {
