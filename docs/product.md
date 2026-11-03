@@ -75,8 +75,14 @@ Tools cover text posts/threads, targeted post edits, private media uploads/reads
 replies and quotes, search/status filters, local X readiness checks, review/feedback queues and
 sharing inspection or recipient removal. Owners can respond to an existing review using its draft
 ID without creating another link. Read-only account context exposes permissions, tool discovery,
-allowances and metadata-only recent operations. Optional permissions cover friend requests and
-notification management, X source/mention lookups and provider-backed AI review. Provider calls
+allowances and metadata-only recent operations. Task-based groups cover Drafting, Feedback, Sharing,
+and optional AI/X tools. Groups start collapsed with selection counts and group checkboxes visible.
+Review-link management and sharing with specific people are separate permissions. Older combined
+sharing grants retain their existing authority and can be narrowed independently without reconnecting.
+Attachments follow draft/review permissions, and accepted friends remain
+available for choosing private-review recipients, without friendship or notification management.
+Existing connections can request added permissions in Settings and complete OAuth reauthorization
+from the agent without deleting their connection; client reauthorization support varies. Provider calls
 reuse website eligibility, cache and allowances; paid X reads are not selected by default.
 New permissions always require fresh consent and never broaden existing credentials.
 

@@ -1,9 +1,10 @@
 import { fail, error } from "@sveltejs/kit";
-import { db } from "$lib/server/db";
+import { db, transaction } from "$lib/server/db";
 import { requireUser, sameOrigin } from "$lib/server/auth";
 import { agentExpiryDate, parseAgentScopes } from "$lib/server/agent-auth";
 import { hasFeatureAccess } from "$lib/server/features";
 import type { AgentScope } from "$lib/agents";
+import { expandAgentScopes, normalizeAgentScopes } from "$lib/agents";
 import type { RequestEvent } from "@sveltejs/kit";
 
 export const agentConnections = async ({
@@ -18,6 +19,7 @@ export const agentConnections = async ({
       name: string;
       scopes: AgentScope[];
       approved_scopes: AgentScope[];
+      requested_scopes: AgentScope[] | null;
       created_at: Date;
       expires_at: Date | null;
       last_used_at: Date | null;
@@ -35,8 +37,10 @@ export const agentConnections = async ({
     agents: rows.map((row) => ({
       id: row.id,
       name: row.name,
-      scopes: row.scopes,
-      approvedScopes: row.approved_scopes,
+      scopes: normalizeAgentScopes(row.scopes),
+      approvedScopes: normalizeAgentScopes(row.approved_scopes),
+      requestedScopes:
+        row.requested_scopes && normalizeAgentScopes(row.requested_scopes),
       createdAt: row.created_at.toISOString(),
       expiresAt: row.expires_at?.toISOString() ?? null,
       lastUsedAt: row.last_used_at?.toISOString() ?? null,
@@ -59,7 +63,17 @@ export const updateAgentConnection = async (event: RequestEvent) => {
     if (!changed.rowCount) error(404, "Connection not found.");
     return { id };
   }
-  const scopes = parseAgentScopes(form.getAll("scope").join(" "));
+  if (form.get("intent") === "cancel-permissions") {
+    const changed = await db.query(
+      "UPDATE agent_connections SET requested_scopes=NULL WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL RETURNING id",
+      [id, user.id],
+    );
+    if (!changed.rowCount) error(404, "Connection not found.");
+    return { id, approvalPending: false };
+  }
+  const scopes = expandAgentScopes(
+    parseAgentScopes(form.getAll("scope").join(" ")),
+  );
   const changeExpiry = form.has("expiry") && form.get("expiry") !== "keep";
   let expiresAt: Date | null = null;
   try {
@@ -67,15 +81,29 @@ export const updateAgentConnection = async (event: RequestEvent) => {
   } catch {
     return fail(400, { id, message: "Choose a connection expiry." });
   }
-  const changed = await db.query(
-    "UPDATE agent_connections SET scopes=$1,expires_at=CASE WHEN $4 THEN $5::timestamptz ELSE expires_at END WHERE id=$2 AND user_id=$3 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) AND $1::text[] <@ approved_scopes RETURNING id",
-    [scopes, id, user.id, changeExpiry, expiresAt],
-  );
-  if (!changed.rowCount)
-    return fail(400, {
-      id,
-      message:
-        "This connection changed or is no longer available. Reconnect from your agent app to approve new access.",
-    });
-  return { id };
+  return transaction(async (client) => {
+    const row = (
+      await client.query<{ approved_scopes: AgentScope[] }>(
+        `SELECT approved_scopes FROM agent_connections
+       WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
+       AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE`,
+        [id, user.id],
+      )
+    ).rows[0];
+    if (!row)
+      return fail(400, {
+        id,
+        message:
+          "This connection is no longer available. Refresh to see your connections.",
+      });
+    const approved = normalizeAgentScopes(row.approved_scopes);
+    const enabled = scopes.filter((scope) => approved.includes(scope));
+    const pending = enabled.length === scopes.length ? null : scopes;
+    await client.query(
+      `UPDATE agent_connections SET scopes=$1,approved_scopes=$2,requested_scopes=$3,
+       expires_at=CASE WHEN $4 THEN $5::timestamptz ELSE expires_at END WHERE id=$6`,
+      [enabled, approved, pending, changeExpiry, expiresAt, id],
+    );
+    return { id, approvalPending: pending !== null };
+  });
 };

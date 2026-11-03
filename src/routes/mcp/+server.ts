@@ -26,6 +26,21 @@ const handle: RequestHandler = async ({ request, url, getClientAddress }) => {
     );
   if (request.method !== "POST")
     return new Response(null, { status: 405, headers: { Allow: "POST" } });
+  if (
+    auth.requested_scopes?.some((scope) => !auth.token_scopes.includes(scope))
+  )
+    return json(
+      {
+        error:
+          "Approve added permissions in your agent app, or cancel the request in Settings → Agents.",
+      },
+      {
+        status: 403,
+        headers: {
+          "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${auth.requested_scopes.join(" ")}", resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`,
+        },
+      },
+    );
   const server = agentServer(request, url.origin, auth.scopes);
   const transport = new WebStandardStreamableHTTPServerTransport({
     enableJsonResponse: true,

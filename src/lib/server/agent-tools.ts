@@ -28,8 +28,6 @@ import { planUsage } from "./plans";
 import { sourcePost } from "./x-post";
 import { lookupMentions } from "./x-mentions";
 import { mentionRequest } from "../x-mentions";
-import { connections, requestFriend, changeFriendship } from "./friends";
-import { notificationPreferences } from "./notifications";
 import { createTransfer, uploadTransfer } from "./agent-media";
 import { agentRequest } from "./agent-requests";
 import { uploadLimit } from "./media";
@@ -55,7 +53,7 @@ export function agentServer(
   function tool<T extends z.ZodRawShape>(
     name: string,
     description: string,
-    scope: AgentScope,
+    scope: AgentScope | AgentScope[],
     inputSchema: T,
     work: (
       userId: string,
@@ -65,7 +63,8 @@ export function agentServer(
     readOnly = false,
     destructive = !readOnly,
   ) {
-    if (!scopes.includes(scope)) return;
+    const required = Array.isArray(scope) ? scope : [scope];
+    if (!required.some((item) => scopes.includes(item))) return;
     availableTools.push(name);
     const schema: z.ZodObject<z.ZodRawShape> = z.object(inputSchema);
     server.registerTool(
@@ -94,7 +93,7 @@ export function agentServer(
       async (input: unknown) => {
         try {
           const auth = await authenticateAgent(request, origin);
-          if (!auth || !auth.scopes.includes(scope))
+          if (!auth || !required.some((item) => auth.scopes.includes(item)))
             error(
               403,
               "This connection no longer has permission. Check Agents in LastPeek.",
@@ -448,7 +447,7 @@ export function agentServer(
   tool(
     "list_friends",
     "List accepted friends available for private sharing. Does not expose emails or activity.",
-    "drafts:share",
+    "sharing:people",
     {},
     async (userId) =>
       (
@@ -462,14 +461,20 @@ export function agentServer(
   tool(
     "share_draft",
     "Share an owned draft. audience=link creates an unlisted bearer link and removes private grants. audience=friend requires friendId and revokes any bearer link. Only do this on user instruction; a new audience changes who can read it.",
-    "drafts:share",
+    ["sharing:links", "sharing:people"],
     {
       id,
       version,
       audience: z.enum(["link", "friend"]),
       friendId: id.optional(),
     },
-    async (userId, { id, version, audience, friendId }) => {
+    async (userId, { id, version, audience, friendId }, auth) => {
+      if (
+        !auth.scopes.includes(
+          audience === "link" ? "sharing:links" : "sharing:people",
+        )
+      )
+        error(403, "This connection cannot share with that audience.");
       if (audience === "friend" && !friendId)
         error(400, "Choose an accepted friend.");
       const result =
@@ -481,7 +486,7 @@ export function agentServer(
   );
   tool(
     "get_account",
-    "Read the connected identity, current permissions, discoverable tools, plan usage and recent operation names. No credentials. New permissions require reconnecting; refresh tool discovery after permission changes. Provider-backed tools use your existing allowances.",
+    "Read the connected identity, current permissions, discoverable tools, plan usage and recent operation names. No credentials. Add permissions in Settings → Agents, then reauthorize in your agent app; refresh tool discovery after permission changes. Provider-backed tools use your existing allowances.",
     "account:read",
     {},
     async (userId, _, auth) => ({
@@ -591,11 +596,17 @@ export function agentServer(
   tool(
     "get_sharing",
     "Inspect an owned draft’s existing review URL and private recipients without creating a link or changing access.",
-    "drafts:share",
+    ["sharing:links", "sharing:people"],
     { id },
-    async (userId, { id }) => {
+    async (userId, { id }, auth) => {
       const draft = await ownedDraft(id, userId);
-      const token = draft.share_token ?? draft.friend_token;
+      const token = draft.share_token
+        ? auth.scopes.includes("sharing:links")
+          ? draft.share_token
+          : null
+        : auth.scopes.includes("sharing:people")
+          ? draft.friend_token
+          : null;
       return {
         audience: draft.share_token
           ? "link"
@@ -604,12 +615,14 @@ export function agentServer(
             : "none",
         url: token ? `${origin}/r/${token}` : null,
         revision: draft.shared_revision,
-        recipients: (
-          await db.query(
-            "SELECT u.id,u.name FROM friend_reviews fr JOIN users u ON u.id=fr.recipient_id WHERE fr.draft_id=$1 ORDER BY u.name,u.id",
-            [id],
-          )
-        ).rows,
+        recipients: auth.scopes.includes("sharing:people")
+          ? (
+              await db.query(
+                "SELECT u.id,u.name FROM friend_reviews fr JOIN users u ON u.id=fr.recipient_id WHERE fr.draft_id=$1 ORDER BY u.name,u.id",
+                [id],
+              )
+            ).rows
+          : [],
       };
     },
     true,
@@ -617,7 +630,7 @@ export function agentServer(
   tool(
     "remove_recipient",
     "Remove one friend’s access to your draft, preserving other recipients and feedback.",
-    "drafts:share",
+    "sharing:people",
     { id, friendId: id },
     async (userId, { id, friendId }) => {
       await ownedDraft(id, userId);
@@ -741,148 +754,33 @@ export function agentServer(
     false,
   );
   tool(
-    "get_friends",
-    "Read accepted friendships and incoming/outgoing requests. IDs identify the friendship; user_id identifies the person.",
-    "friends:read",
-    {},
-    async (userId) => connections(userId),
-    true,
-  );
-  tool(
-    "request_friend",
-    "Send a friend request by exact email on explicit user instruction. Does not share drafts or accept requests.",
-    "friends:write",
-    { email: z.email().max(254) },
-    async (userId, { email }) => {
-      await rateLimit(`friends:${userId}`, 40, 3600);
-      const target = (
-        await db.query("SELECT id FROM users WHERE lower(email)=$1", [
-          email.toLowerCase(),
-        ])
-      ).rows[0];
-      if (!target) error(400, "No account found with that email address.");
-      await requestFriend(userId, target.id);
-      return { requested: true };
-    },
-    false,
-    false,
-  );
-  tool(
-    "change_friendship",
-    "Accept an incoming request, or remove/decline/cancel a friendship/request on explicit user instruction. Removal also revokes that friend’s private review grants.",
-    "friends:write",
-    { id, action: z.enum(["accept", "remove"]) },
-    async (userId, { id, action }) => {
-      await rateLimit(`friends:${userId}`, 40, 3600);
-      await changeFriendship(userId, id, action);
-      return { changed: true };
-    },
-  );
-  tool(
-    "list_notifications",
-    "Read your notification history and total unread count with browser handoff URLs. Does not mark events read.",
-    "notifications:read",
-    { ...page, unreadOnly: z.boolean().default(false) },
-    async (userId, { offset, limit, unreadOnly }) => ({
-      unread: (
-        await db.query(
-          "SELECT count(*)::int AS count FROM notifications WHERE user_id=$1 AND read_at IS NULL",
-          [userId],
-        )
-      ).rows[0].count,
-      preferences: await notificationPreferences(userId),
-      notifications: (
-        await db.query(
-          "SELECT n.id,n.kind,n.draft_id,n.comment_id,u.name,n.created_at,n.read_at FROM notifications n LEFT JOIN users u ON u.id=n.actor_id WHERE n.user_id=$1 AND (NOT $4 OR n.read_at IS NULL) ORDER BY n.created_at DESC,n.id DESC LIMIT $2 OFFSET $3",
-          [userId, limit, offset, unreadOnly],
-        )
-      ).rows.map((row) => ({
-        ...row,
-        url: `${origin}/notifications/${row.id}`,
-      })),
-    }),
-    true,
-  );
-  tool(
-    "mark_notifications_read",
-    "Mark specified notifications read, or explicitly mark all read. Does not enable push or delete history.",
-    "notifications:write",
-    {
-      ids: z.array(id).min(1).max(100).optional(),
-      all: z.boolean().default(false),
-    },
-    async (userId, { ids, all }) => {
-      if ((!ids && !all) || (ids && all))
-        error(400, "Choose IDs or all, not both.");
-      const result = await db.query(
-        "UPDATE notifications SET read_at=COALESCE(read_at,now()) WHERE user_id=$1 AND ($2 OR id=ANY($3::uuid[])) RETURNING id",
-        [userId, all, ids ?? []],
-      );
-      return { read: result.rows.map((row) => row.id) };
-    },
-    false,
-    false,
-  );
-  tool(
-    "delete_notifications",
-    "Delete specified notifications, or explicitly clear all notification history. Does not remove comments or drafts.",
-    "notifications:write",
-    {
-      ids: z.array(id).min(1).max(100).optional(),
-      all: z.boolean().default(false),
-    },
-    async (userId, { ids, all }) => {
-      if ((!ids && !all) || (ids && all))
-        error(400, "Choose IDs or all, not both.");
-      const result = await db.query(
-        "DELETE FROM notifications WHERE user_id=$1 AND ($2 OR id=ANY($3::uuid[])) RETURNING id",
-        [userId, all, ids ?? []],
-      );
-      return { deleted: result.rows.map((row) => row.id) };
-    },
-  );
-  tool(
-    "set_notification_preferences",
-    "Choose which future friend/feedback/share events LastPeek records and delivers. Does not grant browser/OS push permission.",
-    "notifications:write",
-    {
-      friend_request: z.boolean(),
-      friend_accepted: z.boolean(),
-      feedback: z.boolean(),
-      shared_draft: z.boolean(),
-    },
-    async (userId, input) => {
-      await db.query(
-        `INSERT INTO notification_preferences(user_id,friend_request,friend_accepted,feedback,shared_draft) VALUES($1,$2,$3,$4,$5)
-        ON CONFLICT(user_id) DO UPDATE SET friend_request=$2,friend_accepted=$3,feedback=$4,shared_draft=$5`,
-        [
-          userId,
-          input.friend_request,
-          input.friend_accepted,
-          input.feedback,
-          input.shared_draft,
-        ],
-      );
-      return input;
-    },
-  );
-  tool(
     "revoke_sharing",
-    "Remove all review-link and friend-only access from an owned draft. Existing feedback is kept.",
-    "drafts:share",
-    { id },
-    async (userId, { id }) =>
-      transaction(async (client) => {
+    "Remove review-link or friend-only access from an owned draft. audience defaults to all, which needs both sharing permissions. Choose link or friends to remove only that audience. Existing feedback is kept.",
+    ["sharing:links", "sharing:people"],
+    { id, audience: z.enum(["all", "link", "friends"]).default("all") },
+    async (userId, { id, audience }, auth) => {
+      if (
+        (audience !== "friends" && !auth.scopes.includes("sharing:links")) ||
+        (audience !== "link" && !auth.scopes.includes("sharing:people"))
+      )
+        error(403, "This connection cannot remove access for that audience.");
+      return transaction(async (client) => {
         await ownedDraft(id, userId, client);
-        await client.query(
-          "UPDATE drafts SET share_token=NULL,friend_token=NULL WHERE id=$1 AND owner_id=$2",
-          [id, userId],
+        const changed = await client.query(
+          `UPDATE drafts SET
+           share_token=CASE WHEN $3 IN ('all','link') THEN NULL ELSE share_token END,
+           friend_token=CASE WHEN $3 IN ('all','friends') THEN NULL ELSE friend_token END
+           WHERE id=$1 AND owner_id=$2
+           RETURNING share_token IS NOT NULL OR friend_token IS NOT NULL AS shared`,
+          [id, userId, audience],
         );
-        await client.query("DELETE FROM friend_reviews WHERE draft_id=$1", [
-          id,
-        ]);
-        return { shared: false };
-      }),
+        if (audience !== "link")
+          await client.query("DELETE FROM friend_reviews WHERE draft_id=$1", [
+            id,
+          ]);
+        return changed.rows[0];
+      });
+    },
   );
   return server;
 }

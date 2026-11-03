@@ -4,8 +4,13 @@ When Agents is enabled for your account, open Settings → Agents and copy the M
 Add it as a remote HTTP MCP server in a compatible client, sign in, and choose access in the
 LastPeek consent screen. Client names are app-provided, not verified identities.
 
-You can disable approved permissions or disconnect in Settings at any time. To approve permissions
-added after an existing connection was created, reconnect through the client's OAuth flow.
+You can change permissions or disconnect in Settings at any time. Choose extra access and select
+**Add permissions**, then return to the agent to finish its OAuth approval. Compatible clients
+respond to the scope challenge automatically; others need their reauthorize action. The consent
+screen identifies the existing connection to update, preserving its history and expiry. If several
+connections to the same client are awaiting approval, choose the intended connection explicitly.
+Cancel added permissions in Settings to stop the request without disconnecting. Old clients that
+register a different client ID on reauthorization need a new connection; names alone never merge them.
 An existing token never gains new permissions silently. Refresh tool discovery after a change;
 if a client still shows an old list, reconnect/reload the client. `get_account`, when permitted,
 reports the effective permissions and currently available tool names. This helps diagnose access,
@@ -13,23 +18,26 @@ but does not establish the cause of a particular client's stale tool cache.
 
 ## Tools and permissions
 
-| Permission                     | Tools                                                                              |
-| ------------------------------ | ---------------------------------------------------------------------------------- |
-| Read my account and allowances | `get_account`                                                                      |
-| Read my drafts                 | `list_drafts`, `get_draft`, `list_feedback`, `check_draft`                         |
-| Create and edit drafts         | `create_draft`, `update_draft`, `edit_post`                                        |
-| Read attachments               | `read_media`                                                                       |
-| Upload attachments             | `upload_media`                                                                     |
-| Look up X posts and accounts   | `get_source_post`, `lookup_mentions`                                               |
-| Request AI feedback            | `request_ai_review`                                                                |
-| Read shared reviews            | `list_reviews`, `get_review`                                                       |
-| Send feedback                  | `send_feedback`                                                                    |
-| Resolve feedback               | `resolve_feedback`                                                                 |
-| Manage sharing                 | `get_sharing`, `list_friends`, `share_draft`, `remove_recipient`, `revoke_sharing` |
-| Read my friends and requests   | `get_friends`                                                                      |
-| Manage friends                 | `request_friend`, `change_friendship`                                              |
-| Read notifications             | `list_notifications`                                                               |
-| Manage notifications           | `mark_notifications_read`, `delete_notifications`, `set_notification_preferences`  |
+| Permission                     | Tools                                                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Read my account and allowances | `get_account`                                                                                         |
+| Read my drafts                 | `list_drafts`, `get_draft`, `list_feedback`, `check_draft`, `read_media`                              |
+| Create and edit drafts         | `create_draft`, `update_draft`, `edit_post`, `upload_media`                                           |
+| Look up X posts and accounts   | `get_source_post`, `lookup_mentions`                                                                  |
+| Request AI feedback            | `request_ai_review`                                                                                   |
+| Read shared reviews            | `list_reviews`, `get_review`, `read_media` (accessible reviews only)                                  |
+| Send feedback                  | `send_feedback`                                                                                       |
+| Resolve feedback               | `resolve_feedback`                                                                                    |
+| Manage review links            | `get_sharing`, `share_draft` (link), `revoke_sharing` (link)                                          |
+| Share with people              | `get_sharing`, `list_friends`, `share_draft` (friend), `remove_recipient`, `revoke_sharing` (friends) |
+
+Permissions are grouped into Drafting, Feedback, Sharing, and AI and X tools. Groups start collapsed;
+every header retains its selection count and whole-group checkbox, even for a single capability.
+Whole-group controls select only the permissions shown, and paid tools remain off by default. Attachments follow draft
+editing/reading and shared-review access; there are no separate attachment checkboxes. Existing
+connections lacking attachment approval need the same Add permissions flow once, rather than
+silently expanding their credentials. Friendship and notification management stay in the website;
+agents can still list accepted friends to choose private-review recipients.
 
 X source/mention reads and AI review preserve existing Pro/provider/allowance requirements.
 Paid X reads and all writes require explicit selection at consent. Device push permission,
@@ -50,6 +58,10 @@ There are no draft titles or per-thread-item external reply targets.
    just like the review page; unavailable context is null, not invented text.
 4. Use `get_sharing` to inspect existing access, not `share_draft`. Sharing changes who can read;
    creating a link ends private grants and switching to friends revokes the bearer link.
+   Review links and sharing with people require separate permissions. `get_sharing` returns URLs
+   and recipient details only for the permitted audience. `revoke_sharing` accepts `audience: "link"`
+   or `"friends"`; its default `"all"` requires both permissions. Older combined sharing grants
+   already authorize both audiences and can be narrowed in Settings without reconnecting.
 5. Read the exact shared revision before `send_feedback`. For an owned, already-shared draft,
    `get_review` and `send_feedback` can take its ID instead of a token. Neither creates a link.
    Feedback identifies the signed-in person and records the actual connection name as “via …”.

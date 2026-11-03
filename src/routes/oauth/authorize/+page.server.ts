@@ -7,6 +7,8 @@ import {
 } from "$lib/server/agent-auth";
 import { requireUser, rateLimit, sameOrigin } from "$lib/server/auth";
 import { hasFeatureAccess } from "$lib/server/features";
+import { db } from "$lib/server/db";
+import { expandAgentScopes, type AgentScope } from "$lib/agents";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ url, locals }) => {
   if (locals.user && !(await hasFeatureAccess(locals.user.id, "agents")))
@@ -14,6 +16,24 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   const authorization = await agentAuthorization(url.searchParams, url.origin);
   return {
     authorization,
+    upgrades: locals.user
+      ? (
+          await db.query<{
+            id: string;
+            created_at: Date;
+            requested_scopes: AgentScope[];
+          }>(
+            `SELECT id,created_at,requested_scopes FROM agent_connections
+       WHERE user_id=$1 AND client_id=$2 AND requested_scopes IS NOT NULL
+       AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) ORDER BY created_at DESC`,
+            [locals.user.id, authorization.clientId],
+          )
+        ).rows.map((row) => ({
+          id: row.id,
+          createdAt: row.created_at.toISOString(),
+          scopes: row.requested_scopes,
+        }))
+      : [],
     account: locals.user
       ? {
           name: locals.user.name,
@@ -36,11 +56,17 @@ export const actions: Actions = {
     const callback = new URL(authorization.redirectUri);
     if (authorization.state !== null)
       callback.searchParams.set("state", authorization.state);
-    if (form.get("intent") === "deny")
+    if (form.get("intent") === "deny") {
+      await db.query(
+        "UPDATE agent_connections SET requested_scopes=NULL WHERE id::text=$1 AND user_id=$2 AND client_id=$3",
+        [String(form.get("connection") ?? ""), user.id, authorization.clientId],
+      );
       callback.searchParams.set("error", "access_denied");
-    else {
+    } else {
       try {
-        const scopes = parseAgentScopes(form.getAll("scope").join(" "));
+        const scopes = expandAgentScopes(
+          parseAgentScopes(form.getAll("scope").join(" ")),
+        );
         callback.searchParams.set(
           "code",
           await approveAgent(
@@ -48,6 +74,7 @@ export const actions: Actions = {
             authorization,
             scopes,
             agentExpiryDate(form.get("expiry")),
+            String(form.get("connection") ?? "") || undefined,
           ),
         );
       } catch (cause) {

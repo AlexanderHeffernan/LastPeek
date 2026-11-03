@@ -2,18 +2,18 @@ export const agentPermissions = [
   {
     scope: "drafts:read",
     label: "Read my drafts",
-    description: "Read your drafts, attachments list and feedback.",
+    description: "Read your drafts, attachments and feedback.",
   },
   {
     scope: "drafts:write",
     label: "Create and edit drafts",
     description:
-      "Create posts and threads, and change existing drafts. Edits to shared drafts update the review.",
+      "Create and edit posts and threads, including uploading attachments. Edits update shared reviews.",
   },
   {
     scope: "reviews:read",
     label: "Read shared reviews",
-    description: "Read drafts shared with you and their feedback.",
+    description: "Read drafts shared with you, their attachments and feedback.",
   },
   {
     scope: "feedback:write",
@@ -27,28 +27,22 @@ export const agentPermissions = [
     description: "Resolve or reopen feedback on your own drafts.",
   },
   {
-    scope: "drafts:share",
-    label: "Manage sharing",
+    scope: "sharing:links",
+    label: "Manage review links",
     description:
-      "Create or remove review links, see accepted friends and share drafts with them. Can change who has access.",
+      "Create or remove links anyone can use to review a draft. Creating a link replaces private sharing.",
+  },
+  {
+    scope: "sharing:people",
+    label: "Share with people",
+    description:
+      "See accepted friends and manage their access to drafts. Switching to private sharing removes any review link.",
   },
   {
     scope: "account:read",
     label: "Read my account and allowances",
     description:
       "See your profile, available features, limits and this connection’s recent activity. Never passwords or credentials.",
-  },
-  {
-    scope: "media:read",
-    label: "Read attachments",
-    description:
-      "View and download attachments from drafts or reviews you can access.",
-  },
-  {
-    scope: "media:write",
-    label: "Upload attachments",
-    description:
-      "Upload images and videos to your drafts, using your storage allowance. Attaching them also requires draft editing access.",
   },
   {
     scope: "x:read",
@@ -62,33 +56,72 @@ export const agentPermissions = [
     description:
       "Send draft text to LastPeek’s AI reviewer, using your AI allowance.",
   },
-  {
-    scope: "friends:read",
-    label: "Read my friends and requests",
-    description: "See accepted friends and pending friend requests.",
-  },
-  {
-    scope: "friends:write",
-    label: "Manage friends",
-    description:
-      "Send, accept or remove friend requests and friendships. Removing a friend also removes their private review access.",
-  },
-  {
-    scope: "notifications:read",
-    label: "Read notifications",
-    description: "See your notification history and unread counts.",
-  },
-  {
-    scope: "notifications:write",
-    label: "Manage notifications",
-    description:
-      "Mark notifications read, remove notification history and change notification preferences. Does not enable device push.",
-  },
 ] as const;
-export type AgentScope = (typeof agentPermissions)[number]["scope"];
+// Keep legacy OAuth scopes valid for outstanding credentials, not in new consent.
+const legacyAgentScopes = [
+  "drafts:share",
+  "media:read",
+  "media:write",
+  "friends:read",
+  "friends:write",
+  "notifications:read",
+  "notifications:write",
+] as const;
+export type AgentScope =
+  | (typeof agentPermissions)[number]["scope"]
+  | (typeof legacyAgentScopes)[number];
 export const agentScopes = agentPermissions.map(
   (permission) => permission.scope,
 );
+export const acceptedAgentScopes: readonly AgentScope[] = [
+  ...agentScopes,
+  ...legacyAgentScopes,
+];
+
+export const agentPermissionGroups = [
+  {
+    label: "Drafting",
+    scopes: ["drafts:read", "drafts:write", "account:read"],
+  },
+  {
+    label: "Feedback",
+    scopes: ["reviews:read", "feedback:write", "feedback:resolve"],
+  },
+  { label: "Sharing", scopes: ["sharing:links", "sharing:people"] },
+  { label: "AI and X tools", scopes: ["ai:review", "x:read"] },
+] as const;
+
+// The old sharing grant already allowed both audiences. Resolve that existing
+// authority separately from attachment bundling, which always needs fresh consent.
+export function normalizeAgentScopes(
+  scopes: readonly AgentScope[],
+): AgentScope[] {
+  return [
+    ...new Set(
+      scopes.flatMap<AgentScope>((scope) =>
+        scope === "drafts:share"
+          ? ["sharing:links", "sharing:people"]
+          : [scope],
+      ),
+    ),
+  ];
+}
+
+// Bundle attachment access at consent, never by broadening existing tokens.
+export function expandAgentScopes(scopes: readonly AgentScope[]): AgentScope[] {
+  const normalized = normalizeAgentScopes(scopes);
+  return [
+    ...new Set<AgentScope>([
+      ...normalized,
+      ...(normalized.some(
+        (scope) => scope === "drafts:read" || scope === "reviews:read",
+      )
+        ? ["media:read" as const]
+        : []),
+      ...(normalized.includes("drafts:write") ? ["media:write" as const] : []),
+    ]),
+  ];
+}
 
 export const agentExpiryOptions = [
   { value: "30", label: "30 days" },

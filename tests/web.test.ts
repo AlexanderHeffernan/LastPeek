@@ -117,10 +117,22 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
     0,
   );
   // A real toggle establishes hydrated checkbox handlers before submitting consent.
+  await page.getByLabel("Drafting", { exact: true }).click();
   await page.getByRole("checkbox", { name: "Create and edit drafts" }).check();
   await page
     .getByRole("checkbox", { name: "Create and edit drafts" })
     .uncheck();
+  const singlePermissionGroup = page.getByRole("checkbox", {
+    name: "All feedback permissions",
+  });
+  await singlePermissionGroup.uncheck();
+  await singlePermissionGroup.check();
+  assert.equal(
+    await page
+      .getByRole("checkbox", { name: "Read shared reviews" })
+      .isVisible(),
+    false,
+  );
   await page.getByRole("combobox", { name: "Connection expiry" }).click();
   await page
     .getByRole("option", { name: "Until disconnected", exact: true })
@@ -139,23 +151,70 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
     name: "Browser test agent permissions",
   });
   await editor.waitFor();
-  assert.equal(await editor.getByRole("checkbox").count(), 15);
-  // A connection approved before the expansion cannot gain new authority here.
-  for (const name of [
-    "Read attachments",
-    "Upload attachments",
-    "Look up X posts and accounts",
-  ])
-    assert.equal(
-      await editor.getByRole("checkbox", { name }).isDisabled(),
-      true,
-    );
+  assert.equal(await editor.getByRole("checkbox").count(), 4);
+  const sharing = editor.getByRole("checkbox", {
+    name: "All sharing permissions",
+  });
+  await sharing.check();
+  assert.equal(
+    await editor
+      .getByRole("checkbox", { name: "Manage review links" })
+      .isVisible(),
+    false,
+  );
+  await sharing.uncheck();
+  for (const group of ["Drafting", "Feedback", "Sharing", "AI and X tools"])
+    await editor.getByLabel(group, { exact: true }).click();
+  assert.equal(await editor.getByRole("checkbox").count(), 14);
+  await editor.getByRole("checkbox", { name: "Manage review links" }).check();
+  assert.equal(await sharing.getAttribute("aria-checked"), "mixed");
+  assert.equal(
+    await editor
+      .getByRole("checkbox", { name: "Share with people" })
+      .isChecked(),
+    false,
+  );
+  await editor.getByRole("checkbox", { name: "Manage review links" }).uncheck();
+  assert.equal(
+    await editor.getByRole("checkbox", { name: "Read attachments" }).count(),
+    0,
+  );
+  await editor.getByRole("checkbox", { name: "Send feedback" }).check();
+  await editor
+    .getByRole("button", { name: "Add permissions", exact: true })
+    .waitFor();
+  await editor.getByRole("checkbox", { name: "Send feedback" }).uncheck();
+  const drafting = editor.getByRole("checkbox", {
+    name: "All drafting permissions",
+  });
+  assert.equal(await drafting.getAttribute("aria-checked"), "mixed");
+  await drafting.check();
   assert.equal(
     await editor
       .getByRole("checkbox", { name: "Create and edit drafts" })
-      .isDisabled(),
+      .isChecked(),
     true,
   );
+  await drafting.uncheck();
+  assert.equal(
+    await editor.getByRole("checkbox", { name: "Read my drafts" }).isChecked(),
+    false,
+  );
+  await editor.getByRole("checkbox", { name: "Read my drafts" }).check();
+  const draftingDisclosure = editor.getByLabel("Drafting", {
+    exact: true,
+  });
+  await draftingDisclosure.click();
+  assert.equal(
+    await editor.getByRole("checkbox", { name: "Read my drafts" }).isVisible(),
+    false,
+  );
+  // Group toggles work while collapsed; collapse never discards form values.
+  await drafting.check();
+  await drafting.uncheck();
+  await draftingDisclosure.press("Enter");
+  await editor.getByRole("checkbox", { name: "Read my drafts" }).check();
+  await draftingDisclosure.press("Space");
   await editor.getByRole("checkbox", { name: "Read shared reviews" }).uncheck();
   const desktopExpiry = editor.getByRole("combobox", {
     name: "Connection expiry",
@@ -193,7 +252,7 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
         account,
       ])
     ).rows[0].scopes,
-    ["drafts:read"],
+    ["drafts:read", "media:read"],
   );
   assert.equal(
     (
@@ -203,6 +262,49 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
       )
     ).rows[0].expires_at,
     null,
+  );
+  await card
+    .getByRole("button", { name: "Browser test agent actions" })
+    .click();
+  await page
+    .getByRole("link", { name: "Edit permissions", exact: true })
+    .click();
+  await editor.getByLabel("Drafting", { exact: true }).click();
+  await editor
+    .getByRole("checkbox", { name: "Create and edit drafts" })
+    .check();
+  await editor
+    .getByRole("button", { name: "Add permissions", exact: true })
+    .click();
+  await editor
+    .getByRole("button", { name: "Cancel added permissions" })
+    .waitFor();
+  assert.equal(
+    await editor
+      .getByRole("button", { name: "Awaiting approval", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await page.goto(`${origin}/oauth/authorize?${query}`);
+  await page
+    .getByRole("heading", { name: "Update Browser test agent access?" })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("combobox", { name: "Connection expiry" }).count(),
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Add permissions", exact: true })
+    .click();
+  await card.waitFor();
+  assert.equal(
+    (
+      await db.query(
+        "SELECT count(*)::int AS count FROM agent_connections WHERE user_id=$1",
+        [account],
+      )
+    ).rows[0].count,
+    1,
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("link", { name: "Back to settings" }).waitFor();
@@ -228,12 +330,22 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
     name: "Browser test agent permissions",
   });
   await mobileEditor.waitFor();
+  assert.equal(
+    await mobileEditor
+      .getByRole("checkbox", { name: "Read shared reviews" })
+      .isVisible(),
+    false,
+  );
   await page.getByRole("link", { name: "Back to agents" }).click();
   await card.waitFor();
   await page.goBack();
   await mobileEditor.waitFor();
+  await mobileEditor.getByLabel("Drafting", { exact: true }).click();
   await mobileEditor
     .getByRole("checkbox", { name: "Read my drafts" })
+    .uncheck();
+  await mobileEditor
+    .getByRole("checkbox", { name: "Create and edit drafts" })
     .uncheck();
   await mobileEditor
     .getByRole("combobox", { name: "Connection expiry" })

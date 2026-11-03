@@ -57,7 +57,16 @@ Compact rows show the app-provided name and last use, with permissions and disco
 menu at every width. No placeholder agent avatars or disconnected rows.
 The copied tick returns to the copy icon after 2.5 seconds.
 Permissions open in a shared Dialog on desktop and a separate mobile view at `/settings?tab=agents&edit=<id>`;
-unapproved permissions remain visible but disabled, with a concise reconnect instruction. Disconnect
+permissions are grouped into Drafting, Feedback, Sharing, and AI and X tools, with mixed-state
+whole-group checkboxes in every header, including groups with one capability. Groups start collapsed
+and expand independently; their headers retain selection counts and whole-group controls.
+Sharing separates managing bearer review links from sharing with specific accepted friends.
+Collapsing never changes selected permissions or omits them from submission. Attachments are bundled
+with draft/review access; friendship and notification management are not agent permissions.
+Selecting new authority changes Save changes to Add permissions. The pending request stays attached
+to the editor with agent-side approval instructions and a Cancel added permissions action. OAuth
+updates an explicitly identified existing connection, keeping its expiry; no delete/re-add step.
+Client support for reauthorization varies. Disconnect
 uses ConfirmDialog and removes the row. Use last-used timestamps rather than an online dot. OAuth
 consent shows the connection destination and an account card with photo, name and handle, defaults
 only read permissions on, and keeps each
@@ -67,7 +76,7 @@ agent identity.
 Consent and connection editing offer 30 days, 90 days, 1 year and Until disconnected. Consent
 defaults to 90 days; editing defaults to Keep current expiry so changing permissions does not
 silently renew access. Expired connections cannot extend themselves. The editor saves permissions
-and expiry together with Save changes. Keep the Agents heading/card gap at 16px and the inset copy
+and expiry together with Save changes (or Add permissions when new access is selected). Keep the Agents heading/card gap at 16px and the inset copy
 action vertically aligned with its 44px address field.
 
 Check login/join, empty and populated drafts, inline editing, media, sharing, settings, guest feedback, failures, and older feedback. Desktop feedback sits beside the post; below 900px it follows it. Mobile retains editing, uploads, post removal, review, feedback focus, copying, and downloads. Check at 390px and a narrower 320px; no horizontal scrolling or tiny replacement controls. Inspect actual rendered screenshots and exercise keyboard and touch interactions, not just CSS breakpoints. See root guidance for required checks.

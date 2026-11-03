@@ -4,25 +4,51 @@
   import UserIdentity from "$lib/components/UserIdentity.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Select } from "$lib/components/ui/select/index.js";
-  import { agentExpiryOptions } from "$lib/agents";
+  import {
+    agentExpiryOptions,
+    agentScopes,
+    type AgentScope,
+  } from "$lib/agents";
   import { untrack } from "svelte";
   import type { PageProps } from "./$types";
   let { data, form }: PageProps = $props();
   let expiry = $state("90");
-  let selected = $state(
-    untrack(() =>
-      data.authorization.scopes.filter(
-        (scope) => scope.endsWith(":read") && scope !== "x:read",
-      ),
-    ),
+  let connection = $state(
+    untrack(() => (data.upgrades.length === 1 ? data.upgrades[0].id : "")),
   );
+  const upgrade = $derived(
+    data.upgrades.find((item) => item.id === connection),
+  );
+  let selected = $state<AgentScope[]>(untrack(() => initialScopes()));
+  $effect(() => {
+    connection;
+    selected = untrack(() => initialScopes());
+  });
+  function initialScopes() {
+    return (
+      upgrade
+        ? upgrade.scopes.filter((scope) =>
+            data.authorization.scopes.includes(scope),
+          )
+        : data.authorization.scopes.filter(
+            (scope) => scope.endsWith(":read") && scope !== "x:read",
+          )
+    ).filter((scope) => agentScopes.some((item) => item === scope));
+  }
 </script>
 
 <svelte:head><title>Connect an agent · LastPeek</title></svelte:head>
 <main class="consent" aria-label="Agent authorization">
   <Brand />
-  <h1>Connect {data.authorization.name}?</h1>
-  <p>This app is asking to use LastPeek on your behalf.</p>
+  <h1>
+    {upgrade ? "Update" : "Connect"}
+    {data.authorization.name}{upgrade ? " access?" : "?"}
+  </h1>
+  <p>
+    {upgrade
+      ? "Approve access for your existing connection. Its expiry stays the same."
+      : "This app is asking to use LastPeek on your behalf."}
+  </p>
   <div class="identity">
     Connection destination: <strong>{data.authorization.callbackHost}</strong>
   </div>
@@ -37,17 +63,41 @@
           showPresence={false}
         />
       </section>
-      <AgentPermissions bind:selected available={data.authorization.scopes} />
-      <label class="expiry"
-        >Connection expiry
-        <Select
-          name="expiry"
-          aria-label="Connection expiry"
-          class="mt-2"
-          bind:value={expiry}
-          options={[...agentExpiryOptions]}
-        />
-      </label>
+      {#if data.upgrades.length}
+        <label class="expiry"
+          >Connection
+          <Select
+            name="connection"
+            aria-label="Connection"
+            bind:value={connection}
+            options={[
+              { value: "", label: "New connection" },
+              ...data.upgrades.map((item) => ({
+                value: item.id,
+                label: `Connected ${new Date(item.createdAt).toLocaleString()}`,
+              })),
+            ]}
+          />
+        </label>
+      {/if}
+      <AgentPermissions
+        bind:selected
+        available={upgrade
+          ? upgrade.scopes.filter((scope) =>
+              data.authorization.scopes.includes(scope),
+            )
+          : data.authorization.scopes}
+      />
+      {#if !upgrade}<label class="expiry"
+          >Connection expiry
+          <Select
+            name="expiry"
+            aria-label="Connection expiry"
+            class="mt-2"
+            bind:value={expiry}
+            options={[...agentExpiryOptions]}
+          />
+        </label>{/if}
       <p class="terms">
         Change access or disconnect at any time in Settings → Agents. This does
         not allow deleting drafts, changing account security or posting to X.
@@ -60,7 +110,8 @@
           type="submit"
           name="intent"
           value="approve"
-          disabled={!selected.length}>Allow connection</Button
+          disabled={!selected.length}
+          >{upgrade ? "Add permissions" : "Allow connection"}</Button
         >
       </div>
     </form>

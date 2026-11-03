@@ -6,13 +6,231 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { db } from "../src/lib/server/db";
 import { hash, token } from "../src/lib/server/auth";
-import { agentScopes } from "../src/lib/agents";
+import { agentScopes, expandAgentScopes } from "../src/lib/agents";
+import { blankContent } from "../src/lib/contracts";
 import sharp from "sharp";
 import { readFile, rm } from "node:fs/promises";
 import { mediaPath } from "../src/lib/server/media";
 
 const origin = process.env.TEST_BASE_URL || "http://127.0.0.1:4173";
 after(() => db.end());
+
+test("agent sharing separates review links from people and preserves legacy grant reductions", async (t) => {
+  const owner = randomUUID(),
+    friend = randomUUID(),
+    draft = randomUUID();
+  const app = token(),
+    connection = randomUUID(),
+    bearer = token(),
+    refresh = token(),
+    session = token();
+  const pendingCode = token(),
+    verifier = token();
+  const client = new Client({ name: "Sharing contract", version: "1" });
+  const http = await request.newContext({
+    extraHTTPHeaders: { Cookie: `lastpeek_session=${session}`, Origin: origin },
+  });
+  t.after(async () => {
+    await client.close();
+    await http.dispose();
+    await db.query("DELETE FROM drafts WHERE id=$1", [draft]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, friend],
+    ]);
+    await db.query("DELETE FROM agent_clients WHERE id=$1", [app]);
+  });
+  for (const id of [owner, friend])
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'unused')",
+      [id, `${id}@example.test`, id === owner ? "Owner" : "Friend"],
+    );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [hash(session), owner],
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'agents')",
+    [owner],
+  );
+  await db.query(
+    "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+    [randomUUID(), owner, friend],
+  );
+  const content = blankContent("Owner");
+  content.posts[0].text = "Only share this with the chosen audience.";
+  await db.query("INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)", [
+    draft,
+    owner,
+    JSON.stringify(content),
+  ]);
+  await db.query(
+    "INSERT INTO agent_clients(id,name,redirect_uris) VALUES($1,'Sharing agent',$2)",
+    [app, JSON.stringify([`${origin}/settings`])],
+  );
+  await db.query(
+    "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes) VALUES($1,$2,$3,'{drafts:share}','{drafts:share}')",
+    [connection, owner, app],
+  );
+  for (const [value, kind] of [
+    [bearer, "access"],
+    [refresh, "refresh"],
+  ])
+    await db.query(
+      "INSERT INTO agent_tokens(hash,connection_id,kind,scopes,resource,expires_at) VALUES($1,$2,$3,'{drafts:share}',$4,now()+interval '1 day')",
+      [hash(value), connection, kind, `${origin}/mcp`],
+    );
+  await db.query(
+    "INSERT INTO agent_codes(hash,connection_id,redirect_uri,challenge,resource,scopes) VALUES($1,$2,$3,$4,$5,'{drafts:share}')",
+    [
+      hash(pendingCode),
+      connection,
+      `${origin}/settings`,
+      createHash("sha256").update(verifier).digest("base64url"),
+      `${origin}/mcp`,
+    ],
+  );
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+    }),
+  );
+  const call = (name: string, args: Record<string, unknown>) =>
+    client.callTool({ name, arguments: args });
+  const read = (result: Awaited<ReturnType<typeof call>>) => {
+    assert.notEqual(result.isError, true, JSON.stringify(result.content));
+    return (result.structuredContent as any).result;
+  };
+  const denied = (result: Awaited<ReturnType<typeof call>>) => {
+    assert.equal(result.isError, true);
+    assert.equal((result.structuredContent as any).error.status, 403);
+  };
+  const shareLink = { id: draft, version: 1, audience: "link" };
+  const shareFriend = {
+    id: draft,
+    version: 1,
+    audience: "friend",
+    friendId: friend,
+  };
+  read(await call("share_draft", shareLink));
+  read(await call("share_draft", shareFriend));
+  assert.equal(
+    read(await call("get_sharing", { id: draft })).recipients[0].id,
+    friend,
+  );
+
+  // The same old credential must obey either narrower selection immediately.
+  const select = async (scope: string) => {
+    const response = await http.post(`${origin}/settings?tab=agents&/agent`, {
+      form: { id: connection, scope },
+    });
+    assert.equal(response.status(), 200);
+    assert.equal(
+      (
+        await db.query(
+          "SELECT requested_scopes FROM agent_connections WHERE id=$1",
+          [connection],
+        )
+      ).rows[0].requested_scopes,
+      null,
+    );
+  };
+  await select("sharing:links");
+  const exchanged = await http.post(`${origin}/oauth/token`, {
+    form: {
+      grant_type: "authorization_code",
+      client_id: app,
+      code: pendingCode,
+      code_verifier: verifier,
+      redirect_uri: `${origin}/settings`,
+    },
+  });
+  assert.equal(exchanged.status(), 200);
+  const codeCredentials = await exchanged.json();
+  assert.equal(codeCredentials.scope, "sharing:links");
+  assert.equal(
+    (
+      await http.post(`${origin}/oauth/token`, {
+        form: {
+          grant_type: "refresh_token",
+          client_id: app,
+          refresh_token: codeCredentials.refresh_token,
+          scope: "drafts:share",
+        },
+      })
+    ).status(),
+    400,
+    "an old code exchanged after reduction cannot restore the other audience",
+  );
+  assert.equal(
+    (await client.listTools()).tools.some(
+      (tool) => tool.name === "list_friends",
+    ),
+    false,
+  );
+  const privateState = read(await call("get_sharing", { id: draft }));
+  assert.equal(privateState.url, null);
+  assert.deepEqual(privateState.recipients, []);
+  denied(await call("share_draft", shareFriend));
+  denied(await call("revoke_sharing", { id: draft }));
+  denied(await call("revoke_sharing", { id: draft, audience: "friends" }));
+  assert.equal(
+    read(await call("revoke_sharing", { id: draft, audience: "link" })).shared,
+    true,
+    "removing a link must leave private access intact",
+  );
+  read(await call("share_draft", shareLink));
+  assert.ok(read(await call("get_sharing", { id: draft })).url);
+  assert.equal(
+    read(await call("revoke_sharing", { id: draft, audience: "link" })).shared,
+    false,
+  );
+  read(await call("share_draft", shareLink));
+
+  await select("sharing:people");
+  assert.equal(read(await call("list_friends", {}))[0].id, friend);
+  assert.equal(read(await call("get_sharing", { id: draft })).url, null);
+  denied(await call("revoke_sharing", { id: draft, audience: "link" }));
+  assert.equal(read(await call("get_sharing", { id: draft })).audience, "link");
+  denied(await call("share_draft", shareLink));
+  read(await call("share_draft", shareFriend));
+  denied(await call("revoke_sharing", { id: draft, audience: "link" }));
+  denied(await call("revoke_sharing", { id: draft }));
+  assert.equal(
+    read(await call("get_sharing", { id: draft })).recipients[0].id,
+    friend,
+  );
+  assert.equal(
+    read(await call("revoke_sharing", { id: draft, audience: "friends" }))
+      .shared,
+    false,
+  );
+
+  const renewed = await http.post(`${origin}/oauth/token`, {
+    form: {
+      grant_type: "refresh_token",
+      client_id: app,
+      refresh_token: refresh,
+      scope: "sharing:people",
+    },
+  });
+  assert.equal(renewed.status(), 200);
+  const credentials = await renewed.json();
+  assert.equal(credentials.scope, "sharing:people");
+  assert.equal(
+    (
+      await http.post(`${origin}/oauth/token`, {
+        form: {
+          grant_type: "refresh_token",
+          client_id: app,
+          refresh_token: credentials.refresh_token,
+          scope: "drafts:share",
+        },
+      })
+    ).status(),
+    400,
+    "the legacy alias must not expand a newly narrowed credential",
+  );
+});
 
 // Wrong-client codes, stale versions, live permission reductions and revoked grants
 // are the likely regressions. Use real OAuth HTTP and the official MCP client once,
@@ -442,7 +660,7 @@ test("agent OAuth binds grants and MCP preserves ownership, versions and review 
   );
   assert.deepEqual(
     (await client.listTools()).tools.map((tool) => tool.name).sort(),
-    ["check_draft", "get_draft", "list_drafts", "list_feedback"],
+    ["check_draft", "get_draft", "list_drafts", "list_feedback", "read_media"],
   );
   const refreshed = await anonymous.post(`${origin}/oauth/token`, {
     form: {
@@ -454,7 +672,10 @@ test("agent OAuth binds grants and MCP preserves ownership, versions and review 
   });
   assert.equal(refreshed.status(), 200);
   const renewed = await refreshed.json();
-  assert.equal(renewed.scope, "drafts:read");
+  assert.deepEqual(renewed.scope.split(" ").sort(), [
+    "drafts:read",
+    "media:read",
+  ]);
   assert.equal(renewed.expires_in, 3600);
   assert.equal(
     (
@@ -519,6 +740,275 @@ test("agent OAuth binds grants and MCP preserves ownership, versions and review 
   );
 });
 
+// Reauthorizing must retain one connection without expanding old tokens/codes,
+// including codes issued by the previous image during a rolling deployment.
+test("agent permission upgrades preserve connection identity and credential ceilings", async (t) => {
+  const user = randomUUID(),
+    stranger = randomUUID(),
+    connection = randomUUID();
+  const session = token(),
+    otherSession = token(),
+    app = token(),
+    otherApp = token();
+  const access = token(),
+    refresh = token(),
+    legacyCode = token();
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const callback = "http://127.0.0.1:12345/callback";
+  const browser = await request.newContext({
+    extraHTTPHeaders: {
+      Cookie: `lastpeek_session=${session}`,
+      Origin: origin,
+      Accept: "text/html",
+    },
+  });
+  const http = await request.newContext();
+  t.after(async () => {
+    await browser.dispose();
+    await http.dispose();
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [user, stranger],
+    ]);
+    await db.query("DELETE FROM agent_clients WHERE id=ANY($1::text[])", [
+      [app, otherApp],
+    ]);
+  });
+  for (const [id, cookie] of [
+    [user, session],
+    [stranger, otherSession],
+  ]) {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Owner','unused')",
+      [id, `${id}@example.test`],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [hash(cookie), id],
+    );
+    await db.query(
+      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'agents')",
+      [id],
+    );
+  }
+  for (const client of [app, otherApp])
+    await db.query(
+      "INSERT INTO agent_clients(id,name,redirect_uris) VALUES($1,'Same display name',$2)",
+      [client, JSON.stringify([callback])],
+    );
+  await db.query(
+    "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes) VALUES($1,$2,$3,'{drafts:read}','{drafts:read}')",
+    [connection, user, app],
+  );
+  const original = (
+    await db.query(
+      "SELECT created_at,expires_at FROM agent_connections WHERE id=$1",
+      [connection],
+    )
+  ).rows[0];
+  for (const [value, kind] of [
+    [access, "access"],
+    [refresh, "refresh"],
+  ])
+    await db.query(
+      "INSERT INTO agent_tokens(hash,connection_id,kind,scopes,resource,expires_at) VALUES($1,$2,$3,'{drafts:read}',$4,now()+interval '1 day')",
+      [hash(value), connection, kind, `${origin}/mcp`],
+    );
+  await db.query(
+    "INSERT INTO agent_codes(hash,connection_id,redirect_uri,challenge,resource) VALUES($1,$2,$3,$4,$5)",
+    [hash(legacyCode), connection, callback, challenge, `${origin}/mcp`],
+  );
+  const requestUpgrade = () =>
+    browser.post(`${origin}/settings?tab=agents&/agent`, {
+      form: { id: connection, scope: "drafts:read drafts:write" },
+    });
+  assert.equal((await requestUpgrade()).status(), 200);
+  const challenged = await http.post(`${origin}/mcp`, {
+    headers: { Authorization: `Bearer ${access}` },
+    data: {},
+  });
+  assert.equal(challenged.status(), 403);
+  assert.match(
+    challenged.headers()["www-authenticate"],
+    /error="insufficient_scope"/,
+  );
+  assert.match(challenged.headers()["www-authenticate"], /media:write/);
+  const refreshForm = {
+    grant_type: "refresh_token",
+    client_id: app,
+    refresh_token: refresh,
+    resource: `${origin}/mcp`,
+  };
+  assert.equal(
+    (
+      await http.post(`${origin}/oauth/token`, {
+        form: { ...refreshForm, scope: "drafts:write" },
+      })
+    ).status(),
+    400,
+  );
+  const renewed = await (
+    await http.post(`${origin}/oauth/token`, { form: refreshForm })
+  ).json();
+  assert.equal(renewed.scope, "drafts:read");
+  const params = new URLSearchParams({
+    client_id: app,
+    redirect_uri: callback,
+    response_type: "code",
+    code_challenge_method: "S256",
+    code_challenge: challenge,
+    scope: "drafts:read drafts:write",
+    state: "upgrade-state",
+  });
+  const authorize = `${origin}/oauth/authorize?${params}`;
+  const denied = await browser.post(authorize, {
+    form: { intent: "deny", connection },
+    maxRedirects: 0,
+  });
+  assert.equal(
+    new URL(denied.headers().location).searchParams.get("error"),
+    "access_denied",
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT requested_scopes FROM agent_connections WHERE id=$1",
+        [connection],
+      )
+    ).rows[0].requested_scopes,
+    null,
+  );
+  assert.equal((await requestUpgrade()).status(), 200);
+  const approval = {
+    connection,
+    scope: "drafts:read drafts:write",
+    expiry: "never",
+  };
+  assert.equal(
+    (
+      await browser.post(authorize, {
+        form: approval,
+        headers: { Cookie: `lastpeek_session=${otherSession}` },
+        maxRedirects: 0,
+      })
+    ).status(),
+    400,
+    "cannot upgrade another owner's connection",
+  );
+  const wrongClient = new URLSearchParams(params);
+  wrongClient.set("client_id", otherApp);
+  assert.equal(
+    (
+      await browser.post(`${origin}/oauth/authorize?${wrongClient}`, {
+        form: approval,
+        maxRedirects: 0,
+      })
+    ).status(),
+    400,
+    "matching client names never merge installations",
+  );
+  const approved = await browser.post(authorize, {
+    form: approval,
+    maxRedirects: 0,
+  });
+  assert.equal(approved.status(), 303);
+  const result = new URL(approved.headers().location);
+  assert.equal(result.searchParams.get("state"), "upgrade-state");
+  const exchange = {
+    grant_type: "authorization_code",
+    client_id: app,
+    redirect_uri: callback,
+    code_verifier: verifier,
+    resource: `${origin}/mcp`,
+  };
+  const fresh = await (
+    await http.post(`${origin}/oauth/token`, {
+      form: { ...exchange, code: result.searchParams.get("code")! },
+    })
+  ).json();
+  assert.deepEqual(fresh.scope.split(" ").sort(), [
+    "drafts:read",
+    "drafts:write",
+    "media:read",
+    "media:write",
+  ]);
+  assert.equal(
+    (
+      await http.post(`${origin}/oauth/token`, {
+        form: { ...exchange, code: legacyCode },
+      })
+    ).status(),
+    400,
+    "older pending codes are invalidated so even the previous server image cannot exchange them with expanded access",
+  );
+  const again = await (
+    await http.post(`${origin}/oauth/token`, {
+      form: { ...refreshForm, refresh_token: renewed.refresh_token },
+    })
+  ).json();
+  assert.equal(
+    again.scope,
+    "drafts:read",
+    "old refresh tokens retain their original ceiling after approval",
+  );
+  const rows = (
+    await db.query(
+      "SELECT id,created_at,expires_at,requested_scopes FROM agent_connections WHERE user_id=$1",
+      [user],
+    )
+  ).rows;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, connection);
+  assert.deepEqual(rows[0].created_at, original.created_at);
+  assert.deepEqual(rows[0].expires_at, original.expires_at);
+  assert.equal(rows[0].requested_scopes, null);
+  for (const [bearer, upgraded] of [
+    [access, false],
+    [fresh.access_token, true],
+  ] as const) {
+    const client = new Client({ name: "Upgrade test", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+          requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+        }),
+      );
+      const names = (await client.listTools()).tools.map((tool) => tool.name);
+      assert.equal(names.includes("upload_media"), upgraded);
+      assert.equal(names.includes("read_media"), upgraded);
+      for (const removed of [
+        "request_friend",
+        "change_friendship",
+        "list_notifications",
+      ])
+        assert.equal(names.includes(removed), false);
+    } finally {
+      await client.close();
+    }
+  }
+  // A mistaken request can be cancelled in Settings without revoking the grant.
+  await browser.post(`${origin}/settings?tab=agents&/agent`, {
+    form: { id: connection, scope: "drafts:read drafts:write ai:review" },
+  });
+  assert.equal(
+    (
+      await browser.post(`${origin}/settings?tab=agents&/agent`, {
+        form: { id: connection, intent: "cancel-permissions" },
+      })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT requested_scopes,revoked_at FROM agent_connections WHERE id=$1",
+        [connection],
+      )
+    ).rows[0].requested_scopes,
+    null,
+  );
+});
+
 // Exercise the actual MCP/binary boundary. A digest mismatch, a foreign draft,
 // a removed private recipient and a live scope reduction must all differ from
 // an authorized transfer; retrying an upload/create must not duplicate it.
@@ -565,11 +1055,11 @@ test("agent workflows transfer private media, preserve context and attribute rev
     );
     await db.query(
       "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes) VALUES($1,$2,$3,$4,$4)",
-      [id, user, app, agentScopes],
+      [id, user, app, expandAgentScopes(agentScopes)],
     );
     await db.query(
       "INSERT INTO agent_tokens(hash,connection_id,kind,scopes,resource,expires_at) VALUES($1,$2,'access',$3,$4,now()+interval '1 hour')",
-      [hash(bearer), id, agentScopes, `${origin}/mcp`],
+      [hash(bearer), id, expandAgentScopes(agentScopes), `${origin}/mcp`],
     );
   }
   for (const [sdk, bearer] of [
@@ -913,19 +1403,7 @@ test("agent workflows transfer private media, preserve context and attribute rev
       body: "Updated, thank you",
     }),
   );
-  const notifications = read(
-    await call("list_notifications", { unreadOnly: true }),
-  );
-  assert.ok(notifications.unread > 0);
-  read(
-    await call("mark_notifications_read", {
-      ids: [notifications.notifications[0].id],
-    }),
-  );
-  assert.ok(
-    read(await call("list_notifications", {})).unread < notifications.unread,
-  );
-  assert.deepEqual(read(await call("get_friends", {}))[0].id, friendship);
+  assert.equal(read(await call("list_friends", {}))[0].id, reviewer);
   read(await call("remove_recipient", { id: created.id, friendId: reviewer }));
   assert.equal(
     (
@@ -941,52 +1419,20 @@ test("agent workflows transfer private media, preserve context and attribute rev
     read(await call("get_sharing", { id: created.id })).recipients.length,
     0,
   );
-  const preferences = {
-    friend_request: false,
-    friend_accepted: true,
-    feedback: true,
-    shared_draft: false,
-  };
-  assert.deepEqual(
-    read(await call("set_notification_preferences", preferences)),
-    preferences,
-  );
-  assert.deepEqual(
-    read(await call("list_notifications", {})).preferences,
-    preferences,
-  );
-  const peerNotification = read(await call("list_notifications", {}, peer))
-    .notifications[0];
-  assert.deepEqual(
-    read(await call("delete_notifications", { ids: [peerNotification.id] }))
-      .deleted,
-    [],
-    "cannot delete another account’s history",
-  );
-  read(await call("delete_notifications", { all: true }));
-  assert.equal(
-    read(await call("list_notifications", {})).notifications.length,
-    0,
-  );
-  read(await call("change_friendship", { id: friendship, action: "remove" }));
-  read(await call("request_friend", { email: `${reviewer}@example.test` }));
-  const incoming = read(await call("get_friends", {}, peer))[0];
-  assert.equal(incoming.incoming, true);
-  assert.equal(incoming.accepted, false);
-  read(
-    await call(
-      "change_friendship",
-      { id: incoming.id, action: "accept" },
-      peer,
-    ),
-  );
-  assert.equal(read(await call("get_friends", {}))[0].accepted, true);
-  assert.equal(
-    (await call("get_review", { token: shared.token }, peer)).isError,
-    true,
-    "re-friending must not restore review grants",
-  );
 
+  await db.query(
+    "UPDATE agent_connections SET scopes='{reviews:read,media:read}' WHERE id=$1",
+    [connection],
+  );
+  assert.equal(
+    (await http.get(download.url, { headers: download.headers })).status(),
+    403,
+    "review attachment access cannot substitute for reading owned drafts",
+  );
+  assert.equal(
+    (await call("read_media", { id: created.id, mediaId: media.id })).isError,
+    true,
+  );
   await db.query(
     "UPDATE agent_connections SET scopes=array_remove(scopes,'media:read') WHERE id=$1",
     [connection],

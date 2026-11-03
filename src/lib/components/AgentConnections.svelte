@@ -16,6 +16,7 @@
   import {
     agentExpiryOptions,
     agentScopes,
+    expandAgentScopes,
     type AgentScope,
   } from "$lib/agents";
   import type {
@@ -32,21 +33,43 @@
   const editId = $derived(page.url.searchParams.get("edit"));
   const editing = $derived(data.agents.find((agent) => agent.id === editId));
   let selected = $state<AgentScope[]>(
-    untrack(() => [...(editing?.scopes ?? [])]),
+    untrack(() =>
+      (editing?.requestedScopes ?? editing?.scopes ?? []).filter((scope) =>
+        agentScopes.some((item) => item === scope),
+      ),
+    ),
+  );
+  const addingPermissions = $derived(
+    expandAgentScopes(selected).some(
+      (scope) => !editing?.approvedScopes.includes(scope),
+    ),
   );
   let openActions = $state<string | null>(null);
   let copied = $state(false);
   let copyError = $state("");
   let saving = $state(false);
   let expiry = $state("keep");
+  const awaitingApproval = $derived.by(() => {
+    const pending = editing?.requestedScopes;
+    const requested = expandAgentScopes(selected);
+    return (
+      expiry === "keep" &&
+      !!pending &&
+      requested.length === pending.length &&
+      requested.every((scope) => pending.includes(scope))
+    );
+  });
   let endpointInput = $state<HTMLInputElement | null>(null);
   let confirmation: ConfirmDialog;
   $effect(() => {
     const id = editId;
     expiry = "keep";
-    selected = untrack(() => [
-      ...(data.agents.find((agent) => agent.id === id)?.scopes ?? []),
-    ]);
+    selected = untrack(() => {
+      const agent = data.agents.find((agent) => agent.id === id);
+      return (agent?.requestedScopes ?? agent?.scopes ?? []).filter((scope) =>
+        agentScopes.some((item) => item === scope),
+      );
+    });
   });
   $effect(() => {
     if (!copied) return;
@@ -107,8 +130,9 @@
         <div class="connection-info">
           <h2 title={agent.name}>{agent.name}</h2>
           <p class="muted">
-            {#if agent.expired}Expired{:else if !agent.scopes.length}No
-              permissions enabled{:else if agent.lastUsedAt}<span
+            {#if agent.expired}Expired{:else if agent.requestedScopes}Awaiting
+              permission approval{:else if !agent.scopes.length}No permissions
+              enabled{:else if agent.lastUsedAt}<span
                 title={date(agent.lastUsedAt)}
                 >Last used {relativeTime(agent.lastUsedAt)}</span
               >{:else}Not used yet{/if}
@@ -219,7 +243,7 @@
         return async ({ result, update }) => {
           try {
             await update({ reset: false, navigate: false });
-            if (result.type === "success")
+            if (result.type === "success" && !result.data?.approvalPending)
               await goto("/settings?tab=agents", { reset: mobile.current });
           } finally {
             saving = false;
@@ -231,17 +255,25 @@
       {#if editing.expired}<p>
           This connection has expired. Connect again from your agent app.
         </p>{:else}
-        <AgentPermissions
-          bind:selected
-          available={editing.approvedScopes}
-          showUnavailable
-          prefix={editing.id}
-        />
-        {#if editing.approvedScopes.length < agentScopes.length}<p
-            class="permission-note muted"
+        <AgentPermissions bind:selected prefix={editing.id} />
+        {#if editing.requestedScopes}
+          <p class="permission-note muted">
+            Return to {editing.name} to finish approving access. If it doesn’t ask,
+            use its reauthorize action. You don’t need to remove this connection.
+          </p>
+          <Button
+            type="submit"
+            name="intent"
+            value="cancel-permissions"
+            variant="outline"
+            disabled={saving}>Cancel added permissions</Button
           >
-            Reconnect from your agent app to allow additional permissions.
-          </p>{/if}
+        {:else if addingPermissions}
+          <p class="permission-note muted">
+            Your agent will ask you to approve the added access. Your existing
+            connection stays.
+          </p>
+        {/if}
         <label class="expiry"
           >Connection expiry
           <Select
@@ -269,8 +301,16 @@
       </p>
       <div class="edit-actions">
         <Button variant="outline" href="/settings?tab=agents">Cancel</Button>
-        {#if !editing.expired}<Button type="submit" disabled={saving}
-            >{saving ? "Saving…" : "Save changes"}</Button
+        {#if !editing.expired}<Button
+            type="submit"
+            disabled={saving || awaitingApproval}
+            >{saving
+              ? "Saving…"
+              : awaitingApproval
+                ? "Awaiting approval"
+                : addingPermissions
+                  ? "Add permissions"
+                  : "Save changes"}</Button
           >{/if}
       </div>
     </form>

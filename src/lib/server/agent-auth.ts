@@ -4,7 +4,14 @@ import { createHash } from "node:crypto";
 import { db, transaction } from "./db";
 import { hash, token } from "./auth";
 import { hasFeatureAccess } from "./features";
-import { agentExpiryOptions, agentScopes, type AgentScope } from "../agents";
+import {
+  agentExpiryOptions,
+  agentScopes,
+  acceptedAgentScopes,
+  expandAgentScopes,
+  normalizeAgentScopes,
+  type AgentScope,
+} from "../agents";
 
 export function agentExpiryDate(value: FormDataEntryValue | null) {
   const choice = value ?? "90";
@@ -19,7 +26,9 @@ export function parseAgentScopes(value: string | null): AgentScope[] {
   const scopes = [
     ...new Set((value ?? agentScopes.join(" ")).split(/\s+/).filter(Boolean)),
   ];
-  if (scopes.some((scope) => !agentScopes.includes(scope as AgentScope)))
+  if (
+    scopes.some((scope) => !acceptedAgentScopes.includes(scope as AgentScope))
+  )
     error(400, "Unsupported agent permissions.");
   return scopes as AgentScope[];
 }
@@ -97,7 +106,7 @@ export async function agentAuthorization(
     callbackHost: new URL(redirectUri).host,
     challenge: params.get("code_challenge")!,
     resource,
-    scopes: parseAgentScopes(params.get("scope")),
+    scopes: expandAgentScopes(parseAgentScopes(params.get("scope"))),
     state: params.get("state"),
   };
 }
@@ -107,25 +116,48 @@ export async function approveAgent(
   request: Awaited<ReturnType<typeof agentAuthorization>>,
   scopes: AgentScope[],
   expiresAt: Date | null,
+  connectionId?: string,
 ) {
   if (!(await hasFeatureAccess(userId, "agents"))) error(404, "Not found.");
   if (!scopes.length || scopes.some((scope) => !request.scopes.includes(scope)))
     error(400, "Choose at least one requested permission.");
   const code = token();
   await transaction(async (client) => {
-    const id = crypto.randomUUID();
+    const id = connectionId || crypto.randomUUID();
+    if (connectionId) {
+      // The previous image exchanges codes using connection scopes. Invalidate
+      // older pending codes before expanding access, including during rollout.
+      await client.query("DELETE FROM agent_codes WHERE connection_id=$1", [
+        id,
+      ]);
+      const changed = await client.query(
+        `UPDATE agent_connections SET scopes=$4,
+         approved_scopes=ARRAY(SELECT DISTINCT unnest(approved_scopes || $4::text[])),requested_scopes=NULL
+         WHERE id=$1 AND user_id=$2 AND client_id=$3 AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at>now()) AND requested_scopes IS NOT NULL
+         AND $4::text[] <@ requested_scopes
+         RETURNING id`,
+        [id, userId, request.clientId, scopes],
+      );
+      if (!changed.rowCount)
+        error(
+          400,
+          "This permission request is no longer available. Return to Settings → Agents.",
+        );
+    } else
+      await client.query(
+        "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes,expires_at) VALUES($1,$2,$3,$4,$4,$5)",
+        [id, userId, request.clientId, scopes, expiresAt],
+      );
     await client.query(
-      "INSERT INTO agent_connections(id,user_id,client_id,scopes,approved_scopes,expires_at) VALUES($1,$2,$3,$4,$4,$5)",
-      [id, userId, request.clientId, scopes, expiresAt],
-    );
-    await client.query(
-      "INSERT INTO agent_codes(hash,connection_id,redirect_uri,challenge,resource) VALUES($1,$2,$3,$4,$5)",
+      "INSERT INTO agent_codes(hash,connection_id,redirect_uri,challenge,resource,scopes) VALUES($1,$2,$3,$4,$5,$6)",
       [
         hash(code),
         id,
         request.redirectUri,
         request.challenge,
         request.resource,
+        scopes,
       ],
     );
   });
@@ -140,11 +172,11 @@ export async function exchangeAgentToken(
   const resource = form.get("resource") ?? `${origin}/mcp`;
   if (resource !== `${origin}/mcp`) error(400, "invalid_target");
   return transaction(async (client) => {
-    let connectionId: string, scopes: string[];
+    let connectionId: string, scopes: AgentScope[];
     if (form.get("grant_type") === "authorization_code") {
       const row = (
         await client.query(
-          `SELECT c.*,a.client_id,a.revoked_at,a.expires_at AS connection_expires,a.scopes
+          `SELECT c.*,a.client_id,a.revoked_at,a.expires_at AS connection_expires,a.scopes AS current_scopes
         FROM agent_codes c JOIN agent_connections a ON a.id=c.connection_id
         JOIN feature_grants g ON g.user_id=a.user_id AND g.feature='agents'
         WHERE c.hash=$1 FOR UPDATE OF c,a`,
@@ -168,7 +200,10 @@ export async function exchangeAgentToken(
         error(400, "invalid_grant");
       await client.query("DELETE FROM agent_codes WHERE hash=$1", [row.hash]);
       connectionId = row.connection_id;
-      scopes = row.scopes;
+      const currentScopes = normalizeAgentScopes(row.current_scopes);
+      scopes = normalizeAgentScopes(row.scopes ?? row.current_scopes).filter(
+        (scope) => currentScopes.includes(scope),
+      );
     } else if (form.get("grant_type") === "refresh_token") {
       const row = (
         await client.query(
@@ -193,9 +228,11 @@ export async function exchangeAgentToken(
       connectionId = row.connection_id;
       // Keep the originally delegated ceiling so permissions can be switched back
       // on in Agents. Every resource request still intersects current permissions.
-      scopes = row.scopes;
+      scopes = normalizeAgentScopes(row.scopes);
       if (form.has("scope")) {
-        const requested = parseAgentScopes(form.get("scope"));
+        const requested = normalizeAgentScopes(
+          parseAgentScopes(form.get("scope")),
+        );
         if (requested.some((scope) => !scopes.includes(scope)))
           error(400, "invalid_scope");
         scopes = requested;
@@ -212,7 +249,7 @@ export async function exchangeAgentToken(
         [hash(value), connectionId, kind, scopes, resource, lifetime],
       );
     const current = (
-      await client.query<{ scopes: string[] }>(
+      await client.query<{ scopes: AgentScope[] }>(
         "SELECT scopes FROM agent_connections WHERE id=$1",
         [connectionId],
       )
@@ -222,7 +259,9 @@ export async function exchangeAgentToken(
       token_type: "Bearer",
       expires_in: 3600,
       refresh_token: refresh,
-      scope: scopes.filter((scope) => current.includes(scope)).join(" "),
+      scope: scopes
+        .filter((scope) => normalizeAgentScopes(current).includes(scope))
+        .join(" "),
     };
   });
 }
@@ -236,10 +275,12 @@ export async function authenticateAgent(request: Request, origin: string) {
     await db.query<{
       connection_id: string;
       user_id: string;
-      scopes: AgentScope[];
+      connection_scopes: AgentScope[];
+      requested_scopes: AgentScope[] | null;
+      token_scopes: AgentScope[];
     }>(
-      `SELECT a.id AS connection_id,a.user_id,
-    ARRAY(SELECT unnest(t.scopes) INTERSECT SELECT unnest(a.scopes)) AS scopes
+      `SELECT a.id AS connection_id,a.user_id,a.requested_scopes,t.scopes AS token_scopes,
+    a.scopes AS connection_scopes
     FROM agent_tokens t JOIN agent_connections a ON a.id=t.connection_id
     JOIN feature_grants g ON g.user_id=a.user_id AND g.feature='agents'
     WHERE t.hash=$1 AND t.kind='access' AND t.resource=$2 AND t.expires_at>now() AND (a.expires_at IS NULL OR a.expires_at>now()) AND a.revoked_at IS NULL`,
@@ -247,9 +288,18 @@ export async function authenticateAgent(request: Request, origin: string) {
     )
   ).rows[0];
   if (!row) return null;
+  const tokenScopes = normalizeAgentScopes(row.token_scopes);
+  const connectionScopes = normalizeAgentScopes(row.connection_scopes);
   await db.query(
     "UPDATE agent_connections SET last_used_at=now() WHERE id=$1",
     [row.connection_id],
   );
-  return row;
+  return {
+    connection_id: row.connection_id,
+    user_id: row.user_id,
+    requested_scopes:
+      row.requested_scopes && normalizeAgentScopes(row.requested_scopes),
+    token_scopes: tokenScopes,
+    scopes: tokenScopes.filter((scope) => connectionScopes.includes(scope)),
+  };
 }

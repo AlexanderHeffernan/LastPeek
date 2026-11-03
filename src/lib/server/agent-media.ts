@@ -23,6 +23,16 @@ export async function createTransfer(
     reviewToken?: string;
   },
 ) {
+  const access = input.mediaId
+    ? input.reviewToken
+      ? "reviews:read"
+      : "drafts:read"
+    : "drafts:write";
+  if (
+    !agent.scopes.includes(access) ||
+    !agent.scopes.includes(input.mediaId ? "media:read" : "media:write")
+  )
+    error(403, "Attachment access follows your draft and review permissions.");
   if (input.reviewToken) {
     if (!agent.scopes.includes("reviews:read"))
       error(403, "Read shared reviews permission is required.");
@@ -102,7 +112,14 @@ export async function agentTransfer(
   ).rows[0];
   if (
     !row ||
-    !row.scopes.includes(kind === "upload" ? "media:write" : "media:read")
+    !row.scopes.includes(kind === "upload" ? "media:write" : "media:read") ||
+    !row.scopes.includes(
+      kind === "upload"
+        ? "drafts:write"
+        : row.review_hash
+          ? "reviews:read"
+          : "drafts:read",
+    )
   )
     error(403, "This media transfer is expired or no longer permitted.");
   if (row.review_hash) {

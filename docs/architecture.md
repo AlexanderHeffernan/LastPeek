@@ -118,6 +118,25 @@ client explicitly narrows it, while reporting currently effective permissions. T
 re-enable only permissions approved at consent. New authority requires a new consent flow.
 Revocation blocks subsequent requests, not operations already authorized and in flight.
 
+Migration 032 adds pending scope requests and code-bound scope snapshots. Settings can request
+additional access, but only previously approved scopes become effective immediately. MCP responds
+with the standard 403 insufficient_scope challenge to initiate client-side reauthorization. Consent
+can update a pending connection only for the signed-in owner and exact registered client, never by
+display name; multiple candidates require explicit selection. The chosen grant is bounded by both
+the client request and the pending selection. Cancellation clears the request without disconnecting.
+New tokens reflect the approved scope snapshot; old access/refresh credentials retain their ceiling.
+Accepting added access invalidates earlier unexchanged codes for that connection, so even the
+previous rolling-deployment image cannot exchange them using the expanded connection scopes.
+Attachment scopes remain internal dependencies of draft/review consent so legacy credentials do not
+silently gain media access. Discovery exposes ten user-facing capabilities in four groups; removed
+friend/notification scope strings remain parseable for legacy refreshes but have no agent tools.
+
+Sharing separates `sharing:links` and `sharing:people`, including audience-specific revocation and
+filtered URL/recipient reads. The legacy `drafts:share` grant already authorized both; normalize it
+to that equivalent pair before intersecting token, code and enabled connection scopes. This mapping
+never adds media dependencies. Permission edits lock the connection and normalize its approved
+ceiling before reducing enabled access; no reconnect is needed to narrow an older sharing grant.
+
 `agent-tools.ts` adapts typed inputs to existing draft operations. `feedback.ts` is shared by browser
 and agent feedback, preserving identity, snapshot anchors, access-revocation locks and notifications.
 No MCP tool publishes externally, deletes drafts, exposes admin operations or fetches arbitrary
@@ -148,8 +167,8 @@ expiry and current review/recipient access. Maintenance removes expired transfer
 transfer capability authorizes arbitrary paths, remote URL ingestion, editing or sharing.
 
 Disconnected connections remain server-side for credential revocation but are omitted from the
-management list. Unapproved permissions are visible but disabled in the editor; existing OAuth
-credentials cannot silently gain authority. New permissions require approval from the client flow.
+management list. Additional permissions can be selected in the editor; existing OAuth credentials
+cannot silently gain authority. New permissions require approval from the client flow.
 Portal ingress authentication may prevent external clients from reaching a private preview URL.
 Automated official-SDK HTTP checks do not establish an external client’s complete OAuth UX.
 
