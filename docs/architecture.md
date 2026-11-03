@@ -19,7 +19,7 @@ remain for rolling compatibility, but new browsers no longer write read receipts
 fields and tools remain compatible. Authors can hide resolved roots in the browser; a new reply
 reopens the root in the same transaction as its comment write.
 
-Migration 036 stores short-lived per-draft viewer presence. Visible review pages heartbeat every
+Migration 037 stores short-lived per-draft viewer presence. Visible review pages heartbeat every
 five seconds; rows expire from display after twenty seconds and maintenance prunes them after a
 minute. Each page instance is identified by a hash of an HTTP-only random browser cookie plus a
 per-instance nonce, so leaving one tab does not remove another. Signed-in identities come from

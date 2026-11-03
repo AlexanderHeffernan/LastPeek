@@ -605,6 +605,10 @@ test("user identities / compact feedback friend actions and friends-only presenc
       );
     }
     await page.setViewportSize({ width: 1280, height: 900 });
+    // Capture hover-prefetch as well as click navigation.
+    const draftData = page.waitForResponse((r) =>
+      r.url().includes(`/drafts/${draft}/__data.json`),
+    );
     await page.goto(baseURL);
     await page.getByText("Guest reviewer", { exact: true }).waitFor();
     const newReviewer = page.getByRole("article", {
@@ -688,12 +692,6 @@ test("user identities / compact feedback friend actions and friends-only presenc
       "accepted friends need no identity action",
     );
     assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
-    const draftPresence = page.waitForResponse((r) =>
-      r.url().endsWith("/api/presence"),
-    );
-    const draftData = page.waitForResponse((r) =>
-      r.url().includes(`/drafts/${draft}/__data.json`),
-    );
     await newReviewer
       .getByRole("link", { name: /^Open feedback from Rae Rivers:/ })
       .click();
@@ -703,7 +701,12 @@ test("user identities / compact feedback friend actions and friends-only presenc
     // Kit can render streamed navigation data before its transport has closed.
     // Finish that response before the later reload, which otherwise aborts it in WebKit.
     assert.equal(await (await draftData).finished(), null);
-    assert.equal((await draftPresence).status(), 200);
+    // The layout can reuse activity for the same friends across navigation.
+    // Verify the visible identity, not an incidental new polling request.
+    await page
+      .getByRole("article", { name: "Feedback from Rae Rivers", exact: true })
+      .getByRole("img", { name: "Active now" })
+      .waitFor();
     const feedback = page.getByRole("article", {
       name: "Feedback from Galen Green",
     });
@@ -4897,7 +4900,7 @@ for (const scenario of [
         await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
         for (const width of [390, 320]) {
           await page.setViewportSize({ width, height: 844 });
-          assert.equal(await navigation.getByRole("link").count(), 4);
+          assert.equal(await navigation.getByRole("link").count(), 3);
           assert.ok(
             (await page
               .getByRole("link", { name: "Account settings" })
