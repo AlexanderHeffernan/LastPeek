@@ -21,7 +21,6 @@
     busy = false,
     disabled = false,
     oninput,
-    oncancelreply,
     onclear,
     actions,
   }: {
@@ -39,7 +38,6 @@
     busy?: boolean;
     disabled?: boolean;
     oninput?: () => void;
-    oncancelreply?: () => void;
     onclear?: () => void;
     actions?: Snippet;
   } = $props();
@@ -77,27 +75,39 @@
         rows={1}
         maxlength={2000}
         required
-        class="min-h-10 max-h-40 min-w-0 flex-1 resize-none rounded-lg bg-secondary/40 px-3 py-2.5 text-base leading-5 shadow-none md:text-sm"
+        class="min-h-12 max-h-40 min-w-0 resize-none rounded-xl bg-secondary/40 pl-3 pr-14 py-3 text-base leading-5 shadow-none md:text-sm"
+        onkeydown={(event) => {
+          if (
+            event.key !== "Enter" ||
+            event.shiftKey ||
+            event.isComposing ||
+            event.keyCode === 229
+          )
+            return;
+          event.preventDefault();
+          if (busy || disabled || !value.trim()) return;
+          const form = event.currentTarget.form;
+          const submit = form?.querySelector<HTMLButtonElement>(
+            'button[type="submit"]:not([hidden])',
+          );
+          if (submit && !submit.disabled) form?.requestSubmit(submit);
+        }}
       />
       <div class="composer-submit">
         {#if actions}{@render actions()}{:else}
           <Button
-            size="sm"
-            class="min-h-11 rounded-full"
+            variant="ghost"
+            size="icon"
+            class="min-h-11 min-w-11 text-primary"
             type="submit"
+            aria-label={replyName ? "Send reply" : "Send comment"}
+            title={replyName ? "Send reply" : "Send comment"}
             disabled={disabled || busy || !value.trim()}
           >
-            {busy ? "Sending…" : replyName ? "Reply" : "Comment"}
+            <Icon name={busy ? "refresh" : "up"} size={20} />
           </Button>
         {/if}
       </div>
-      {#if replyName}<Button
-          variant="ghost"
-          size="icon-sm"
-          class="min-h-11 shrink-0"
-          aria-label="Cancel reply"
-          onclick={oncancelreply}><Icon name="close" size={14} /></Button
-        >{/if}
     </div>
     {#if error}<p class="action-error" role="alert">{error}</p>{/if}
   </div>
@@ -112,15 +122,15 @@
     min-width: 0;
   }
   .composer-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    position: relative;
   }
   .composer-submit {
-    padding-top: 0;
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
   }
-  .composer-submit :global([data-slot="button"]) {
-    padding-inline: 13px;
+  .composer-row:has(:global(.review-submit)) :global(textarea) {
+    padding-right: 86px;
   }
   .composer-context {
     display: flex;
@@ -150,16 +160,5 @@
   .action-error {
     margin: 8px 0 0;
     font-size: 13px;
-  }
-  @media (max-width: 360px) {
-    .discussion-composer {
-      gap: 8px;
-    }
-    .composer-row {
-      gap: 6px;
-    }
-    .composer-submit :global([data-slot="button"]) {
-      padding-inline: 10px;
-    }
   }
 </style>

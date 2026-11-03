@@ -632,7 +632,7 @@
   .drafts-page {
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
     grid-template-areas: "tabs search" "feed create" "feed feedback";
     grid-template-rows: 44px auto 1fr;
     gap: 0 24px;

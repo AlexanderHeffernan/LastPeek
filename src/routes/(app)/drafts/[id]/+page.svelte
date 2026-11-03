@@ -737,60 +737,65 @@
             ><Icon name="trash" size={20} /></Button
           >
         </div>
-        <Popover.Root bind:open={moreOpen}>
-          <Popover.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant="outline"
-                class="icon-button"
-                aria-label="More draft actions"
-                title="More draft actions"
-                ><Icon name="more" size={22} /></Button
-              >
-            {/snippet}
-          </Popover.Trigger>
-          <Popover.Content
-            class="share-menu"
-            sideOffset={8}
-            align="end"
-            aria-label="More draft actions"
-          >
-            {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
-                variant="ghost"
-                onclick={() => {
-                  moreOpen = false;
-                  nextType = content.source?.kind ?? "post";
-                  sourceURL = content.source?.url ?? "";
-                  typeError = "";
-                  typeOpen = true;
-                }}><Icon name="edit" size={16} />Change draft type</Button
-              >{/if}
-            <div class="mobile-draft-actions">
-              {#if !data.draft.posted_at}
+        <div
+          class:mobile-draft-actions={!!data.draft.posted_at ||
+            !!data.xPublishing.publication}
+        >
+          <Popover.Root bind:open={moreOpen}>
+            <Popover.Trigger>
+              {#snippet child({ props })}
                 <Button
+                  {...props}
+                  variant="outline"
+                  class="icon-button"
+                  aria-label="More draft actions"
+                  title="More draft actions"
+                  ><Icon name="more" size={22} /></Button
+                >
+              {/snippet}
+            </Popover.Trigger>
+            <Popover.Content
+              class="share-menu"
+              sideOffset={8}
+              align="end"
+              aria-label="More draft actions"
+            >
+              {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
                   variant="ghost"
-                  disabled={busy || saving || uploading || deleting}
                   onclick={() => {
                     moreOpen = false;
-                    void completeDraft();
-                  }}
+                    nextType = content.source?.kind ?? "post";
+                    sourceURL = content.source?.url ?? "";
+                    typeError = "";
+                    typeOpen = true;
+                  }}><Icon name="edit" size={16} />Change draft type</Button
+                >{/if}
+              <div class="mobile-draft-actions">
+                {#if !data.draft.posted_at}
+                  <Button
+                    variant="ghost"
+                    disabled={busy || saving || uploading || deleting}
+                    onclick={() => {
+                      moreOpen = false;
+                      void completeDraft();
+                    }}
+                  >
+                    <Icon name="done" size={16} />Mark as posted
+                  </Button>
+                {/if}
+                <Button
+                  variant="ghost"
+                  class="danger"
+                  disabled={uploading || saving || busy || deleting}
+                  onclick={() => {
+                    moreOpen = false;
+                    void removeDraft();
+                  }}><Icon name="trash" size={16} />Delete draft</Button
                 >
-                  <Icon name="done" size={16} />Mark as posted
-                </Button>
-              {/if}
-              <Button
-                variant="ghost"
-                class="danger"
-                disabled={uploading || saving || busy || deleting}
-                onclick={() => {
-                  moreOpen = false;
-                  void removeDraft();
-                }}><Icon name="trash" size={16} />Delete draft</Button
-              >
-            </div>
-          </Popover.Content>
-        </Popover.Root>
+              </div>
+            </Popover.Content>
+          </Popover.Root>
+        </div>
       </div>
       <span class="sr-only" role="status">{status}</span>
       {#if error}<div class="action-error" role="alert">
@@ -856,7 +861,6 @@
                   error={inline ? replyError : commentError}
                   busy={commenting}
                   disabled={uploading}
-                  oncancelreply={() => (commentParent = null)}
                   onclear={() => focusComment("", "")}
                 />
               </form>

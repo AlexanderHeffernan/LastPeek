@@ -18,24 +18,24 @@ native post presentation, shared controls and responsive shell.
   Account requests remain invite-only and appear in the owner's Invitations queue.
 - One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
   before sharing and reply in the same space as reviewers. Keep a single reply indentation level;
-  all replies stay visible without reply-count disclosures. Name, handle,
-  a small Author pill and time share one line. Comment content stays in the content column beside
-  the 40px avatar, with continuous avatar-column reply connectors, not stacked feedback cards.
-  Reply composition stays inside its conversation in one row with send and cancel. The general
+  all replies stay visible without reply-count disclosures. Name occupies the first line beside
+  the 40px avatar; handle, Author/Guest pill, time and compact Edited marker occupy the second.
+  Comment content uses the full width below that identity header. Replies retain an indented connector.
+  Reply composition stays inside its conversation with an inset send icon, no cancel cross. The general
   composer remains in place and retains its text. Guests provide a name only when sending.
 - Draft and All Drafts share the same 1000px desktop application frame, including the 68px rail.
-  Discussion uses the remaining column beside the 600px post and 24px gap. The page has
+  Discussion uses the remaining column beside the 520px post and 24px gap; the feed uses the same split. The page has
   one document scroll, never an independently scrolling, viewport-height discussion sidebar.
   Only Discussion/AI review tabs stick during scrolling; sharing and destructive actions scroll away.
   Tabs have breathing room beneath the action strip. Private AI results stay
   mounted when switching tabs; changing tabs must not discard a comment or a finding.
 - Authors and reviewers share an auto-growing composer without a redundant self-avatar. The compact comment action
-  sits alongside the field, not stranded beneath it. Selected wording and media use removable
+  sits inside the field at the right. Enter sends, Shift+Enter adds a line, and composing IME input never sends. Selected wording and media use removable
   context chips. Friendship actions sit in the comment action row so identity metadata stays compact.
 - Post/text/attachment context sits above the comment. Video feedback captures the current
   playhead without obstructing native controls. Context never silently migrates after an edit:
   Text changed, Post edited, Post removed, Attachment removed or Source changed opens a limited
-  original/current comparison. General comments simply say the draft has been edited.
+  original/current comparison from the compact Edited marker. General comments show the same marker with a descriptive accessible label and tooltip, not a separate sentence.
 - Authors can resolve conversations, which fade out of the active discussion. A quiet bottom
   separator opens resolved conversations; the empty separator says Nothing resolved. A new reply
   reopens them. Discussion counts exclude resolved conversations and their replies.

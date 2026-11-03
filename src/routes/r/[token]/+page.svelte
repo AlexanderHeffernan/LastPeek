@@ -264,10 +264,10 @@
               : data.media.find((m) => m.id === mediaId)}
             time={inline ? null : mediaTime}
             token={data.token}
+            {busy}
             error={lastInline === inline && form?.message && !form.success
               ? form.message
               : undefined}
-            oncancelreply={() => (parent = null)}
             onclear={() => {
               postId = "";
               quote = "";
@@ -282,27 +282,34 @@
           >
             {#snippet actions()}
               {#if inline}<Button
+                  variant="ghost"
                   type="submit"
-                  size="sm"
-                  class="min-h-11"
+                  size="icon"
+                  class="min-h-11 min-w-11 text-primary"
                   aria-label="Send reply"
-                  disabled={busy}>{busy ? "Sending…" : "Reply"}</Button
+                  disabled={busy || !replyBody.trim()}
+                  ><Icon name={busy ? "refresh" : "up"} size={20} /></Button
                 >{:else}
-                <div class="share-actions review-submit">
+                <div class="review-submit">
                   <Button
+                    variant="ghost"
                     type="submit"
-                    size="sm"
-                    class="min-h-11"
+                    size="icon"
+                    class="min-h-11 min-w-11 text-primary"
                     aria-label={sent ? "Feedback sent" : "Send feedback"}
-                    disabled={busy}
-                    >{busy ? "Sending…" : sent ? "Sent" : "Comment"}</Button
+                    disabled={busy || !body.trim()}
+                    ><Icon
+                      name={busy ? "refresh" : sent ? "check" : "up"}
+                      size={20}
+                    /></Button
                   >
                   <Popover.Root bind:open={feedbackOpen}>
                     <Popover.Trigger>
                       {#snippet child({ props })}
                         <Button
                           {...props}
-                          size="sm"
+                          variant="ghost"
+                          size="icon-sm"
                           class="share-toggle min-h-11"
                           disabled={busy}
                           aria-label="Feedback options"
@@ -370,14 +377,9 @@
     display: block;
     padding: 0;
   }
-  .review-submit :global(button:first-child) {
-    flex: 1;
-  }
-  .review-submit :global(button) {
-    border-radius: 999px 0 0 999px;
-  }
-  .review-submit :global(.share-toggle) {
-    border-radius: 0 999px 999px 0;
+  .review-submit {
+    display: flex;
+    align-items: center;
   }
   .draft-feedback {
     border-top: 0;

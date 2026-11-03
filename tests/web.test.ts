@@ -713,7 +713,10 @@ test("user identities / compact feedback friend actions and friends-only presenc
       name: "Feedback from Galen Green",
     });
     await feedback
-      .getByText("Draft edited since this comment", { exact: true })
+      .getByRole("img", {
+        name: "Draft edited since this comment",
+        exact: true,
+      })
       .waitFor();
     assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
     for (const width of [320, 1280]) {
@@ -3669,7 +3672,10 @@ test(
         .getByText("Updated private wording.", { exact: true })
         .waitFor();
       await reviewer
-        .getByText("Draft edited since this comment", { exact: true })
+        .getByRole("img", {
+          name: "Draft edited since this comment",
+          exact: true,
+        })
         .first()
         .waitFor();
       await reviewer
@@ -4399,12 +4405,42 @@ test(
     await page
       .getByLabel("Your comment", { exact: true })
       .fill("Does the example make the opening clearer?");
+    const input = page.getByLabel("Your comment", { exact: true });
+    await input.press("Shift+Enter");
+    assert.equal(
+      await input.inputValue(),
+      "Does the example make the opening clearer?\n",
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT count(*)::int AS n FROM comments WHERE draft_id=$1",
+          [id],
+        )
+      ).rows[0].n,
+      0,
+    );
+    assert.equal(
+      await input.evaluate((el) =>
+        el.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      ),
+      true,
+      "IME confirmation must not be intercepted as send",
+    );
+    await input.fill("Does the example make the opening clearer?");
     const questionSent = page.waitForResponse(
       (r) =>
         r.url().endsWith(`/api/drafts/${id}`) &&
         r.request().postDataJSON()?.action === "comment",
     );
-    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await input.press("Enter");
     assert.equal((await questionSent).status(), 200);
     const thread = page.getByRole("region", {
       name: "Conversation from Discussion author",
@@ -4464,7 +4500,9 @@ test(
       1,
     );
     await thread.waitFor();
-    await thread.getByText("Source changed · Compare", { exact: true }).click();
+    await thread
+      .getByRole("button", { name: "Source changed · Compare", exact: true })
+      .click();
     assert.equal(
       await page
         .getByRole("dialog")
@@ -4524,9 +4562,11 @@ test(
     await guestThread
       .getByLabel("Your reply", { exact: true })
       .fill("Yes, keep the example but shorten the opening.");
-    await reviewer
-      .getByRole("button", { name: "Send reply", exact: true })
-      .click();
+    assert.equal(
+      await reviewer.getByRole("button", { name: "Cancel reply" }).count(),
+      0,
+    );
+    await guestThread.getByLabel("Your reply", { exact: true }).press("Enter");
     await guestThread
       .getByText("Yes, keep the example but shorten the opening.", {
         exact: true,
@@ -4614,7 +4654,9 @@ test(
     await page
       .getByLabel("Your comment", { exact: true })
       .fill("Is this opening too cautious?");
-    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Send comment", exact: true })
+      .click();
     await page
       .getByText("Is this opening too cautious?", { exact: true })
       .waitFor();
@@ -4623,7 +4665,9 @@ test(
         .getByLabel("Post 1 text", { exact: true })
         .fill("A shorter opening with the same example."),
     );
-    await page.getByText("Post edited · Compare", { exact: true }).click();
+    await page
+      .getByRole("button", { name: "Post edited · Compare", exact: true })
+      .click();
     await page
       .getByRole("dialog")
       .getByText("When reviewed", { exact: true })
@@ -4632,6 +4676,58 @@ test(
       .getByRole("dialog")
       .getByRole("button", { name: "Close", exact: true })
       .click();
+    await db.query("UPDATE users SET handle='longer_username' WHERE id=$1", [
+      owner,
+    ]);
+    await page.reload();
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(
+        await page.evaluate(() => {
+          const cards = [
+            ...document.querySelectorAll(
+              'article[aria-label^="Feedback from"]',
+            ),
+          ];
+          return cards.every(
+            (card) =>
+              card.scrollWidth <= card.clientWidth &&
+              card.getBoundingClientRect().right <= innerWidth,
+          );
+        }),
+        true,
+        "nested identity metadata stays inside the discussion at narrow and desktop widths",
+      );
+    }
+    assert.equal(
+      (await page.getByRole("region", { name: "Edit draft" }).boundingBox())
+        ?.width,
+      520,
+    );
+    await db.query("UPDATE drafts SET posted_at=now() WHERE id=$1", [id]);
+    await page.reload();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "More draft actions", exact: true })
+        .count(),
+      0,
+      "no empty desktop action menu for a posted draft",
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page
+      .getByRole("button", { name: "More draft actions", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Delete draft", exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Change draft type", exact: true })
+        .count(),
+      0,
+    );
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1280, height: 900 });
     assert.equal(
       await page
         .getByRole("link", { name: "Discussions", exact: true })
@@ -5404,7 +5500,15 @@ for (const scenario of [
         assert.equal(await feedLinks.count(), 2);
         await page.getByRole("tab", { name: "Done", exact: true }).click();
         await feedLinks.first().click();
-        await page.getByRole("button", { name: "More draft actions" }).click();
+        await page
+          .getByRole("button", { name: "Delete draft", exact: true })
+          .waitFor();
+        assert.equal(
+          await page
+            .getByRole("button", { name: "More draft actions" })
+            .count(),
+          0,
+        );
         assert.equal(
           await page
             .getByRole("button", { name: "Move to drafts", exact: true })
@@ -5417,7 +5521,6 @@ for (const scenario of [
             .count(),
           0,
         );
-        await page.keyboard.press("Escape");
         await page
           .getByRole("link", { name: "Back to drafts", exact: true })
           .click();
@@ -7294,7 +7397,7 @@ for (const scenario of [
           );
           await reviewer.goto(link);
           await reviewer
-            .getByText("Post edited · Compare", { exact: true })
+            .getByRole("button", { name: "Post edited · Compare", exact: true })
             .waitFor();
           assert.equal(
             await reviewer
@@ -7842,7 +7945,7 @@ for (const scenario of [
           .getByRole("article", { name: "Feedback from Sam" })
           .filter({ hasText: "Tighten this wording." });
         await quoteCard
-          .getByText("Text changed · Compare", { exact: true })
+          .getByRole("button", { name: "Text changed · Compare", exact: true })
           .waitFor();
         assert.equal(
           await quoteCard.getByRole("blockquote").innerText(),

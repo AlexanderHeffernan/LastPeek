@@ -143,6 +143,21 @@
         <time datetime={comment.created_at}
           >{relativeTime(comment.created_at)}</time
         >
+        {#if change}<Button
+            variant="ghost"
+            size="sm"
+            class="context-compare"
+            title={`${change} · Compare`}
+            aria-label={`${change} · Compare`}
+            onclick={() => (comparing = comment)}
+            ><Icon name="history" size={12} />Edited</Button
+          >{:else if !comment.post_id && revision && comment.revision !== revision}<span
+            class="edited-marker"
+            role="img"
+            aria-label="Draft edited since this comment"
+            title="Draft edited since this comment"
+            ><Icon name="history" size={12} />Edited</span
+          >{/if}
       {/snippet}
       <div class="comment-context">
         {#if comment.post_id && (content.posts.length > 1 || !post)}<span
@@ -189,14 +204,6 @@
           >via {comment.agent_name}</span
         >{/if}
       <p class="comment">{comment.body}</p>
-      {#if change}<Button
-          variant="ghost"
-          size="sm"
-          class="context-compare"
-          onclick={() => (comparing = comment)}>{change} · Compare</Button
-        >{:else if !comment.post_id && revision && comment.revision !== revision}<span
-          class="small muted">Draft edited since this comment</span
-        >{/if}
       {#if comment.suggestion}<blockquote class="feedback-quote">
           {comment.suggestion}
         </blockquote>{/if}
@@ -329,7 +336,7 @@
   .discussion-replies {
     position: relative;
     margin-left: 19px;
-    padding-left: 30px;
+    padding-left: 20px;
     border-left: 2px solid var(--border);
   }
   .reply-entries {
@@ -339,7 +346,7 @@
   }
   .thread-composer {
     margin-left: 19px;
-    padding-left: 30px;
+    padding-left: 20px;
     border-left: 2px solid var(--border);
   }
   @media (max-width: 400px) {
@@ -367,13 +374,17 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .has-replies > .feedback-card::before {
-    content: "";
-    position: absolute;
-    left: 19px;
-    top: 46px;
-    bottom: 0;
-    border-left: 2px solid var(--border);
+  .edited-marker,
+  :global(.context-compare[data-slot="button"]) {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    height: 20px;
+    min-height: 20px;
+    padding: 0;
   }
   .author-label {
     color: var(--muted-foreground);

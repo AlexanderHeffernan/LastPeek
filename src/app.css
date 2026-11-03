@@ -522,7 +522,7 @@
 }
 .draft-page {
   display: grid;
-  grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
   grid-template-areas: "heading sidebar" "posts sidebar";
   grid-template-rows: 52px 1fr;
   column-gap: 24px;
