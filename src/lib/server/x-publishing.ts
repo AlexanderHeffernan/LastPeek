@@ -60,7 +60,7 @@ export async function xPublishing(
       ? {
           status: uncertain ? "unknown" : publication.status,
           url: publication.post_id
-            ? `https://x.com/i/web/status/${publication.post_id}`
+            ? `https://x.com/${account?.profile.username || "i/web"}/status/${publication.post_id}`
             : null,
           text: publication.text,
           version: publication.edit_version,

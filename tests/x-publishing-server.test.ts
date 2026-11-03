@@ -111,7 +111,7 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
     const published = await xPublishing(userId, draftId);
     assert.equal(
       published.publication?.url,
-      "https://x.com/i/web/status/123456789123456789",
+      "https://x.com/actual_account/status/123456789123456789",
     );
     assert.equal(published.publication?.text, content.posts[0].text);
     assert.equal(

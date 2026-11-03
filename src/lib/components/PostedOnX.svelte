@@ -71,6 +71,10 @@
       href={linkedURL}
       aria-label="View on X"
       target="_blank"
+      onclick={(event) => {
+        if (matchMedia("(pointer: coarse)").matches)
+          event.currentTarget.setAttribute("target", "_self");
+      }}
       rel="noopener noreferrer">View on <Icon name="x" size={16} /></Button
     >
   {:else if link?.status === "candidate" && link.url}

@@ -89,7 +89,7 @@
       cancelAnimationFrame(animation);
       clearTimeout(idle);
       range = Math.max(
-        1,
+        52,
         header!.offsetHeight +
           (element.querySelector<HTMLElement>(".feed-toolbar")?.offsetHeight ||
             0),
@@ -143,7 +143,27 @@
       clearTimeout(idle);
       idle = setTimeout(settle, 120);
     }
+    const viewport = window.visualViewport;
+    let layoutHeight = innerHeight;
+    function keyboard() {
+      const editing = document.activeElement?.matches(
+        'input,textarea,[contenteditable="true"]',
+      );
+      if (!editing) layoutHeight = innerHeight;
+      element.classList.toggle(
+        "keyboard-open",
+        !!(
+          mobile.matches &&
+          editing &&
+          viewport &&
+          Math.max(layoutHeight, innerHeight) - viewport.height > 120
+        ),
+      );
+    }
     reveal();
+    viewport?.addEventListener("resize", keyboard);
+    document.addEventListener("focusin", keyboard);
+    document.addEventListener("focusout", keyboard);
     window.addEventListener("scroll", scroll, { passive: true });
     window.addEventListener("touchstart", touchStart, { passive: true });
     window.addEventListener("touchend", touchEnd, { passive: true });
@@ -158,6 +178,9 @@
       window.removeEventListener("touchend", touchEnd);
       window.removeEventListener("touchcancel", touchEnd);
       mobile.removeEventListener("change", reveal);
+      viewport?.removeEventListener("resize", keyboard);
+      document.removeEventListener("focusin", keyboard);
+      document.removeEventListener("focusout", keyboard);
     };
   });
 </script>

@@ -17,20 +17,25 @@ native post presentation, shared controls and responsive shell.
   Phosphor's dashed user circle; comments retain the entered name and a small Guest label.
   Account requests remain invite-only and appear in the owner's Invitations queue.
 - One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
-  before sharing and reply in the same space as reviewers. Keep a single reply indentation level;
-  all replies stay visible without reply-count disclosures. Name occupies the first line beside
-  the 40px avatar; handle, Author/Guest pill, time and compact Edited marker occupy the second.
+  before sharing and reply in the same space as reviewers. Replies attach to the exact selected
+  message at any depth; cap visual indentation to preserve room on mobile. Name and Author/Guest
+  pills occupy the first line beside the 40px avatar; handle, time and compact Edited marker occupy the second.
   Comment content uses the full width below that identity header. Replies retain an indented connector.
+  People can edit/delete their own messages. Guests use an HttpOnly browser-session credential,
+  never their name, to establish ownership; their own messages say Guest · You. Non-leaf deletions
+  retain an anonymous Message deleted placeholder; leaf messages and empty placeholders disappear.
   Reply composition stays inside its conversation with an inset send icon, no cancel cross. The general
   composer remains in place and retains its text. Guests provide a name only when sending.
 - Draft and All Drafts share the same 1000px desktop application frame, including the 68px rail.
-  Discussion uses the remaining column beside the 520px post and 24px gap; the feed uses the same split. The page has
+  The home feed retains its 600px main column. Post pages default to a 600px post and 24px gap;
+  only their inner split is adjustable with a pointer or arrow keys (460–628px post width), saved on that device. The page has
   one document scroll, never an independently scrolling, viewport-height discussion sidebar.
   Only Discussion/AI review tabs stick during scrolling; sharing and destructive actions scroll away.
   Tabs have breathing room beneath the action strip. Private AI results stay
   mounted when switching tabs; changing tabs must not discard a comment or a finding.
 - Authors and reviewers share an auto-growing composer without a redundant self-avatar. The compact comment action
-  sits inside the field at the right. Enter sends, Shift+Enter adds a line, and composing IME input never sends. Selected wording and media use removable
+  sits inside the field at the right. Enter sends, Shift+Enter adds a line, and composing IME input never sends.
+  Three quick-message pills animate below the focused general composer without replacing unsent text. Selected wording and media use removable
   context chips. Friendship actions sit in the comment action row so identity metadata stays compact.
 - Post/text/attachment context sits above the comment. Video feedback captures the current
   playhead without obstructing native controls. Context never silently migrates after an edit:
@@ -42,7 +47,7 @@ native post presentation, shared controls and responsive shell.
 - Discussion belongs to its draft, not a separate navigation destination. Recent feedback and
   notifications link directly to the draft/comment; old `/feedback` bookmarks return to Drafts.
 - Other viewers appear as a compact avatar stack beside the Post heading, with hover names and
-  explicit guest identities. Entering/leaving viewers animate quietly. Mobile draft/review pages
+  explicit guest identities and online dots. Hover or tap expands a name beside its avatar; mobile taps collapse again after a short delay. Entering/leaving viewers animate quietly. Mobile draft/review pages
   omit the separate account/mascot header; keep the post heading and bottom navigation.
 - AI is private, not chat: one-click Quick review, Proofread, Clarity, Tighten, Tone and Thread
   flow stay above saved newest-first results. Findings offer Apply (when safe) and Dismiss, never

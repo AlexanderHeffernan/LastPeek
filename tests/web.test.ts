@@ -3475,16 +3475,20 @@ test(
       await identity
         .getByRole("button", { name: "Continue as guest", exact: true })
         .click();
-      await anonymous
-        .getByRole("button", { name: "Feedback options", exact: true })
-        .click();
+      await anonymous.getByLabel("Your feedback", { exact: true }).focus();
       await anonymous
         .getByRole("button", { name: "Looks good!", exact: true })
         .click();
       await anonymous
+        .getByLabel("Your feedback", { exact: true })
+        .press("Enter");
+      await anonymous
         .getByRole("button", { name: "Feedback sent", exact: true })
         .waitFor();
-      await anonymous.getByText("Looks good!", { exact: true }).waitFor();
+      await anonymous
+        .getByRole("article")
+        .getByText("Looks good!", { exact: true })
+        .waitFor();
       // Profile discovery works through a review, without exposing email addresses.
       await reviewer.goto(`${baseURL}/r/${publicReview.token}`);
       await page.goto(`${baseURL}/drafts/${draftId}`);
@@ -3681,23 +3685,19 @@ test(
       await reviewer
         .getByLabel("Your feedback", { exact: true })
         .fill("Keep this unsent text.");
-      await reviewer
-        .getByRole("button", { name: "Feedback options", exact: true })
-        .click();
       assert.equal(
         await reviewer
           .getByRole("button", { name: "Looks good!", exact: true })
           .isDisabled(),
         true,
       );
-      await reviewer.keyboard.press("Escape");
       await reviewer.getByLabel("Your feedback", { exact: true }).fill("");
-      await reviewer
-        .getByRole("button", { name: "Feedback options", exact: true })
-        .click();
       await reviewer
         .getByRole("button", { name: "Looks good!", exact: true })
         .click();
+      await reviewer
+        .getByLabel("Your feedback", { exact: true })
+        .press("Enter");
       await reviewer
         .getByRole("button", { name: "Feedback sent", exact: true })
         .waitFor();
@@ -4536,7 +4536,7 @@ test(
       .getByRole("button", { name: "Continue as guest", exact: true })
       .click();
     await page
-      .getByRole("img", { name: "Sam · Guest is viewing", exact: true })
+      .getByRole("button", { name: "Sam · Guest is viewing", exact: true })
       .waitFor();
     await page
       .getByLabel("Your comment", { exact: true })
@@ -4581,6 +4581,70 @@ test(
         exact: true,
       })
       .waitFor();
+    const guestMessage = reviewer.getByRole("article", {
+      name: "Feedback from Sam",
+      exact: true,
+    });
+    await guestMessage.getByText("Guest · You", { exact: true }).waitFor();
+    await guestMessage
+      .getByRole("button", { name: "Message actions", exact: true })
+      .click();
+    await reviewer
+      .getByRole("button", { name: "Edit message", exact: true })
+      .click();
+    await reviewer
+      .getByLabel("Edit message text", { exact: true })
+      .fill("Keep the example; shorten the first sentence.");
+    await reviewer
+      .getByRole("button", { name: "Save message", exact: true })
+      .click();
+    await guestMessage
+      .getByText("Keep the example; shorten the first sentence.", {
+        exact: true,
+      })
+      .waitFor();
+    await thread
+      .getByText("Keep the example; shorten the first sentence.", {
+        exact: true,
+      })
+      .waitFor();
+    const authorView = thread.getByRole("article", {
+      name: "Feedback from Sam",
+      exact: true,
+    });
+    await authorView
+      .getByRole("button", { name: "Reply", exact: true })
+      .click();
+    await thread
+      .getByLabel("Your reply", { exact: true })
+      .fill("Thanks, that distinction helps.");
+    await thread.getByLabel("Your reply", { exact: true }).press("Enter");
+    const nestedMessage = thread
+      .getByRole("article")
+      .filter({ hasText: "Thanks, that distinction helps." });
+    await nestedMessage.waitFor();
+    const relationships = (
+      await db.query(
+        "SELECT c.parent_id,p.body FROM comments c JOIN comments p ON p.id=c.parent_id WHERE c.draft_id=$1 AND c.body=$2",
+        [id, "Thanks, that distinction helps."],
+      )
+    ).rows;
+    assert.equal(
+      relationships[0].body,
+      "Keep the example; shorten the first sentence.",
+      "replying to a reply preserves the selected parent",
+    );
+    await nestedMessage
+      .getByRole("button", { name: "Message actions", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Delete message", exact: true })
+      .click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Delete message", exact: true })
+      .click();
+    await nestedMessage.waitFor({ state: "hidden" });
     assert.equal(
       await page.getByLabel("Your comment", { exact: true }).inputValue(),
       "An unsent author thought.",
@@ -4702,8 +4766,41 @@ test(
     assert.equal(
       (await page.getByRole("region", { name: "Edit draft" }).boundingBox())
         ?.width,
-      520,
+      600,
     );
+    const split = page.getByRole("separator", {
+      name: "Post and discussion column widths",
+    });
+    await split.focus();
+    await split.press("ArrowLeft");
+    assert.equal(
+      (await page.getByRole("region", { name: "Edit draft" }).boundingBox())
+        ?.width,
+      584,
+    );
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[aria-label="Post and discussion column widths"]')
+          ?.getAttribute("aria-valuenow") === "584",
+    );
+    assert.equal(
+      (await page.getByRole("region", { name: "Edit draft" }).boundingBox())
+        ?.width,
+      584,
+    );
+    await page.goto(origin);
+    assert.equal(
+      await page.evaluate(
+        () =>
+          document.querySelector(".drafts-column")?.getBoundingClientRect()
+            .width,
+      ),
+      600,
+      "post split never changes the home feed",
+    );
+    await page.goto(`${origin}/drafts/${id}`);
     await db.query("UPDATE drafts SET posted_at=now() WHERE id=$1", [id]);
     await page.reload();
     assert.equal(
@@ -7575,13 +7672,20 @@ for (const scenario of [
             ).status(),
             200,
           );
-          await reviewer.getByText("Alex", { exact: true }).first().waitFor();
+          const reviewedPosts = reviewer.getByRole("region", {
+            name: "Post thread",
+            exact: true,
+          });
+          await reviewedPosts
+            .getByText("Alex", { exact: true })
+            .first()
+            .waitFor();
           assert.equal(
-            await reviewer.getByText("Alex", { exact: true }).count(),
+            await reviewedPosts.getByText("Alex", { exact: true }).count(),
             2,
           );
           assert.equal(
-            await reviewer.getByText("@alex", { exact: true }).count(),
+            await reviewedPosts.getByText("@alex", { exact: true }).count(),
             2,
           );
           await edited(page, () => page.goto(`${baseURL}/drafts/${id}`));
@@ -7609,12 +7713,16 @@ for (const scenario of [
             200,
           );
           assert.equal(
-            await reviewer.getByText("Alex Updated", { exact: true }).count(),
+            await reviewedPosts
+              .getByText("Alex Updated", { exact: true })
+              .count(),
             2,
           );
           await reviewer.goto(`${baseURL}/r/${renewed.token}?v=1`);
           assert.equal(
-            await reviewer.getByText("Alex Updated", { exact: true }).count(),
+            await reviewedPosts
+              .getByText("Alex Updated", { exact: true })
+              .count(),
             2,
           );
           await page.goto(`${baseURL}/settings`);
@@ -8082,6 +8190,20 @@ for (const scenario of [
         for (const width of [390, 320]) {
           await stranger.setViewportSize({ width, height: 844 });
           assert.equal(await reviewNavigation.isVisible(), true);
+          assert.equal(
+            await stranger.evaluate(() => {
+              const post = document
+                .querySelector(".editor-posts")!
+                .getBoundingClientRect();
+              return [
+                ...document.querySelector(".draft-heading")!.children,
+              ].every(
+                (child) => child.getBoundingClientRect().bottom <= post.top,
+              );
+            }),
+            true,
+            "review heading controls never overlap the post when wrapping",
+          );
           assert.equal(
             await stranger.evaluate(
               () => document.documentElement.scrollWidth <= innerWidth,

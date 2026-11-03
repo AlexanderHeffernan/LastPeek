@@ -77,7 +77,7 @@ export const POST: RequestHandler = async (event) => {
   const activity = (
     await db.query(
       `SELECT d.edit_version::text || ':' || COALESCE(d.shared_revision::text,'') || ':' ||
-       (SELECT md5(COALESCE(string_agg(c.id::text || c.resolved::text,',' ORDER BY c.id),''))
+       (SELECT md5(COALESCE(string_agg(c.id::text || c.resolved::text || c.edit_version::text,',' ORDER BY c.id),''))
         FROM comments c WHERE c.draft_id=d.id) AS stamp FROM drafts d WHERE d.id=$1`,
       [draft.id],
     )

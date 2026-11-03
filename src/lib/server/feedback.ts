@@ -1,8 +1,27 @@
-import { error } from "@sveltejs/kit";
+import { error, type Cookies } from "@sveltejs/kit";
 import { z } from "zod";
 import { transaction } from "./db";
+import { token, hash } from "./auth";
 import { notify } from "./notifications";
 import { ownedDraft, sharedDraft, snapshotDraft } from "./drafts";
+
+export function guestCommenter(
+  cookies: Cookies,
+  secure: boolean,
+  create = false,
+) {
+  let credential = cookies.get("lastpeek_commenter");
+  if (!credential && create) {
+    credential = token();
+    cookies.set("lastpeek_commenter", credential, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure,
+    });
+  }
+  return credential ? hash(credential) : undefined;
+}
 
 export const feedbackSchema = z.object({
   name: z.string().trim().max(80),
@@ -26,6 +45,7 @@ export async function sendFeedback(
   userId: string | undefined,
   input: z.input<typeof feedbackSchema>,
   connectionId?: string,
+  guestHash?: string,
 ) {
   const draft = await sharedDraft(reviewToken, userId);
   return writeComment(
@@ -36,6 +56,7 @@ export async function sendFeedback(
       token: reviewToken,
     },
     connectionId,
+    guestHash,
   );
 }
 
@@ -48,12 +69,39 @@ export async function sendOwnerFeedback(
   return writeComment(id, userId, input, { version });
 }
 
+export async function resolveConversation(
+  draftId: string,
+  userId: string,
+  commentId: string,
+  resolved: boolean,
+) {
+  return transaction(async (client) => {
+    await ownedDraft(draftId, userId, client);
+    await client.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [
+      draftId,
+    ]);
+    const result = await client.query(
+      `WITH RECURSIVE ancestors AS (
+      SELECT id,parent_id FROM comments WHERE id=$2 AND draft_id=$3
+      UNION ALL SELECT c.id,c.parent_id FROM comments c JOIN ancestors a ON c.id=a.parent_id
+    ), conversation AS (
+      SELECT id FROM ancestors WHERE parent_id IS NULL
+      UNION ALL SELECT c.id FROM comments c JOIN conversation p ON c.parent_id=p.id
+    ) UPDATE comments SET resolved=$1 WHERE id IN (SELECT id FROM conversation) RETURNING id,resolved`,
+      [resolved, commentId, draftId],
+    );
+    if (!result.rowCount) error(404, "Feedback not found.");
+    return { id: commentId, resolved };
+  });
+}
+
 async function writeComment(
   draftId: string,
   userId: string | undefined,
   input: z.infer<typeof feedbackSchema>,
   access: { token: string } | { version: number },
   connectionId?: string,
+  guestHash?: string,
 ) {
   const { body, postId, quote, mediaId, mediaTime } = input;
   return transaction(async (client) => {
@@ -114,9 +162,15 @@ async function writeComment(
         )
       ).rows[0];
       if (!parent) error(400, "That conversation is unavailable.");
-      parentId = parent.parent_id ?? parent.id;
+      parentId = parent.id;
       await client.query(
-        "UPDATE comments SET resolved=false WHERE id=$1 AND draft_id=$2",
+        `WITH RECURSIVE ancestors AS (
+          SELECT id,parent_id FROM comments WHERE id=$1 AND draft_id=$2
+          UNION ALL SELECT c.id,c.parent_id FROM comments c JOIN ancestors a ON c.id=a.parent_id WHERE c.draft_id=$2
+        ), conversation AS (
+          SELECT id FROM ancestors WHERE parent_id IS NULL
+          UNION ALL SELECT c.id FROM comments c JOIN conversation p ON c.parent_id=p.id
+        ) UPDATE comments SET resolved=false WHERE id IN (SELECT id FROM conversation)`,
         [parentId, draftId],
       );
     }
@@ -135,7 +189,7 @@ async function writeComment(
       : null;
     const id = crypto.randomUUID();
     await client.query(
-      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id,parent_id,media_id,media_time,agent_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id,parent_id,media_id,media_time,agent_name,guest_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
       [
         id,
         draftId,
@@ -149,13 +203,20 @@ async function writeComment(
         mediaId || null,
         mediaTime,
         agentName ?? null,
+        userId ? null : (guestHash ?? null),
       ],
     );
     const participants = parentId
       ? (
           await client.query(
-            `SELECT DISTINCT c.user_id FROM comments c WHERE c.draft_id=$1 AND (c.id=$2 OR c.parent_id=$2)
-       AND c.user_id IS NOT NULL AND ( $3::text IS NOT NULL OR EXISTS (
+            `WITH RECURSIVE ancestors AS (
+              SELECT id,parent_id FROM comments WHERE id=$2 AND draft_id=$1
+              UNION ALL SELECT c.id,c.parent_id FROM comments c JOIN ancestors a ON c.id=a.parent_id
+            ), conversation AS (
+              SELECT c.id,c.user_id FROM comments c JOIN ancestors a ON c.id=a.id WHERE a.parent_id IS NULL
+              UNION ALL SELECT c.id,c.user_id FROM comments c JOIN conversation p ON c.parent_id=p.id
+            ) SELECT DISTINCT c.user_id FROM conversation c WHERE
+       c.user_id IS NOT NULL AND ( $3::text IS NOT NULL OR EXISTS (
          SELECT 1 FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
          WHERE fr.draft_id=$1 AND fr.recipient_id=c.user_id))`,
             [draftId, parentId, draft.share_token],
@@ -174,5 +235,84 @@ async function writeComment(
         commentId: id,
       });
     return { id, revision };
+  });
+}
+
+export async function changeComment(
+  id: string,
+  userId: string | undefined,
+  guestHash: string | undefined,
+  input: { token?: string; version: number; body?: string; remove?: boolean },
+) {
+  if (!z.uuid().safeParse(id).success || !Number.isInteger(input.version))
+    error(400, "Choose a message and its current version.");
+  const parsed = z.string().trim().min(1).max(2000).safeParse(input.body);
+  if (!input.remove && !parsed.success)
+    error(400, "Write a message of up to 2,000 characters.");
+  const body = parsed.success ? parsed.data : "";
+  return transaction(async (client) => {
+    const found = (
+      await client.query("SELECT draft_id FROM comments WHERE id=$1", [id])
+    ).rows[0];
+    if (!found) error(404, "Message unavailable.");
+    const draft = (
+      await client.query("SELECT * FROM drafts WHERE id=$1 FOR UPDATE", [
+        found.draft_id,
+      ])
+    ).rows[0];
+    if (!draft) error(404, "Message unavailable.");
+    if (draft.owner_id !== userId) {
+      const shared = await sharedDraft(input.token ?? "", userId);
+      if (shared.id !== draft.id) error(404, "Message unavailable.");
+      if (input.token === draft.friend_token) {
+        const grant = await client.query(
+          `SELECT fr.draft_id FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL WHERE fr.draft_id=$1 AND fr.recipient_id=$2 FOR SHARE OF fr,f`,
+          [draft.id, userId ?? null],
+        );
+        if (!grant.rowCount) error(404, "Message unavailable.");
+      }
+    }
+    const comment = (
+      await client.query("SELECT * FROM comments WHERE id=$1 FOR UPDATE", [id])
+    ).rows[0];
+    if (!comment) error(404, "Message unavailable.");
+    if (
+      comment.deleted_at ||
+      !(
+        (userId && comment.user_id === userId) ||
+        (!comment.user_id && guestHash && comment.guest_hash === guestHash)
+      )
+    )
+      error(403, "You can only change your own messages.");
+    if (comment.edit_version !== input.version)
+      error(409, "This message changed. Refresh before trying again.");
+    if (!input.remove) {
+      await client.query(
+        "UPDATE comments SET body=$1,edited_at=now(),edit_version=edit_version+1 WHERE id=$2",
+        [body, id],
+      );
+    } else {
+      const children = await client.query(
+        "SELECT id FROM comments WHERE parent_id=$1 LIMIT 1",
+        [id],
+      );
+      if (children.rowCount) {
+        await client.query(
+          "UPDATE comments SET deleted_at=now(),edit_version=edit_version+1,name='',body='',user_id=NULL,guest_hash=NULL,agent_name=NULL,quote=NULL,suggestion=NULL,post_id=NULL,media_id=NULL,media_time=NULL WHERE id=$1",
+          [id],
+        );
+      } else {
+        await client.query("DELETE FROM comments WHERE id=$1", [id]);
+        let parent = comment.parent_id;
+        while (parent) {
+          const pruned = await client.query(
+            "DELETE FROM comments c WHERE id=$1 AND deleted_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM comments child WHERE child.parent_id=c.id) RETURNING parent_id",
+            [parent],
+          );
+          parent = pruned.rows[0]?.parent_id;
+        }
+      }
+    }
+    return { ok: true };
   });
 }

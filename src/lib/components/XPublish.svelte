@@ -323,6 +323,10 @@
       href={publication.url}
       aria-label="View on X"
       target="_blank"
+      onclick={(event) => {
+        if (matchMedia("(pointer: coarse)").matches)
+          event.currentTarget.setAttribute("target", "_self");
+      }}
       rel="noopener noreferrer"
       title={publication.version !== version
         ? "Edited since posting. View on X shows the posted version."

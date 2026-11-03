@@ -2,6 +2,7 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import DiscussionComposer from "$lib/components/DiscussionComposer.svelte";
   import ReviewPresence from "$lib/components/ReviewPresence.svelte";
+  import DiscussionSplit from "$lib/components/DiscussionSplit.svelte";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Select } from "$lib/components/ui/select/index.js";
   import { applyAIEdit } from "$lib/ai";
@@ -589,6 +590,7 @@
   {/if}
 {/snippet}
 <main class="draft-page">
+  <DiscussionSplit />
   <header class="draft-heading">
     <Button
       variant="ghost"
@@ -873,7 +875,7 @@
               {media}
               revision={dirty ? null : sharedRevision}
               {content}
-              replyingTo={commentParent?.parent_id ?? commentParent?.id}
+              replyingTo={commentParent?.id}
               composer={replyComposer}
               emptyText="No comments yet."
               onreply={async (comment) => {

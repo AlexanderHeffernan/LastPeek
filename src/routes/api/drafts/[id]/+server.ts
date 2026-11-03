@@ -11,7 +11,11 @@ import { readBody } from "$lib/server/request";
 import { rm } from "node:fs/promises";
 import { mediaPath } from "$lib/server/media";
 import { markPosted, linkPostedX } from "$lib/server/posted-x";
-import { feedbackSchema, sendOwnerFeedback } from "$lib/server/feedback";
+import {
+  feedbackSchema,
+  sendOwnerFeedback,
+  resolveConversation,
+} from "$lib/server/feedback";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -88,9 +92,11 @@ export const POST: RequestHandler = async (event) => {
   if (body.action === "resolve") {
     if (!/^[0-9a-f-]{36}$/i.test(body.commentId))
       error(400, "Feedback not found.");
-    await db.query(
-      "UPDATE comments SET resolved=$1 WHERE id=$2 AND draft_id=$3",
-      [body.resolved === true, body.commentId, id],
+    await resolveConversation(
+      id,
+      user.id,
+      body.commentId,
+      body.resolved === true,
     );
     return json({ ok: true });
   }

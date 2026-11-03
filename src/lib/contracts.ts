@@ -72,6 +72,10 @@ export type Media = {
 };
 export type Feedback = {
   id: string;
+  can_manage?: boolean;
+  deleted_at?: string | null;
+  edited_at?: string | null;
+  edit_version?: number;
   parent_id?: string | null;
   media_id?: string | null;
   media_time?: number | null;

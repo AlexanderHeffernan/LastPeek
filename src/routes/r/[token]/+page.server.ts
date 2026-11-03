@@ -3,12 +3,25 @@ import { rateLimit } from "$lib/server/auth";
 import { draftComments, draftMedia, sharedDraft } from "$lib/server/drafts";
 import { mediaIds } from "$lib/contracts";
 import { sourcePost } from "$lib/server/x-post";
-import { feedbackSchema, sendFeedback } from "$lib/server/feedback";
+import {
+  feedbackSchema,
+  sendFeedback,
+  guestCommenter,
+} from "$lib/server/feedback";
 import type { Actions, PageServerLoad } from "./$types";
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({
+  params,
+  locals,
+  url,
+  cookies,
+}) => {
   const draft = await sharedDraft(params.token, locals.user?.id);
   const allowedIds = new Set(mediaIds(draft.content));
-  const comments = await draftComments(draft.id);
+  const comments = await draftComments(
+    draft.id,
+    locals.user?.id,
+    guestCommenter(cookies, url.protocol === "https:", !locals.user),
+  );
   for (const comment of comments)
     if (comment.media_id) allowedIds.add(comment.media_id);
   return {
@@ -41,7 +54,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   };
 };
 export const actions: Actions = {
-  comment: async ({ request, params, locals, getClientAddress }) => {
+  comment: async ({
+    request,
+    params,
+    locals,
+    getClientAddress,
+    cookies,
+    url,
+  }) => {
     await rateLimit(`feedback:${getClientAddress()}`, 15, 600);
     await sharedDraft(params.token, locals.user?.id);
     const form = await request.formData();
@@ -61,7 +81,13 @@ export const actions: Actions = {
         success: false,
       });
     try {
-      await sendFeedback(params.token, locals.user?.id, parsed.data);
+      await sendFeedback(
+        params.token,
+        locals.user?.id,
+        parsed.data,
+        undefined,
+        guestCommenter(cookies, url.protocol === "https:", !locals.user),
+      );
     } catch (cause) {
       if (isHttpError(cause) && cause.status === 400)
         return fail(400, { message: cause.body.message, success: false });

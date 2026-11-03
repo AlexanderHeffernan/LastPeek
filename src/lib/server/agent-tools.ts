@@ -20,7 +20,7 @@ import {
   mediaIds,
   xPostURLSchema,
 } from "../contracts";
-import { sendFeedback } from "./feedback";
+import { sendFeedback, resolveConversation } from "./feedback";
 import { rateLimit } from "./auth";
 import type { AgentScope } from "../agents";
 import { agentPermissions } from "../agents";
@@ -435,13 +435,7 @@ export function agentServer(
     "feedback:resolve",
     { id, commentId: id, resolved: z.boolean() },
     async (userId, { id, commentId, resolved }) => {
-      await ownedDraft(id, userId);
-      const result = await db.query(
-        "UPDATE comments SET resolved=$1 WHERE id=$2 AND draft_id=$3 RETURNING id,resolved",
-        [resolved, commentId, id],
-      );
-      if (!result.rowCount) error(404, "Feedback not found.");
-      return result.rows[0];
+      return resolveConversation(id, userId, commentId, resolved);
     },
   );
   tool(
@@ -656,7 +650,7 @@ export function agentServer(
         await db.query(
           `SELECT c.id,c.draft_id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,c.body,c.quote,c.resolved,c.created_at,c.agent_name,
       c.revision IS DISTINCT FROM d.shared_revision AS earlier FROM comments c JOIN drafts d ON d.id=c.draft_id LEFT JOIN users u ON u.id=c.user_id
-      WHERE d.owner_id=$1 AND ($4='all' OR ($4='resolved')=c.resolved)
+      WHERE d.owner_id=$1 AND c.deleted_at IS NULL AND ($4='all' OR ($4='resolved')=c.resolved)
       AND ($5='' OR strpos(lower(concat_ws(' ',c.body,COALESCE(u.name,c.name),c.quote)),lower($5))>0)
       AND ($6::timestamptz IS NULL OR c.created_at>$6) ORDER BY c.created_at DESC,c.id DESC LIMIT $2 OFFSET $3`,
           [userId, limit, offset, status, query, since ?? null],

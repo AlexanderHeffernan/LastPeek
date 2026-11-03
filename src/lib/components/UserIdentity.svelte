@@ -15,6 +15,7 @@
     showPresence = true,
     compact = false,
     discussion = false,
+    badges,
     metadata,
     children,
   }: {
@@ -28,6 +29,7 @@
     showPresence?: boolean;
     compact?: boolean;
     discussion?: boolean;
+    badges?: Snippet;
     metadata?: Snippet;
     children?: Snippet;
   } = $props();
@@ -69,6 +71,7 @@
     <div class="identity-copy">
       <span class="identity-byline">
         <strong title={name}>{name}</strong>
+        {#if badges}{@render badges()}{/if}
         {#if handle && !discussion}<span class="identity-handle"
             >{handle.startsWith("@") ? handle : `@${handle}`}</span
           >{/if}

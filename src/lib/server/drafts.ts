@@ -284,18 +284,29 @@ export async function draftMedia(id: string): Promise<Media[]> {
     )
   ).rows;
 }
-export async function draftComments(id: string): Promise<Feedback[]> {
+export async function draftComments(
+  id: string,
+  userId?: string,
+  guestHash?: string,
+): Promise<Feedback[]> {
   return (
     await db.query(
       `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,c.parent_id,c.media_id,c.media_time,COALESCE(u.name,c.name) AS name,
        u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at,
+       c.deleted_at,c.edited_at,c.edit_version,
+       (c.deleted_at IS NULL AND (c.user_id=$2 OR (c.user_id IS NULL AND c.guest_hash=$3))) IS TRUE AS can_manage,
        (SELECT p FROM jsonb_array_elements(r.content->'posts') p WHERE p->>'id'=c.post_id::text) AS original_post,
        r.content->'source' AS original_source
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
        LEFT JOIN x_accounts x ON x.user_id=u.id
        JOIN revisions r ON r.draft_id=c.draft_id AND r.number=c.revision
        WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
-      [id],
+      [id, userId ?? null, guestHash ?? null],
     )
-  ).rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
+  ).rows.map((row) => ({
+    ...row,
+    created_at: row.created_at.toISOString(),
+    deleted_at: row.deleted_at?.toISOString() ?? null,
+    edited_at: row.edited_at?.toISOString() ?? null,
+  }));
 }

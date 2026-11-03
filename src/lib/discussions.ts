@@ -1,13 +1,16 @@
 import type { Content, Feedback } from "./contracts";
 
 export function unresolvedCount(comments: Feedback[]) {
-  const resolved = new Set(
-    comments.filter((comment) => comment.resolved).map((comment) => comment.id),
-  );
-  return comments.filter(
-    (comment) =>
-      !resolved.has(comment.id) && !resolved.has(comment.parent_id ?? ""),
-  ).length;
+  const byId = new Map(comments.map((c) => [c.id, c]));
+  return comments.filter((comment) => {
+    if (comment.deleted_at) return false;
+    let current: Feedback | undefined = comment;
+    while (current) {
+      if (current.resolved) return false;
+      current = current.parent_id ? byId.get(current.parent_id) : undefined;
+    }
+    return true;
+  }).length;
 }
 
 export function contextChange(comment: Feedback, content: Content) {

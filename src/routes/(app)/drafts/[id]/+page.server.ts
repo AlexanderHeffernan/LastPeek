@@ -31,7 +31,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     : await ownedDraft(params.id, user.id);
   const [media, comments] = await Promise.all([
     fresh ? [] : draftMedia(draft.id),
-    fresh ? [] : draftComments(draft.id),
+    fresh ? [] : draftComments(draft.id, user.id),
   ]);
   return {
     postedLink:

@@ -4,11 +4,18 @@
   import { invalidateAll } from "$app/navigation";
   import { fade, scale } from "svelte/transition";
   import UserIdentity from "./UserIdentity.svelte";
+  import { Button } from "$lib/components/ui/button/index.js";
   let { draftId, token }: { draftId?: string; token?: string } = $props();
   const name = getContext<Writable<string>>("guest-name");
   let viewers = $state<
     { id: string; name: string; avatar_id: string | null; guest: boolean }[]
   >([]);
+  let expanded = $state<string | null>(null);
+  $effect(() => {
+    if (!expanded) return;
+    const timer = setTimeout(() => (expanded = null), 3500);
+    return () => clearTimeout(timer);
+  });
   $effect(() => {
     const target = token ? { token } : { draftId };
     const connection = crypto.randomUUID();
@@ -90,21 +97,31 @@
     transition:fade={{ duration: duration() }}
   >
     {#each viewers.slice(0, 4) as viewer (viewer.id)}<span
-        class="viewer"
-        role="img"
-        aria-label={`${viewer.name}${viewer.guest ? " · Guest" : ""} is viewing`}
-        title={`${viewer.name}${viewer.guest ? " · Guest" : ""}`}
         transition:scale={{ duration: duration(), start: 0.8 }}
       >
-        <UserIdentity
-          name={viewer.name}
-          avatarId={viewer.avatar_id}
-          guest={viewer.guest}
-          {token}
-          avatarOnly
-          showPresence={false}
-        />
-      </span>{/each}
+        <Button
+          variant="ghost"
+          class={`viewer${expanded === viewer.id ? " expanded" : ""}`}
+          aria-label={`${viewer.name}${viewer.guest ? " · Guest" : ""} is viewing`}
+          aria-expanded={expanded === viewer.id}
+          onclick={() => (expanded = expanded === viewer.id ? null : viewer.id)}
+        >
+          <span class="viewer-photo">
+            <UserIdentity
+              name={viewer.name}
+              avatarId={viewer.avatar_id}
+              guest={viewer.guest}
+              {token}
+              avatarOnly
+              showPresence={false}
+            />
+            <span class="online-dot"></span></span
+          >
+          <span class="viewer-name"
+            >{viewer.name}{viewer.guest ? " · Guest" : ""}</span
+          >
+        </Button></span
+      >{/each}
     {#if viewers.length > 4}<span
         class="more-viewers"
         title={viewers
@@ -121,17 +138,63 @@
     padding-left: 6px;
     flex-shrink: 0;
   }
-  .viewer {
-    margin-left: -6px;
-    border: 2px solid var(--background);
+  :global(.viewer[data-slot="button"]) {
+    padding: 4px;
+    gap: 0;
+    height: 40px;
+    max-width: 180px;
     border-radius: 999px;
   }
-  .viewer :global(.avatar) {
+  .viewer-photo {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .online-dot {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--background);
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .viewer-name {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    transition:
+      max-width 220ms ease,
+      opacity 160ms ease,
+      padding 220ms ease;
+  }
+  :global(.viewer.expanded) .viewer-name,
+  :global(.viewer:focus-visible) .viewer-name {
+    max-width: 130px;
+    opacity: 1;
+    padding-inline: 6px;
+  }
+  @media (hover: hover) {
+    :global(.viewer:hover) .viewer-name {
+      max-width: 130px;
+      opacity: 1;
+      padding-inline: 6px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .viewer-name {
+      transition: none;
+    }
+  }
+  :global(.viewer) :global(.avatar) {
     width: 28px;
     height: 28px;
     font-size: 12px;
   }
-  .viewer :global(svg) {
+  :global(.viewer) :global(svg) {
     width: 24px;
     height: 24px;
   }

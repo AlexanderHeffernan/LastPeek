@@ -1,8 +1,8 @@
 <script lang="ts">
   import DiscussionComposer from "$lib/components/DiscussionComposer.svelte";
   import ReviewPresence from "$lib/components/ReviewPresence.svelte";
+  import DiscussionSplit from "$lib/components/DiscussionSplit.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
-  import { Popover } from "bits-ui";
   import { enhance } from "$app/forms";
   import { getContext, tick } from "svelte";
   import type { Writable } from "svelte/store";
@@ -28,11 +28,12 @@
   let lastInline = $state(false);
   let mediaId = $state("");
   let mediaTime = $state<number | null>(null);
-  let feedbackForm = $state<HTMLFormElement>();
-  let approvalSubmit = $state<HTMLButtonElement>();
-  let approvalPending = $state(false);
-  let feedbackOpen = $state(false);
   let sent = $state(false);
+  $effect(() => {
+    if (!sent) return;
+    const timer = setTimeout(() => (sent = false), 1800);
+    return () => clearTimeout(timer);
+  });
   const postKind = $derived(
     data.content.source?.kind === "reply"
       ? "Reply"
@@ -114,6 +115,7 @@
   {/if}
 </svelte:head>
 <main class="draft-page review-page" class:guest-review={!data.reviewer}>
+  <DiscussionSplit />
   <header class="draft-heading">
     <Button
       variant="ghost"
@@ -175,22 +177,11 @@
           class="feedback-form"
           method="POST"
           action="?/comment"
-          use:enhance={({ cancel, submitter, formElement }) => {
-            feedbackForm = formElement;
-            approvalPending = submitter?.getAttribute("value") === "looks-good";
-            approvalSubmit =
-              formElement.querySelector<HTMLButtonElement>(
-                'button[value="looks-good"]',
-              ) ?? undefined;
+          use:enhance={({ cancel, formElement }) => {
             lastInline = inline;
-            feedbackOpen = false;
             if (!data.reviewer && !$name.trim()) {
               cancel();
-              guestAccess(() =>
-                feedbackForm?.requestSubmit(
-                  approvalPending ? approvalSubmit : undefined,
-                ),
-              );
+              guestAccess(() => formElement.requestSubmit());
               return;
             }
             busy = true;
@@ -210,7 +201,6 @@
                   mediaTime = null;
                   feedbackRevision = null;
                 }
-                approvalPending = false;
                 sent = true;
               }
             };
@@ -235,15 +225,6 @@
               value={mediaTime}
             />{/if}
           <input type="hidden" name="name" value={$name} />
-          <input type="hidden" name="currentRevision" value={data.revision} />
-          <button
-            hidden
-            type="submit"
-            name="intent"
-            value="looks-good"
-            aria-label="Send looks-good feedback"
-            formnovalidate
-          ></button>
           <DiscussionComposer
             id={inline ? "review-reply" : "review-comment"}
             label={inline ? "Your reply" : "Your feedback"}
@@ -282,66 +263,27 @@
           >
             {#snippet actions()}
               {#if inline}<Button
-                  variant="ghost"
+                  variant="secondary"
                   type="submit"
                   size="icon"
-                  class="min-h-11 min-w-11 text-primary"
+                  class="min-h-11 min-w-11 rounded-full"
                   aria-label="Send reply"
                   disabled={busy || !replyBody.trim()}
-                  ><Icon name={busy ? "refresh" : "up"} size={20} /></Button
+                  ><Icon name={busy ? "refresh" : "send"} size={20} /></Button
                 >{:else}
                 <div class="review-submit">
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     type="submit"
                     size="icon"
-                    class="min-h-11 min-w-11 text-primary"
+                    class="min-h-11 min-w-11 rounded-full"
                     aria-label={sent ? "Feedback sent" : "Send feedback"}
                     disabled={busy || !body.trim()}
                     ><Icon
-                      name={busy ? "refresh" : sent ? "check" : "up"}
+                      name={busy ? "refresh" : sent ? "check" : "send"}
                       size={20}
                     /></Button
                   >
-                  <Popover.Root bind:open={feedbackOpen}>
-                    <Popover.Trigger>
-                      {#snippet child({ props })}
-                        <Button
-                          {...props}
-                          variant="ghost"
-                          size="icon-sm"
-                          class="share-toggle min-h-11"
-                          disabled={busy}
-                          aria-label="Feedback options"
-                        >
-                          <Icon name="down" size={15} />
-                        </Button>
-                      {/snippet}
-                    </Popover.Trigger>
-                    <Popover.Content
-                      class="share-menu"
-                      sideOffset={8}
-                      align="end"
-                      aria-label="Feedback options"
-                    >
-                      <Button
-                        variant="ghost"
-                        disabled={busy || !!body.trim()}
-                        onclick={() => {
-                          const current = document.getElementById(
-                            "review-comment-form",
-                          ) as HTMLFormElement | null;
-                          current?.requestSubmit(
-                            current.querySelector<HTMLButtonElement>(
-                              'button[value="looks-good"]',
-                            ) ?? undefined,
-                          );
-                        }}
-                      >
-                        <Icon name="check" size={16} />Looks good!
-                      </Button>
-                    </Popover.Content>
-                  </Popover.Root>
                 </div>
               {/if}
             {/snippet}
@@ -356,7 +298,7 @@
         token={data.token}
         ownerId={data.ownerId}
         media={data.media}
-        replyingTo={parent?.parent_id ?? parent?.id}
+        replyingTo={parent?.id}
         composer={replyComposer}
         onreply={reply}
         emptyText="Be the first to give this draft a second look."
@@ -400,7 +342,7 @@
     .review-page {
       max-width: 600px;
       grid-template-areas: "heading" "posts" "feedback";
-      grid-template-rows: 52px auto 1fr;
+      grid-template-rows: minmax(52px, auto) auto 1fr;
     }
   }
 </style>

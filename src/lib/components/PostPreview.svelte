@@ -161,6 +161,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <article
       class="post"
+      class:detail-post={!timeline}
       data-post-id={post.id}
       class:feedback-focused={focusedPost === post.id}
       class:inactive={editing && content.posts.length > 1 && post.id !== active}
@@ -194,7 +195,8 @@
       <div class="post-body">
         <div class="post-author" class:timeline-author={timeline}>
           <strong>{content.author.name || "Your name"}</strong
-          >{#if content.author.handle}<span class="handle"
+          >{#if !timeline}<span class="author-break"
+            ></span>{/if}{#if content.author.handle}<span class="handle"
               >@{content.author.handle.replace(/^@/, "")}</span
             >{/if}{#if updatedAt}<span
               class="post-time-separator"
@@ -481,6 +483,33 @@
   }
   .timeline-author {
     flex-wrap: nowrap;
+  }
+  .detail-post {
+    row-gap: 8px;
+    padding-bottom: 16px;
+  }
+  .detail-post .post-body {
+    display: contents;
+  }
+  .detail-post .post-body > :global(*) {
+    grid-column: 1 / -1;
+  }
+  .detail-post .post-body > .post-author {
+    grid-column: 2;
+    gap: 0 4px;
+    align-content: center;
+  }
+  .author-break {
+    flex-basis: 100%;
+    height: 0;
+  }
+  .detail-post .post-author .handle,
+  .detail-post .post-author time {
+    font-size: 13px;
+    color: var(--post-muted);
+  }
+  .detail-post:not(:last-child)::before {
+    display: none;
   }
   .timeline-author strong,
   .timeline-author .handle {

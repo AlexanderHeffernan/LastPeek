@@ -1,5 +1,9 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { invalidateAll } from "$app/navigation";
+  import { Popover } from "bits-ui";
+  import { Textarea } from "$lib/components/ui/textarea/index.js";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import type { Snippet } from "svelte";
   import { slide } from "svelte/transition";
   import { Button } from "$lib/components/ui/button/index.js";
@@ -53,6 +57,68 @@
   let comparing = $state<Feedback | null>(null);
   let viewerIndex = $state<number | null>(null);
   let viewerTime = $state(0);
+  let editing = $state<Feedback | null>(null);
+  let editBody = $state("");
+  let changing = $state(false);
+  let messageError = $state("");
+  let messageErrorId = $state("");
+  let menu = $state<string | null>(null);
+  let confirmation: ConfirmDialog;
+  async function resolve(comment: Feedback) {
+    resolving = comment.id;
+    resolveError = "";
+    resolveErrorId = comment.id;
+    try {
+      await onresolve?.(comment);
+    } catch (cause) {
+      resolveError = (cause as Error).message;
+    } finally {
+      resolving = null;
+    }
+  }
+  async function changeMessage(comment: Feedback, remove = false) {
+    if (
+      remove &&
+      !(await confirmation.ask({
+        title: "Delete this message?",
+        description:
+          "Replies will stay, but your message will be removed. This can’t be undone.",
+        confirmLabel: "Delete message",
+        cancelLabel: "Keep message",
+      }))
+    )
+      return;
+    changing = true;
+    messageError = "";
+    messageErrorId = comment.id;
+    try {
+      const response = await fetch(`/api/comments/${comment.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: remove ? "delete" : "edit",
+          version: comment.edit_version,
+          body: editBody,
+          token,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message ?? "Couldn’t change this message.");
+      editing = null;
+      await invalidateAll();
+    } catch (cause) {
+      messageError = (cause as Error).message;
+    } finally {
+      changing = false;
+    }
+  }
+  function containsTarget(root: Feedback): boolean {
+    return (
+      page.url.hash === `#feedback-${root.id}` ||
+      comments.filter((c) => c.parent_id === root.id).some(containsTarget)
+    );
+  }
   const comparedPost = $derived(
     content.posts.find((p) => p.id === comparing?.post_id),
   );
@@ -90,29 +156,41 @@
     </button>
   {/if}
   {#each roots.filter((c) => !!c.resolved === resolved) as root (root.id)}
-    {@const replies = comments
-      .filter((c) => c.parent_id === root.id)
-      .toReversed()}
-    {#if !root.resolved || showResolved || [root, ...replies].some((c) => page.url.hash === `#feedback-${c.id}`)}<section
+    {#if !root.resolved || showResolved || containsTarget(root)}<section
         transition:conversation
         class="discussion-thread"
-        class:has-replies={replies.length > 0}
-        aria-label={`Conversation from ${root.name}`}
+        aria-label={root.deleted_at
+          ? "Conversation with deleted message"
+          : `Conversation from ${root.name}`}
       >
-        {@render entry(root)}
-        {#if replies.length}<div class="discussion-replies">
-            <div class="reply-entries">
-              {#each replies as reply (reply.id)}<div transition:conversation>
-                  {@render entry(reply)}
-                </div>{/each}
-            </div>
-          </div>{/if}
-        {#if composer && replyingTo === root.id}<div class="thread-composer">
-            {@render composer()}
-          </div>{/if}
+        {@render branch(root, 0)}
       </section>{/if}
   {/each}
 {/each}
+
+{#snippet branch(comment: Feedback, depth: number)}
+  {@render entry(comment)}
+  {#if composer && replyingTo === comment.id}<div class="thread-composer">
+      {@render composer()}
+    </div>{/if}
+  {@const children = comments
+    .filter((c) => c.parent_id === comment.id)
+    .toReversed()}
+  {#if children.length}<div
+      class="discussion-replies"
+      class:deep={depth >= 2}
+      role="group"
+      aria-label={comment.deleted_at
+        ? "Replies to deleted message"
+        : `Replies to ${comment.name}`}
+    >
+      <div class="reply-entries">
+        {#each children as child (child.id)}<div transition:conversation>
+            {@render branch(child, depth + 1)}
+          </div>{/each}
+      </div>
+    </div>{/if}
+{/snippet}
 
 {#snippet entry(comment: Feedback)}
   {@const change = contextChange(comment, content)}
@@ -123,132 +201,241 @@
     tabindex="-1"
     class="feedback-card"
     class:targeted={page.url.hash === `#feedback-${comment.id}`}
-    aria-label={`Feedback from ${comment.name}`}
+    aria-label={comment.deleted_at
+      ? "Deleted message"
+      : `Feedback from ${comment.name}`}
   >
-    <UserIdentity
-      name={comment.name}
-      avatarId={comment.avatar_id}
-      handle={comment.handle}
-      userId={comment.user_id}
-      guest={!comment.user_id}
-      {token}
-      compact
-      discussion
-    >
-      {#snippet metadata()}
-        {#if !comment.user_id}<span class="author-label">Guest</span>{/if}
-        {#if ownerId && comment.user_id === ownerId}<span class="author-label"
-            >Author</span
-          >{/if}
-        <time datetime={comment.created_at}
-          >{relativeTime(comment.created_at)}</time
-        >
-        {#if change}<Button
-            variant="ghost"
-            size="sm"
-            class="context-compare"
-            title={`${change} · Compare`}
-            aria-label={`${change} · Compare`}
-            onclick={() => (comparing = comment)}
-            ><Icon name="history" size={12} />Edited</Button
-          >{:else if !comment.post_id && revision && comment.revision !== revision}<span
-            class="edited-marker"
-            role="img"
-            aria-label="Draft edited since this comment"
-            title="Draft edited since this comment"
-            ><Icon name="history" size={12} />Edited</span
-          >{/if}
-      {/snippet}
-      <div class="comment-context">
-        {#if comment.post_id && (content.posts.length > 1 || !post)}<span
-            class="context-post"
-          >
-            {post
-              ? `On post ${content.posts.indexOf(post) + 1}`
-              : "Post removed"}
-          </span>{/if}
-        {#if comment.quote}<blockquote class="feedback-quote">
-            {comment.quote}
-          </blockquote>{/if}
-        {#if comment.media_id}<a
-            class="comment-media"
-            href={file?.mime.startsWith("video/")
-              ? `${mediaURL(comment.media_id, token)}#t=${comment.media_time ?? 0}`
-              : mediaURL(comment.media_id, token)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onclick={(event) => {
-              const index = media.findIndex((m) => m.id === comment.media_id);
-              if (index >= 0) {
-                event.preventDefault();
-                viewerTime = comment.media_time ?? 0;
-                viewerIndex = index;
-              }
-            }}
-          >
-            {#if file && !file.mime.startsWith("video/")}<img
-                src={mediaURL(file.id, token)}
-                alt={file.filename}
-              />{:else}<Icon name="image" size={16} />{/if}
-            {file?.mime.startsWith("video/")
-              ? "Video"
-              : "Image"}{comment.media_time !== null &&
-            comment.media_time !== undefined
-              ? ` · ${mediaTimeLabel(comment.media_time)}`
-              : ""}
-          </a>{/if}
-      </div>
-      {#if comment.agent_name}<span
-          class="small muted agent-attribution"
-          title="Sent by an agent on this user’s behalf. App-provided name."
-          >via {comment.agent_name}</span
+    {#if comment.deleted_at}<p class="deleted-message">Message deleted</p>
+      {#if onresolve && !comment.parent_id}<Button
+          variant="ghost"
+          disabled={resolving !== null}
+          onclick={() => resolve(comment)}
+          >{comment.resolved ? "Reopen" : "Resolve"}</Button
         >{/if}
-      <p class="comment">{comment.body}</p>
-      {#if comment.suggestion}<blockquote class="feedback-quote">
-          {comment.suggestion}
-        </blockquote>{/if}
-      <div class="comment-actions">
-        {#if onreply}<Button variant="ghost" onclick={() => onreply?.(comment)}
-            >Reply</Button
-          >{/if}
-        {#if onresolve && !comment.parent_id}<Button
-            variant="ghost"
-            disabled={resolving !== null}
-            onclick={async () => {
-              resolving = comment.id;
-              resolveError = "";
-              resolveErrorId = comment.id;
-              try {
-                await onresolve?.(comment);
-              } catch (e) {
-                resolveError = (e as Error).message;
-              } finally {
-                resolving = null;
-              }
-            }}>{comment.resolved ? "Reopen" : "Resolve"}</Button
-          >{/if}
-        {#if onapply && comment.suggestion && post}<Button
-            variant="outline"
-            onclick={() => onapply?.(comment)}>Use suggestion</Button
-          >{/if}
-        {#if comment.user_id && (draftId || token)}<FriendControl
-            userId={comment.user_id}
-            name={comment.name}
-            {draftId}
-            {token}
-            inline
-          />{/if}
-      </div>
-      {#if resolveError && resolveErrorId === comment.id}<p
-          class="action-error"
+      {#if resolveErrorId === comment.id && resolveError}<p
           role="alert"
+          class="action-error"
         >
           {resolveError}
         </p>{/if}
-    </UserIdentity>
+    {:else}
+      <UserIdentity
+        name={comment.name}
+        avatarId={comment.avatar_id}
+        handle={comment.handle}
+        userId={comment.user_id}
+        guest={!comment.user_id}
+        {token}
+        compact
+        discussion
+      >
+        {#snippet badges()}
+          {#if !comment.user_id}<span
+              class="author-label"
+              class:own-guest={comment.can_manage}
+              title={comment.can_manage
+                ? "Your guest message"
+                : "Guest reviewer"}
+              >{comment.can_manage ? "Guest · You" : "Guest"}</span
+            >{/if}
+          {#if ownerId && comment.user_id === ownerId}<span class="author-label"
+              >Author</span
+            >{/if}
+        {/snippet}
+        {#snippet metadata()}
+          <time datetime={comment.created_at}
+            >{relativeTime(comment.created_at)}</time
+          >
+          {#if comment.edited_at}<span
+              class="edited-marker"
+              title="Message edited">edited</span
+            >{/if}
+          {#if change}<Button
+              variant="ghost"
+              size="sm"
+              class="context-compare"
+              title={`${change} · Compare`}
+              aria-label={`${change} · Compare`}
+              onclick={() => (comparing = comment)}
+              ><Icon name="history" size={12} />Edited</Button
+            >{:else if !comment.post_id && revision && comment.revision !== revision}<span
+              class="edited-marker"
+              role="img"
+              aria-label="Draft edited since this comment"
+              title="Draft edited since this comment"
+              ><Icon name="history" size={12} />Edited</span
+            >{/if}
+        {/snippet}
+        <div class="comment-context">
+          {#if comment.post_id && (content.posts.length > 1 || !post)}<span
+              class="context-post"
+            >
+              {post
+                ? `On post ${content.posts.indexOf(post) + 1}`
+                : "Post removed"}
+            </span>{/if}
+          {#if comment.quote}<blockquote class="feedback-quote">
+              {comment.quote}
+            </blockquote>{/if}
+          {#if comment.media_id}<a
+              class="comment-media"
+              href={file?.mime.startsWith("video/")
+                ? `${mediaURL(comment.media_id, token)}#t=${comment.media_time ?? 0}`
+                : mediaURL(comment.media_id, token)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onclick={(event) => {
+                const index = media.findIndex((m) => m.id === comment.media_id);
+                if (index >= 0) {
+                  event.preventDefault();
+                  viewerTime = comment.media_time ?? 0;
+                  viewerIndex = index;
+                }
+              }}
+            >
+              {#if file && !file.mime.startsWith("video/")}<img
+                  src={mediaURL(file.id, token)}
+                  alt={file.filename}
+                />{:else}<Icon name="image" size={16} />{/if}
+              {file?.mime.startsWith("video/")
+                ? "Video"
+                : "Image"}{comment.media_time !== null &&
+              comment.media_time !== undefined
+                ? ` · ${mediaTimeLabel(comment.media_time)}`
+                : ""}
+            </a>{/if}
+        </div>
+        {#if comment.agent_name}<span
+            class="small muted agent-attribution"
+            title="Sent by an agent on this user’s behalf. App-provided name."
+            >via {comment.agent_name}</span
+          >{/if}
+        <p class="comment">{comment.body}</p>
+        {#if comment.suggestion}<blockquote class="feedback-quote">
+            {comment.suggestion}
+          </blockquote>{/if}
+        <div class="comment-actions">
+          {#if onreply}<Button
+              variant="ghost"
+              onclick={() => onreply?.(comment)}>Reply</Button
+            >{/if}
+          {#if onresolve && !comment.parent_id}<Button
+              variant="ghost"
+              disabled={resolving !== null}
+              onclick={() => resolve(comment)}
+              >{comment.resolved ? "Reopen" : "Resolve"}</Button
+            >{/if}
+          {#if onapply && comment.suggestion && post}<Button
+              variant="outline"
+              onclick={() => onapply?.(comment)}>Use suggestion</Button
+            >{/if}
+          {#if comment.user_id && (draftId || token)}<FriendControl
+              userId={comment.user_id}
+              name={comment.name}
+              {draftId}
+              {token}
+              inline
+            />{/if}
+          {#if comment.can_manage}<Popover.Root
+              bind:open={
+                () => menu === comment.id,
+                (open) => (menu = open ? comment.id : null)
+              }
+            >
+              <Popover.Trigger
+                >{#snippet child({ props })}<Button
+                    {...props}
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Message actions"
+                    ><Icon name="more" size={18} /></Button
+                  >{/snippet}</Popover.Trigger
+              >
+              <Popover.Content
+                class="share-menu"
+                align="end"
+                sideOffset={4}
+                aria-label="Message actions"
+              >
+                <Button
+                  variant="ghost"
+                  onclick={() => {
+                    menu = null;
+                    editing = comment;
+                    editBody = comment.body;
+                    messageError = "";
+                  }}><Icon name="edit" size={16} />Edit message</Button
+                >
+                <Button
+                  variant="ghost"
+                  class="text-destructive"
+                  onclick={() => {
+                    menu = null;
+                    void changeMessage(comment, true);
+                  }}><Icon name="trash" size={16} />Delete message</Button
+                >
+              </Popover.Content>
+            </Popover.Root>{/if}
+        </div>
+        {#if messageErrorId === comment.id && messageError && !editing}<p
+            class="action-error"
+            role="alert"
+          >
+            {messageError}
+          </p>{/if}
+        {#if resolveError && resolveErrorId === comment.id}<p
+            class="action-error"
+            role="alert"
+          >
+            {resolveError}
+          </p>{/if}
+      </UserIdentity>
+    {/if}
   </article>
 {/snippet}
 
+<ConfirmDialog bind:this={confirmation} />
+<Dialog.Root
+  bind:open={
+    () => editing !== null,
+    (open) => {
+      if (!open) editing = null;
+    }
+  }
+>
+  <Dialog.Content>
+    <Dialog.Header
+      ><Dialog.Title>Edit message</Dialog.Title><Dialog.Description
+        >Your original post or media context stays attached.</Dialog.Description
+      ></Dialog.Header
+    >
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        if (editing) void changeMessage(editing);
+      }}
+    >
+      <Textarea
+        aria-label="Edit message text"
+        bind:value={editBody}
+        required
+        maxlength={2000}
+      />
+      {#if messageError}<p role="alert" class="action-error">
+          {messageError}
+        </p>{/if}
+      <Dialog.Footer
+        ><Button
+          variant="ghost"
+          onclick={() => (editing = null)}
+          disabled={changing}>Cancel</Button
+        ><Button type="submit" disabled={changing || !editBody.trim()}
+          >{changing ? "Saving…" : "Save message"}</Button
+        ></Dialog.Footer
+      >
+    </form>
+  </Dialog.Content>
+</Dialog.Root>
 <MediaViewer items={media} bind:index={viewerIndex} time={viewerTime} {token} />
 <Dialog.Root
   bind:open={
@@ -338,6 +525,21 @@
     margin-left: 19px;
     padding-left: 20px;
     border-left: 2px solid var(--border);
+  }
+  .discussion-replies.deep {
+    margin-left: 0;
+    padding-left: 8px;
+  }
+  .deleted-message {
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-style: italic;
+    margin: 6px 0;
+  }
+  .own-guest {
+    background: var(--accent);
+    color: var(--foreground);
+    outline: 1px solid var(--input);
   }
   .reply-entries {
     display: grid;

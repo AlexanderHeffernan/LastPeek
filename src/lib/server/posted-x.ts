@@ -100,7 +100,9 @@ export async function markPosted(
   try {
     const key = process.env.X_API_BEARER_TOKEN?.trim();
     const account = (
-      await db.query("SELECT x_id FROM x_accounts WHERE user_id=$1", [userId])
+      await db.query("SELECT x_id,profile FROM x_accounts WHERE user_id=$1", [
+        userId,
+      ])
     ).rows[0];
     const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
     if (
@@ -199,7 +201,7 @@ export async function markPosted(
       .sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score);
     const best = matches[0];
     if (best) {
-      url = `https://x.com/i/web/status/${best.post.id}`;
+      url = `https://x.com/${account.profile?.username || "i/web"}/status/${best.post.id}`;
       // Text alone cannot establish media identity, thread completeness or ambiguous repeats.
       status =
         best.exact &&

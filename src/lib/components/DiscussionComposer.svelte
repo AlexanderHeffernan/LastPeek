@@ -3,6 +3,7 @@
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "$lib/components/Icon.svelte";
+  import { slide } from "svelte/transition";
   import { mediaURL, type Media } from "$lib/contracts";
   import { mediaTimeLabel } from "$lib/discussions";
 
@@ -41,9 +42,28 @@
     onclear?: () => void;
     actions?: Snippet;
   } = $props();
+  let focused = $state(false);
+  function suggestions(node: Element) {
+    const layout = slide(node, {
+      duration: matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : 220,
+    });
+    return {
+      ...layout,
+      css: (t: number) => `${layout.css!(t, 1 - t)};opacity:${t}`,
+    };
+  }
 </script>
 
-<div class="discussion-composer">
+<div
+  class="discussion-composer"
+  onfocusin={() => (focused = true)}
+  onfocusout={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+      focused = false;
+  }}
+>
   <div class="composer-content">
     {#if postLabel || quote || media}<div class="composer-context">
         {#if media && !media.mime.startsWith("video/")}<img
@@ -96,19 +116,37 @@
       <div class="composer-submit">
         {#if actions}{@render actions()}{:else}
           <Button
-            variant="ghost"
+            variant="secondary"
             size="icon"
-            class="min-h-11 min-w-11 text-primary"
+            class="min-h-11 min-w-11 rounded-full"
             type="submit"
             aria-label={replyName ? "Send reply" : "Send comment"}
             title={replyName ? "Send reply" : "Send comment"}
             disabled={disabled || busy || !value.trim()}
           >
-            <Icon name={busy ? "refresh" : "up"} size={20} />
+            <Icon name={busy ? "refresh" : "send"} size={20} />
           </Button>
         {/if}
       </div>
     </div>
+    {#if focused && !replyName}<div
+        class="quick-replies"
+        transition:suggestions
+      >
+        {#each ["Looks good!", "Could you clarify this?", "I’d make this shorter."] as text}
+          <Button
+            variant="outline"
+            size="sm"
+            class="rounded-full min-h-7 h-7 text-xs px-3"
+            disabled={busy || disabled || !!value.trim()}
+            onclick={() => {
+              value = text;
+              oninput?.();
+              document.getElementById(id ?? "")?.focus({ preventScroll: true });
+            }}>{text}</Button
+          >
+        {/each}
+      </div>{/if}
     {#if error}<p class="action-error" role="alert">{error}</p>{/if}
   </div>
 </div>
@@ -129,8 +167,11 @@
     right: 2px;
     bottom: 2px;
   }
-  .composer-row:has(:global(.review-submit)) :global(textarea) {
-    padding-right: 86px;
+  .quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 8px;
   }
   .composer-context {
     display: flex;

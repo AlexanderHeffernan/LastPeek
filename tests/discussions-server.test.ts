@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import pg from "pg";
 
-test("discussions preserve anchors, flatten replies and recheck ownership and revoked access", async (t) => {
+test("discussions preserve nested anchors, session ownership and revoked access", async (t) => {
   const original = process.env.DATABASE_URL!;
   const schema = `discussions_${randomUUID().replaceAll("-", "")}`;
   const admin = new pg.Pool({ connectionString: original });
@@ -13,8 +13,13 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
   connection.searchParams.set("options", `-c search_path=${schema}`);
   process.env.DATABASE_URL = connection.href;
   const { db } = await import("../src/lib/server/db");
-  const { sendOwnerFeedback, sendFeedback, feedbackSchema } =
-    await import("../src/lib/server/feedback");
+  const {
+    sendOwnerFeedback,
+    sendFeedback,
+    feedbackSchema,
+    changeComment,
+    resolveConversation,
+  } = await import("../src/lib/server/feedback");
   const { createDraft, publishDraft, saveDraft, draftComments } =
     await import("../src/lib/server/drafts");
   const { discussionDestination } =
@@ -99,10 +104,7 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
     false,
     "a new reply reopens its resolved conversation",
   );
-  assert.equal(
-    comments.find((c) => c.id === follow.id)?.parent_id,
-    question.id,
-  );
+  assert.equal(comments.find((c) => c.id === follow.id)?.parent_id, reply.id);
   assert.equal(comments.find((c) => c.id === follow.id)?.media_time, 3.25);
   assert.ok(
     (await discussionDestination(reviewer, follow.id)).href.startsWith(
@@ -144,10 +146,137 @@ test("discussions preserve anchors, flatten replies and recheck ownership and re
       quote: "specific question",
     }),
   );
+  const guestHash = "test-session-hash";
+  const guest = await sendFeedback(
+    shared.token,
+    undefined,
+    input("Guest question", { name: "Jules" }),
+    undefined,
+    guestHash,
+  );
+  const child = await sendFeedback(
+    shared.token,
+    reviewer,
+    input("First answer", { parentId: guest.id }),
+  );
+  const grandchild = await sendFeedback(
+    shared.token,
+    undefined,
+    input("More detail", { name: "Jules", parentId: child.id }),
+    undefined,
+    guestHash,
+  );
+  assert.equal(
+    (await discussionDestination(reviewer, grandchild.id)).root,
+    guest.id,
+  );
+  assert.equal(
+    (await draftComments(draft, undefined, guestHash)).find(
+      (c) => c.id === guest.id,
+    )?.can_manage,
+    true,
+  );
+  assert.equal(
+    (await draftComments(draft, undefined, "different-session")).find(
+      (c) => c.id === guest.id,
+    )?.can_manage,
+    false,
+  );
+  await assert.rejects(
+    changeComment(guest.id, undefined, "different-session", {
+      token: shared.token,
+      version: 1,
+      body: "Impersonated",
+    }),
+    { status: 403 },
+  );
+  await assert.rejects(
+    changeComment(child.id, owner, undefined, { version: 1, remove: true }),
+    { status: 403 },
+    "authors cannot delete somebody else's feedback",
+  );
+  await changeComment(guest.id, undefined, guestHash, {
+    token: shared.token,
+    version: 1,
+    body: "Guest clarification",
+  });
+  await assert.rejects(
+    changeComment(guest.id, undefined, guestHash, {
+      token: shared.token,
+      version: 1,
+      body: "Stale edit",
+    }),
+    { status: 409 },
+  );
+  await resolveConversation(draft, owner, grandchild.id, true);
+  assert.equal(
+    (await draftComments(draft))
+      .filter((c) =>
+        [guest.id, child.id, grandchild.id].some((id) => id === c.id),
+      )
+      .every((c) => c.resolved),
+    true,
+  );
+  const sibling = await sendFeedback(
+    shared.token,
+    reviewer,
+    input("One more question", { parentId: child.id }),
+  );
+  assert.equal(
+    (await draftComments(draft))
+      .filter((c) =>
+        [guest.id, child.id, grandchild.id, sibling.id].some(
+          (id) => id === c.id,
+        ),
+      )
+      .every((c) => !c.resolved),
+    true,
+    "a nested reply reopens the whole conversation",
+  );
+  await changeComment(guest.id, undefined, guestHash, {
+    token: shared.token,
+    version: 2,
+    remove: true,
+  });
+  const tombstone = (await draftComments(draft, undefined, guestHash)).find(
+    (c) => c.id === guest.id,
+  )!;
+  assert.ok(tombstone.deleted_at);
+  assert.equal(tombstone.name, "");
+  assert.equal(tombstone.body, "");
+  assert.equal(tombstone.can_manage, false);
+  await changeComment(grandchild.id, undefined, guestHash, {
+    token: shared.token,
+    version: 1,
+    remove: true,
+  });
+  await changeComment(sibling.id, reviewer, undefined, {
+    token: shared.token,
+    version: 1,
+    remove: true,
+  });
+  await changeComment(child.id, reviewer, undefined, {
+    token: shared.token,
+    version: 1,
+    remove: true,
+  });
+  assert.equal(
+    (await draftComments(draft)).some((c) => c.id === guest.id),
+    false,
+    "removing the last descendant prunes its empty tombstone",
+  );
   await db.query("UPDATE drafts SET share_token=NULL WHERE id=$1", [draft]);
   await assert.rejects(discussionDestination(reviewer, follow.id), {
     status: 404,
   });
+  await assert.rejects(
+    changeComment(reply.id, reviewer, undefined, {
+      token: shared.token,
+      version: 1,
+      body: "Edit through revoked access",
+    }),
+    { status: 404 },
+  );
   await assert.rejects(sendFeedback(shared.token, reviewer, input("Revoked")), {
     status: 404,
   });

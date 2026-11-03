@@ -295,7 +295,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
 
   // Manual posting reconciliation has its own owner, fixtures and allowance.
   await db.query(`CREATE TABLE drafts(id uuid PRIMARY KEY,owner_id uuid REFERENCES users,content jsonb,edit_version int DEFAULT 1,posted_at timestamptz);
-    CREATE TABLE x_accounts(user_id uuid PRIMARY KEY,x_id text);
+    CREATE TABLE x_accounts(user_id uuid PRIMARY KEY,x_id text,profile jsonb NOT NULL DEFAULT '{}');
     CREATE TABLE x_publications(draft_id uuid PRIMARY KEY,status text);`);
   await db.query(await readFile("migrations/024_posted_x_links.sql", "utf8"));
   const author = randomUUID(),
@@ -304,7 +304,10 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     author,
     outsider,
   ]);
-  await db.query("INSERT INTO x_accounts VALUES($1,'7722')", [author]);
+  await db.query(
+    "INSERT INTO x_accounts(user_id,x_id,profile) VALUES($1,'7722',$2)",
+    [author, { username: "actual_writer" }],
+  );
   process.env.X_API_MONTHLY_BUDGET_USD = "100";
   const { markPosted, linkPostedX } =
     await import("../src/lib/server/posted-x");
@@ -373,7 +376,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
   ]);
   assert.deepEqual(await state(exact), {
     status: "linked",
-    url: "https://x.com/i/web/status/111",
+    url: "https://x.com/actual_writer/status/111",
   });
   assert.equal(reads, 1);
   assert.equal(
