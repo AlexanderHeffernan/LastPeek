@@ -38,6 +38,9 @@
   import Monitor from "phosphor-svelte/lib/Monitor";
   import DeviceMobile from "phosphor-svelte/lib/DeviceMobile";
   import ArrowsOut from "phosphor-svelte/lib/ArrowsOut";
+  import Sun from "phosphor-svelte/lib/Sun";
+  import Moon from "phosphor-svelte/lib/Moon";
+  import Palette from "phosphor-svelte/lib/Palette";
   let {
     name,
     size = 20,
@@ -45,6 +48,9 @@
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
     expand: ArrowsOut,
+    sun: Sun,
+    moon: Moon,
+    palette: Palette,
     monitor: Monitor,
     mobile: DeviceMobile,
     agents: PlugsConnected,

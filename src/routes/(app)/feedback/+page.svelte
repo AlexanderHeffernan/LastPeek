@@ -149,7 +149,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--primary);
+    background: var(--primary-fill);
   }
   .inbox-question,
   .inbox-latest,

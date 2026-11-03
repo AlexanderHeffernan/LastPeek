@@ -9,6 +9,67 @@ import { blankContent } from "../src/lib/contracts";
 const origin = process.env.TEST_BASE_URL || "http://127.0.0.1:4173";
 after(() => db.end());
 
+test("personalisation belongs to the signed-in account and rejects invalid appearances", async (t) => {
+  const owner = randomUUID(),
+    other = randomUUID(),
+    session = token();
+  const author = await request.newContext({
+    extraHTTPHeaders: {
+      Cookie: `lastpeek_session=${session}; lastpeek_theme=dark`,
+      Origin: origin,
+    },
+  });
+  t.after(async () => {
+    await author.dispose();
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, other],
+    ]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash,theme) VALUES($1,$2,'Owner','unused','auto'),($3,$4,'Other','unused','dark')",
+    [owner, `${owner}@example.test`, other, `${other}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [hash(session), owner],
+  );
+  const page = `${origin}/settings?tab=personalisation`;
+  assert.match(
+    await (await author.get(page)).text(),
+    /<html[^>]+data-theme="auto"/,
+  );
+  const saved = await author.post(`${origin}/settings?/personalisation`, {
+    form: { theme: "light", userId: other },
+  });
+  assert.equal(saved.status(), 200);
+  assert.match(
+    await (await author.get(page)).text(),
+    /<html[^>]+data-theme="light"/,
+  );
+  for (const [id, expected] of [
+    [owner, "light"],
+    [other, "dark"],
+  ])
+    assert.equal(
+      (await db.query("SELECT theme FROM users WHERE id=$1", [id])).rows[0]
+        .theme,
+      expected,
+    );
+  const invalid = await author.post(`${origin}/settings?/personalisation`, {
+    form: { theme: '<script>alert("theme")</script>' },
+  });
+  assert.equal(invalid.status(), 400);
+  assert.equal(
+    (await db.query("SELECT theme FROM users WHERE id=$1", [owner])).rows[0]
+      .theme,
+    "light",
+  );
+  const anonymous = await author.get(`${origin}/login`, {
+    headers: { Cookie: "lastpeek_theme=%22%3E%3Cscript%3E" },
+  });
+  assert.match(await anonymous.text(), /<html[^>]+data-theme="auto"/);
+});
+
 // A stale manually entered handle and a forged form must never override the
 // connected account. Disconnect changes working identity, not old revisions.
 test("settings identity follows connected X without rewriting shared history", async (t) => {

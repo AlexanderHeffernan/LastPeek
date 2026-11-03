@@ -285,12 +285,12 @@
     margin: 0;
   }
   .original {
-    background: #ff6b5b0d;
-    color: #e6a398;
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+    color: var(--diff-removed);
   }
   .replacement {
-    background: #71b9890d;
-    color: #a2c8ae;
+    background: color-mix(in srgb, var(--diff-added) 8%, transparent);
+    color: var(--diff-added);
   }
   .finding-actions {
     display: flex;

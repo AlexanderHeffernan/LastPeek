@@ -18,6 +18,7 @@
   let confirmPhotoRemoval: ConfirmDialog;
   const sections = $derived([
     { id: "profile", label: "Profile", icon: "users" },
+    { id: "personalisation", label: "Personalisation", icon: "palette" },
     { id: "connections", label: "Connections", icon: "link" },
     ...(data.agentsEnabled
       ? [{ id: "agents", label: "Agents", icon: "agents" }]
@@ -59,6 +60,13 @@
   let profileBusy = $state(false);
   let profileError = $state("");
   let profileSaved = $state(false);
+  let themeBusy = $state(false);
+  let themeError = $state("");
+  const appearances = [
+    { value: "auto", label: "Auto", icon: "monitor" },
+    { value: "dark", label: "Dark", icon: "moon" },
+    { value: "light", label: "Light", icon: "sun" },
+  ];
   let currentPassword = $state("");
   let newPassword = $state("");
   let passwordBusy = $state(false);
@@ -228,6 +236,55 @@
     {#if selected === "agents" && data.agentConnections}
       <AgentConnections data={data.agentConnections} {form} />
     {/if}
+    <section
+      hidden={selected !== "personalisation"}
+      aria-label="Personalisation"
+    >
+      <form
+        method="POST"
+        action="?/personalisation"
+        class="appearance-form"
+        use:enhance={() => {
+          themeBusy = true;
+          themeError = "";
+          return async ({ result, update }) => {
+            try {
+              if (result.type === "success")
+                await update({ reset: false, navigate: false });
+              else themeError = "Couldn’t save your appearance. Try again.";
+            } finally {
+              themeBusy = false;
+            }
+          };
+        }}
+      >
+        <fieldset class="appearance-options" disabled={themeBusy}>
+          <legend>Appearance</legend>
+          <div class="appearance-choices">
+            {#each appearances as appearance}
+              <Button
+                type="submit"
+                name="theme"
+                value={appearance.value}
+                variant="outline"
+                class="appearance-choice"
+                aria-pressed={data.theme === appearance.value}
+                ><Icon
+                  name={appearance.icon}
+                  size={22}
+                />{appearance.label}</Button
+              >
+            {/each}
+          </div>
+          <p class="small muted">Auto follows your device’s appearance.</p>
+        </fieldset>
+        {#if themeError || form?.themeError}
+          <p class="action-error" role="alert">
+            {themeError || form?.themeError}
+          </p>
+        {/if}
+      </form>
+    </section>
     <section
       hidden={selected !== "notifications"}
       aria-labelledby="notifications-heading"
@@ -823,3 +880,45 @@
     </section>
   </div>
 </main>
+
+<style>
+  .appearance-form {
+    gap: 12px;
+  }
+  .appearance-form .action-error {
+    margin: 0;
+  }
+  .appearance-options {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .appearance-options legend {
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .appearance-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .appearance-choices :global(.appearance-choice) {
+    height: 84px;
+    flex-direction: column;
+    gap: 8px;
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--muted-foreground);
+    border-color: var(--border);
+  }
+  .appearance-choices :global(.appearance-choice[aria-pressed="true"]) {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 7%, var(--background));
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+  }
+  .appearance-options p {
+    margin: 14px 0 0;
+  }
+</style>

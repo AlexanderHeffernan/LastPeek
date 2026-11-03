@@ -37,6 +37,7 @@ test("X mention composer selects accounts, preserves text and distinguishes inva
     const base = process.env.TEST_BASE_URL!;
     const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
+      colorScheme: "dark",
       serviceWorkers: "block",
       hasTouch: true,
     });

@@ -20,7 +20,7 @@
   {value}
   data-slot="checkbox"
   class={cn(
-    "border-input bg-input/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=checked]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground data-[state=indeterminate]:border-primary aria-invalid:border-destructive focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 flex size-5 shrink-0 items-center justify-center rounded-[4px] border shadow-xs transition-shadow focus-visible:ring-3 aria-invalid:ring-3 relative outline-none after:absolute after:-inset-2 disabled:cursor-not-allowed disabled:opacity-50",
+    "border-input bg-input/30 data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground data-[state=checked]:border-primary-fill data-[state=indeterminate]:bg-primary-fill data-[state=indeterminate]:text-primary-foreground data-[state=indeterminate]:border-primary-fill aria-invalid:border-destructive focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 flex size-5 shrink-0 items-center justify-center rounded-[4px] border shadow-xs transition-shadow focus-visible:ring-3 aria-invalid:ring-3 relative outline-none after:absolute after:-inset-2 disabled:cursor-not-allowed disabled:opacity-50",
     className,
   )}
   {...restProps}

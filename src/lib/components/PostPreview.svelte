@@ -474,7 +474,7 @@
 
 <style>
   .post-text a.invalid-mention {
-    color: #ff7aa2;
+    color: var(--destructive);
     text-decoration: underline wavy;
     text-underline-offset: 3px;
   }
@@ -492,16 +492,16 @@
     flex-shrink: 2;
   }
   .post-time-separator {
-    color: #71767b;
+    color: var(--post-muted);
   }
   .timeline-author time {
     flex-shrink: 0;
-    color: #71767b;
+    color: var(--post-muted);
     white-space: nowrap;
   }
   .source-unavailable {
     margin: 12px 0 0;
-    color: #93989d;
+    color: var(--post-subtle);
     font-size: 13px;
     line-height: 20px;
   }
@@ -509,17 +509,17 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    color: #93989d;
+    color: var(--post-subtle);
     font-size: 13px;
   }
   .reply-source {
     padding: 16px;
-    border-bottom: 1px solid #2f3336;
+    border-bottom: 1px solid var(--post-border);
   }
   .quote-source {
     margin-top: 12px;
     padding: 12px;
-    border: 1px solid #2f3336;
+    border: 1px solid var(--post-border);
     border-radius: 16px;
   }
 </style>

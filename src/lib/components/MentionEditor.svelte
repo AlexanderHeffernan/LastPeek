@@ -313,10 +313,10 @@
     top: 100%;
     left: 0;
     width: min(360px, 100%);
-    background: #000;
-    border: 1px solid #2f3336;
+    background: var(--popover);
+    border: 1px solid var(--post-border);
     border-radius: 12px;
-    box-shadow: 0 8px 28px #000b;
+    box-shadow: 0 8px 28px var(--shadow);
     overflow: hidden;
   }
   .mention-menu [role="listbox"] {
@@ -333,13 +333,13 @@
     gap: 12px;
     padding: 12px 16px;
     text-align: left;
-    color: #e7e9ea;
+    color: var(--post-foreground);
   }
   .mention-menu :global(.mention-option[aria-selected="true"]) {
-    background: #16181c;
+    background: var(--post-surface);
   }
   .mention-menu :global(.mention-option:hover) {
-    background: #202327;
+    background: var(--accent);
   }
   img,
   .mention-avatar {
@@ -352,7 +352,7 @@
   .mention-avatar {
     display: grid;
     place-items: center;
-    background: #2f3336;
+    background: var(--avatar-background);
   }
   .mention-identity {
     min-width: 0;
@@ -368,7 +368,7 @@
     text-overflow: ellipsis;
   }
   .mention-identity > span {
-    color: #71767b;
+    color: var(--post-muted);
   }
   .mention-feedback {
     display: flex;
@@ -379,7 +379,7 @@
     flex: 1;
     margin: 0;
     padding: 12px;
-    color: #93989d;
+    color: var(--post-subtle);
     font-size: 13px;
     line-height: 18px;
   }
@@ -388,6 +388,6 @@
   }
   .mention-status p {
     padding: 4px 0;
-    color: #ff7aa2;
+    color: var(--destructive);
   }
 </style>

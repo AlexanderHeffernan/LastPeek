@@ -138,6 +138,11 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
     .getByRole("option", { name: "Until disconnected", exact: true })
     .click();
   await page.getByRole("button", { name: "Allow connection" }).click();
+  // OAuth can return a native document: visible SSR controls are not yet interactive.
+  await page
+    .getByRole("button", { name: "Save profile", includeHidden: true })
+    .and(page.locator(":disabled"))
+    .waitFor({ state: "attached" });
   const card = page.getByRole("article", {
     name: "Browser test agent connection",
   });
@@ -1040,6 +1045,115 @@ test("notifications / action menu on desktop and mobile", async () => {
   }
 });
 
+test("settings / appearance follows the device unless explicitly chosen and persists across browsers", async (t) => {
+  const id = randomUUID(),
+    session = token();
+  const browser = await engine.launch();
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Theme author','unused')",
+    [id, `${id}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+    [tokenHash(session), id],
+  );
+  const context = await browser.newContext({ colorScheme: "light" });
+  const cookie = { name: "lastpeek_session", value: session, url: baseURL };
+  await context.addCookies([cookie]);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(`${baseURL}/settings?tab=personalisation`);
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  const appearance = page.getByRole("group", { name: "Appearance" });
+  const background = async (expected: string) => {
+    await page.waitForFunction(
+      (color) => getComputedStyle(document.body).backgroundColor === color,
+      expected,
+    );
+  };
+  await background("rgb(255, 246, 237)");
+  assert.equal(
+    await appearance
+      .getByRole("button", { name: "Auto" })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  // Explicit Dark must win against a light OS, and vice versa.
+  await appearance.getByRole("button", { name: "Dark", exact: true }).click();
+  await background("rgb(11, 11, 12)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await appearance.getByRole("button", { name: "Light", exact: true }).click();
+  await background("rgb(255, 246, 237)");
+  // A fresh browser has no preference cookie: the account choice must render
+  // before hydration, without depending on JavaScript or the OS matching it.
+  const second = await browser.newContext({
+    colorScheme: "dark",
+    javaScriptEnabled: false,
+  });
+  await second.addCookies([cookie]);
+  const otherPage = await second.newPage();
+  const response = await otherPage.goto(
+    `${baseURL}/settings?tab=personalisation`,
+  );
+  assert.match(await response!.text(), /<html[^>]+data-theme="light"/);
+  assert.equal(
+    await otherPage
+      .locator("body")
+      .evaluate((body) => getComputedStyle(body).backgroundColor),
+    "rgb(255, 246, 237)",
+  );
+  await otherPage.getByRole("button", { name: "Dark", exact: true }).click();
+  assert.equal(
+    await otherPage
+      .locator("body")
+      .evaluate((body) => getComputedStyle(body).backgroundColor),
+    "rgb(11, 11, 12)",
+  );
+  await second.close();
+  await page.reload();
+  await background("rgb(11, 11, 12)");
+  // After reload the CSS is ready before form enhancement. The unchanged
+  // profile's disabled save control proves Settings has hydrated.
+  await page
+    .getByRole("button", { name: "Save profile", includeHidden: true })
+    .and(page.locator(":disabled"))
+    .waitFor({ state: "attached" });
+  await appearance.getByRole("button", { name: "Auto", exact: true }).click();
+  await page.waitForFunction(
+    () => document.documentElement.dataset.theme === "auto",
+  );
+  await background("rgb(11, 11, 12)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await background("rgb(255, 246, 237)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await background("rgb(11, 11, 12)");
+  // A lost connection must not pretend that a new preference was saved.
+  await context.setOffline(true);
+  const failedSave = page.waitForEvent("requestfailed", {
+    predicate: (request) =>
+      request.method() === "POST" && request.url().includes("personalisation"),
+  });
+  await appearance.getByRole("button", { name: "Light", exact: true }).click();
+  await failedSave;
+  await page
+    .getByRole("alert")
+    .getByText("Couldn’t save your appearance. Try again.")
+    .waitFor();
+  await background("rgb(11, 11, 12)");
+  assert.equal(
+    await appearance
+      .getByRole("button", { name: "Auto" })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  assert.deepEqual(errors, []);
+});
+
 test("settings / mobile drill-in navigation and plan usage", async () => {
   const id = randomUUID(),
     session = token();
@@ -1078,7 +1192,7 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     const sections = page.getByRole("navigation", {
       name: "Settings sections",
     });
-    assert.equal(await sections.getByRole("link").count(), 5);
+    assert.equal(await sections.getByRole("link").count(), 6);
     assert.equal(
       await sections.getByRole("link", { name: "Agents" }).count(),
       0,
@@ -1132,6 +1246,7 @@ test("settings / mobile drill-in navigation and plan usage", async () => {
     }
     for (const label of [
       "Connections",
+      "Personalisation",
       "Security",
       "Notifications",
       "Profile",

@@ -5,6 +5,7 @@ import { db } from "$lib/server/db";
 import { deliverPush } from "$lib/server/notifications";
 import { syncXCredits } from "$lib/server/x-usage";
 import { recordBrowserSession } from "$lib/server/browser-sessions";
+import { themePreference } from "$lib/theme";
 export function init() {
   const timer = setInterval(() => {
     void deliverPush().catch(() =>
@@ -61,7 +62,26 @@ export const handle: Handle = async ({ event, resolve }) => {
        AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')`,
       [event.locals.user.id],
     );
-  const response = await resolve(event);
+  // Keep the last account choice on sign-in/review pages and the offline screen.
+  // This cosmetic cookie contains no account identity or authority.
+  if (
+    event.locals.user &&
+    event.cookies.get("lastpeek_theme") !== event.locals.user.theme
+  )
+    event.cookies.set("lastpeek_theme", event.locals.user.theme, {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      secure: event.url.protocol === "https:",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  const response = await resolve(event, {
+    transformPageChunk: ({ html }) =>
+      html.replace(
+        'data-theme="auto"',
+        `data-theme="${themePreference(event.locals.user?.theme ?? event.cookies.get("lastpeek_theme"))}"`,
+      ),
+  });
   response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   // Native account forms need a non-null Origin for CSRF checks, even before hydration.
   // Send only the origin on these pages; review capabilities keep no-referrer.

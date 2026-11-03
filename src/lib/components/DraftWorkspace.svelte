@@ -648,7 +648,7 @@
   .drafts-column {
     grid-area: feed;
     min-width: 0;
-    border-inline: 1px solid #2f3336;
+    border-inline: 1px solid var(--post-border);
   }
   .drafts-actions {
     grid-area: create;
@@ -807,7 +807,7 @@
   .drafts-filters {
     grid-area: tabs;
     display: flex;
-    border: 1px solid #2f3336;
+    border: 1px solid var(--post-border);
     border-top: 0;
     gap: 0;
   }
@@ -835,14 +835,14 @@
   }
   .draft-entry {
     display: block;
-    color: #e7e9ea;
-    border-bottom: 1px solid #2f3336;
+    color: var(--post-foreground);
+    border-bottom: 1px solid var(--post-border);
   }
   .draft-open {
     display: block;
   }
   .draft-open:hover {
-    color: #e7e9ea;
+    color: var(--post-foreground);
   }
   .draft-open:focus-visible {
     outline: 2px solid var(--primary);
@@ -867,21 +867,21 @@
     padding-bottom: 8px;
   }
   .draft-meta :global(.draft-stat) {
-    --stat-color: #1d9bf0;
+    --stat-color: var(--x-blue);
     position: relative;
     height: 44px;
     padding: 0 8px 0 0;
     gap: 2px;
-    color: #71767b;
+    color: var(--post-muted);
     font-size: 13px;
     background: transparent;
     transition: color 150ms;
   }
   .draft-meta :global(.stat-feedback) {
-    --stat-color: #f91880;
+    --stat-color: light-dark(#b81b68, #f91880);
   }
   .draft-meta :global(.stat-sharing) {
-    --stat-color: #00ba7c;
+    --stat-color: light-dark(#08794f, #00ba7c);
   }
   .draft-meta :global(.draft-stat:is(:hover, :focus-visible)) {
     color: var(--stat-color);
@@ -926,7 +926,7 @@
   .draft-placeholder {
     margin: 0 16px 14px 68px;
     font-size: 13px;
-    color: #93989d;
+    color: var(--post-subtle);
   }
   @media (max-width: 1000px) {
     .drafts-page {
@@ -936,7 +936,7 @@
     }
     .draft-search {
       padding: 12px 16px;
-      border-inline: 1px solid #2f3336;
+      border-inline: 1px solid var(--post-border);
     }
     .draft-search > :global(svg) {
       left: 30px;
@@ -949,8 +949,8 @@
     .drafts-actions {
       top: 0;
       padding: 0 16px 12px;
-      border-inline: 1px solid #2f3336;
-      border-bottom: 1px solid #2f3336;
+      border-inline: 1px solid var(--post-border);
+      border-bottom: 1px solid var(--post-border);
     }
     .recent-feedback {
       margin: 24px 16px;
@@ -1018,7 +1018,7 @@
       height: 56px;
       border-radius: 50%;
       padding: 0;
-      box-shadow: 0 4px 20px #0006;
+      box-shadow: 0 4px 20px var(--shadow);
     }
     .floating-create :global(.floating-trigger svg),
     .floating-create > .share-actions > form :global(button svg) {

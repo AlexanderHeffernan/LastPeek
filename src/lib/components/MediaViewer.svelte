@@ -143,7 +143,7 @@
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
-    background: #09090bf5;
+    background: var(--background);
     box-shadow: none;
     --tw-ring-shadow: 0 0 #0000;
   }

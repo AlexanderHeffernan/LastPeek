@@ -1,9 +1,11 @@
 import { canViewAdmin } from "$lib/server/admin";
 import { connections } from "$lib/server/friends";
 import { db } from "$lib/server/db";
+import { themePreference } from "$lib/theme";
 import type { LayoutServerLoad } from "./$types";
 
-export const load: LayoutServerLoad = async ({ locals }) => ({
+export const load: LayoutServerLoad = async ({ locals, cookies }) => ({
+  theme: themePreference(locals.user?.theme ?? cookies.get("lastpeek_theme")),
   canViewAdmin: canViewAdmin(locals.user),
   connections: locals.user ? await connections(locals.user.id) : [],
   viewerId: locals.user?.id ?? null,

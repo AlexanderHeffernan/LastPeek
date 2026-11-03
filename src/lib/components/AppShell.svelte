@@ -324,6 +324,6 @@
     font-weight: 700;
     color: var(--primary-foreground);
     border-radius: 12px;
-    background: var(--primary);
+    background: var(--primary-fill);
   }
 </style>

@@ -13,6 +13,23 @@
   let { children } = $props();
   const presence = new Presence();
   setContext("presence", presence);
+  const theme = $derived(page.data?.theme ?? "auto");
+  $effect(() => {
+    if (!page.data?.theme || document.documentElement.dataset.theme === theme)
+      return;
+    if (
+      document.startViewTransition &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      const transition = document.startViewTransition(() => {
+        document.documentElement.dataset.theme = theme;
+      });
+      // Rapid choices or navigation may skip an unfinished cross-fade.
+      void transition.ready.catch(() => {});
+      return () => transition.skipTransition();
+    }
+    document.documentElement.dataset.theme = theme;
+  });
   $effect(() => {
     const user = shellUser;
     const ids = [...presence.users.keys()];
@@ -131,6 +148,24 @@
 
 <svelte:head
   ><title>LastPeek — A second pair of eyes</title>
+  <meta name="color-scheme" content={theme === "auto" ? "light dark" : theme} />
+  {#if theme === "auto"}
+    <meta
+      name="theme-color"
+      content="#fff6ed"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0b0b0c"
+      media="(prefers-color-scheme: dark)"
+    />
+  {:else}
+    <meta
+      name="theme-color"
+      content={theme === "light" ? "#fff6ed" : "#0b0b0c"}
+    />
+  {/if}
   <!-- Response headers alone cannot update the document after client-side navigation. -->
   <meta name="referrer" content={referrerPolicy(page.route.id)} />
   {#if page.route.id !== "/r/[token]"}<meta

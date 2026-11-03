@@ -1,36 +1,82 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark {
+  &:where([data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where([data-theme="auto"] *) {
+      @slot;
+    }
+  }
+}
 
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
   font-family: Arial, Helvetica, sans-serif;
   font-synthesis: none;
-  --background: #0b0b0c;
-  --foreground: #f2f0ec;
-  --card: #161618;
+  --background: light-dark(#fff6ed, #0b0b0c);
+  --foreground: light-dark(#22191b, #f2f0ec);
+  --card: light-dark(#fffdf9, #161618);
   --card-foreground: var(--foreground);
-  --popover: #1c1c1f;
+  --popover: light-dark(#fffdf9, #1c1c1f);
   --popover-foreground: var(--foreground);
-  --primary: #ff6b5b;
+  --brand: #ff6b5b;
+  --primary: light-dark(#b94032, #ff6b5b);
+  --primary-fill: light-dark(#e05c4b, #ff6b5b);
   --primary-foreground: #1f0805;
-  --secondary: #1f1f22;
+  --secondary: light-dark(#f6e9df, #1f1f22);
   --secondary-foreground: var(--foreground);
-  --muted: #1a1a1d;
-  --muted-foreground: #9a9894;
-  --accent: #262629;
+  --muted: light-dark(#f9eee5, #1a1a1d);
+  --muted-foreground: light-dark(#78665f, #9a9894);
+  --accent: light-dark(#f2e2d6, #262629);
   --accent-foreground: var(--foreground);
-  --destructive: #ff7aa2;
-  --border: #2b2b2e;
-  --input: #37373b;
+  --destructive: light-dark(#b52b53, #ff7aa2);
+  --border: light-dark(#e3d5cb, #2b2b2e);
+  --input: light-dark(#c4afa1, #37373b);
   --ring: var(--primary);
   --radius: 0.75rem;
   --ink: var(--foreground);
   --line: var(--border);
   --paper: var(--card);
   --danger: var(--destructive);
-  --x-blue: #1d9bf0;
+  --x-blue: light-dark(#086db5, #1d9bf0);
+  --post-foreground: light-dark(#22191b, #e7e9ea);
+  --post-muted: light-dark(#78665f, #71767b);
+  --post-subtle: light-dark(#78665f, #93989d);
+  --post-border: light-dark(#e3d5cb, #2f3336);
+  --post-surface: light-dark(#f9eee5, #16181c);
+  --thread-line: light-dark(#d7c5b8, #333639);
+  --avatar-background: light-dark(#f6ded2, #2b2b2e);
+  --avatar-foreground: light-dark(#87372e, #ffc2ba);
+  --warning: light-dark(#89540d, #f6c778);
+  --error-foreground: light-dark(#a52249, #ffb3c9);
+  --diff-removed: light-dark(#9e4034, #e6a398);
+  --diff-added: light-dark(#356247, #a2c8ae);
+  --shadow: light-dark(#4427191a, #0006);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+::view-transition-group(root) {
+  animation-duration: 240ms;
+  animation-timing-function: ease-in-out;
+}
+::view-transition {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }
 
 @theme inline {
@@ -41,6 +87,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-fill: var(--primary-fill);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -217,7 +264,7 @@
   outline-offset: 3px;
 }
 .app-navigation .drafts-link[aria-current="page"] {
-  color: var(--primary);
+  color: var(--primary-fill);
 }
 .app-navigation .drafts-link {
   position: relative;
@@ -309,18 +356,20 @@
   overflow: visible;
 }
 .brand-bubble {
-  fill: var(--primary);
-  stroke: var(--primary);
+  fill: var(--brand);
+  stroke: var(--brand);
 }
-.brand-eye,
 .brand-word {
   fill: var(--foreground);
 }
+.brand-eye {
+  fill: #f2f0ec;
+}
 .brand-pupil {
-  fill: var(--background);
+  fill: #0b0b0c;
 }
 .brand-iris {
-  fill: var(--primary);
+  fill: var(--brand);
 }
 .brand-pupil,
 .brand-iris {
@@ -406,8 +455,8 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #2b2b2e;
-  color: #ffc2ba;
+  background: var(--avatar-background);
+  color: var(--avatar-foreground);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -421,14 +470,14 @@
   object-fit: cover;
 }
 .brand-tint {
-  background: #ff6b5b14;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
   color: var(--primary);
-  border-color: #ff6b5b26;
+  border-color: color-mix(in srgb, var(--primary) 15%, transparent);
 }
 .old {
-  background: #f6c77812;
-  color: #f6c778;
-  border-color: #f6c77830;
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 19%, transparent);
 }
 .notice {
   border: 1px solid #ff6b5b33;
@@ -439,9 +488,9 @@
   line-height: 1.6;
 }
 .notice.error {
-  background: #ff7aa20b;
-  border-color: #ff7aa240;
-  color: #ffb3c9;
+  background: color-mix(in srgb, var(--destructive) 4%, transparent);
+  border-color: color-mix(in srgb, var(--destructive) 25%, transparent);
+  color: var(--error-foreground);
 }
 .notice a {
   text-decoration: underline;
@@ -493,7 +542,7 @@
   align-items: center;
   gap: 16px;
   padding: 4px 12px;
-  border-inline: 1px solid #2f3336;
+  border-inline: 1px solid var(--post-border);
 }
 .draft-heading h1 {
   margin: 0;
@@ -503,7 +552,7 @@
 .editor-posts {
   grid-area: posts;
   min-width: 0;
-  border-inline: 1px solid #2f3336;
+  border-inline: 1px solid var(--post-border);
 }
 .draft-sidebar {
   grid-area: sidebar;
@@ -544,7 +593,7 @@
     grid-template-areas: "heading" "sidebar" "posts" "feedback";
     grid-template-rows: 52px auto auto 1fr;
     min-height: calc(100dvh - 104px);
-    border-inline: 1px solid #2f3336;
+    border-inline: 1px solid var(--post-border);
   }
   .draft-heading,
   .editor-posts {
@@ -589,7 +638,7 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--card);
-  box-shadow: 0 8px 30px #0006;
+  box-shadow: 0 8px 30px var(--shadow);
 }
 .share-menu [data-slot="button"] {
   width: 100%;
@@ -644,7 +693,7 @@
   top: 60px;
   bottom: -12px;
   left: 35px;
-  background: #333639;
+  background: var(--thread-line);
 }
 .post-body {
   min-width: 0;
@@ -664,7 +713,7 @@
 }
 .post-position {
   margin-left: auto;
-  color: #71767b;
+  color: var(--post-muted);
   font-size: 13px;
 }
 .post-author:has(.remove-post) {
@@ -675,20 +724,20 @@
   position: absolute;
   top: -10px;
   right: -10px;
-  color: #71767b;
+  color: var(--post-muted);
 }
 .remove-post[data-slot="button"]:hover {
   color: var(--danger);
 }
 .post.inactive .post-body {
-  opacity: 0.55;
+  opacity: 0.7;
   transition: opacity 120ms;
 }
 .post.inactive:hover .post-body {
   opacity: 0.8;
 }
 .post-author .handle {
-  color: #71767b;
+  color: var(--post-muted);
   font-size: 15px;
   overflow-wrap: anywhere;
 }
@@ -698,7 +747,7 @@
   font-size: 15px;
   line-height: 20px;
   margin: 0;
-  color: #e7e9ea;
+  color: var(--post-foreground);
 }
 .post-text:empty {
   display: none;
@@ -737,7 +786,7 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   color: transparent;
-  caret-color: #e7e9ea;
+  caret-color: var(--post-foreground);
   field-sizing: content;
 }
 .post-editor[data-slot="textarea"]:focus-visible {
@@ -745,16 +794,16 @@
   outline: none;
 }
 .post-editor::placeholder {
-  color: #71767b;
+  color: var(--post-muted);
 }
 .media-grid {
-  border: 1px solid #2f3336;
+  border: 1px solid var(--post-border);
   border-radius: 16px;
   overflow: hidden;
   display: grid;
   gap: 2px;
   margin-top: 12px;
-  background: #16181c;
+  background: var(--post-surface);
 }
 .media-grid.multi {
   grid-template-columns: 1fr 1fr;
@@ -821,7 +870,7 @@
   gap: 2px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #2f3336;
+  border-top: 1px solid var(--post-border);
   flex-wrap: wrap;
 }
 .post-action-icons,
@@ -896,7 +945,7 @@
 }
 .counter {
   font-size: 11px;
-  color: #71767b;
+  color: var(--post-muted);
   font-variant-numeric: tabular-nums;
   padding-inline: 4px;
 }
@@ -913,7 +962,7 @@
   stroke-width: 2;
 }
 .count-track {
-  stroke: #2f3336;
+  stroke: var(--post-border);
 }
 .count-fill {
   stroke: var(--primary);
@@ -1158,11 +1207,11 @@ progress {
 }
 .allowance-meter progress::-webkit-progress-value {
   border-radius: 4px;
-  background: var(--primary);
+  background: var(--primary-fill);
 }
 .allowance-meter progress::-moz-progress-bar {
   border-radius: 4px;
-  background: var(--primary);
+  background: var(--primary-fill);
 }
 .allowance-hint,
 .allowance-change {

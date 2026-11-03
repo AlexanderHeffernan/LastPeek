@@ -24,6 +24,7 @@ import {
   updateAgentConnection,
 } from "$lib/server/agent-connections";
 import { authorSchema } from "$lib/contracts";
+import { themePreference } from "$lib/theme";
 import { avatarLimit, storeAvatar } from "$lib/server/avatars";
 import {
   importXAvatar,
@@ -76,6 +77,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   };
 };
 export const actions: Actions = {
+  personalisation: async (event) => {
+    sameOrigin(event);
+    const user = requireUser(event.locals);
+    const form = await event.request.formData();
+    const value = form.get("theme");
+    const theme = themePreference(value);
+    if (theme !== value)
+      return fail(400, { themeError: "Choose Auto, Dark or Light." });
+    await db.query("UPDATE users SET theme=$1 WHERE id=$2", [theme, user.id]);
+    user.theme = theme;
+    event.cookies.set("lastpeek_theme", theme, {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      secure: event.url.protocol === "https:",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+    return { themeSaved: true };
+  },
   agent: updateAgentConnection,
   revokeSession: async (event) => {
     sameOrigin(event);

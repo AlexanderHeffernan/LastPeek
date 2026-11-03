@@ -121,7 +121,7 @@
     position: relative;
     min-width: 0;
     margin-top: 12px;
-    color: #e7e9ea;
+    color: var(--post-foreground);
   }
   .source-permalink {
     position: absolute;
@@ -172,7 +172,7 @@
     border-radius: 50%;
   }
   .source-handle {
-    color: #71767b;
+    color: var(--post-muted);
     font-size: 14px;
     overflow-wrap: anywhere;
   }
@@ -188,13 +188,13 @@
     margin: 12px 0;
   }
   .source-text a {
-    color: #1d9bf0;
+    color: var(--x-blue);
   }
   .source-media {
     display: grid;
     overflow: hidden;
     gap: 2px;
-    border: 1px solid #2f3336;
+    border: 1px solid var(--post-border);
     border-radius: 14px;
   }
   .source-media.multiple {
@@ -222,7 +222,7 @@
     gap: 6px;
     margin-top: 12px;
     font-size: 13px;
-    color: #71767b;
+    color: var(--post-muted);
   }
   .source-footer a {
     color: inherit;
