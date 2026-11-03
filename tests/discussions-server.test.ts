@@ -105,6 +105,11 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     "a new reply reopens its resolved conversation",
   );
   assert.equal(comments.find((c) => c.id === follow.id)?.parent_id, reply.id);
+  assert.equal(
+    comments.find((c) => c.id === follow.id)?.thread_parent_id,
+    question.id,
+    "replying to the latest answer continues the same visual tier without losing its exact target",
+  );
   assert.equal(comments.find((c) => c.id === follow.id)?.media_time, 3.25);
   assert.ok(
     (await discussionDestination(reviewer, follow.id)).href.startsWith(
@@ -222,6 +227,32 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     reviewer,
     input("One more question", { parentId: child.id }),
   );
+  assert.equal(
+    (await draftComments(draft)).find((c) => c.id === grandchild.id)
+      ?.thread_parent_id,
+    guest.id,
+  );
+  assert.equal(
+    (await draftComments(draft)).find((c) => c.id === sibling.id)
+      ?.thread_parent_id,
+    child.id,
+    "replying to an earlier answer starts its own branch",
+  );
+  const continuation = await sendFeedback(
+    shared.token,
+    reviewer,
+    input("Continuing that branch", { parentId: sibling.id }),
+  );
+  const continued = (await draftComments(draft)).find(
+    (c) => c.id === continuation.id,
+  )!;
+  assert.equal(continued.parent_id, sibling.id);
+  assert.equal(continued.thread_parent_id, child.id);
+  await changeComment(continuation.id, reviewer, undefined, {
+    token: shared.token,
+    version: 1,
+    remove: true,
+  });
   assert.equal(
     (await draftComments(draft))
       .filter((c) =>

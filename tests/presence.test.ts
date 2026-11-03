@@ -160,6 +160,17 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
   await watch(guest, {
     token: share,
     connection: guestConnection,
+  });
+  assert.equal(
+    (await watch(ownerClient, ownerInput)).viewers.find(
+      (v: { guest: boolean }) => v.guest,
+    )?.name,
+    "Unnamed",
+    "a guest without a supplied name has a distinct display name",
+  );
+  await watch(guest, {
+    token: share,
+    connection: guestConnection,
     name: "Taylor",
   });
   assert.equal(

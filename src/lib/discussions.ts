@@ -1,5 +1,21 @@
 import type { Content, Feedback } from "./contracts";
 
+// Newest-first messages keep the exact reply target separately from their visual branch.
+export function replyThread(
+  comments: Pick<
+    Feedback,
+    "id" | "parent_id" | "thread_parent_id" | "deleted_at"
+  >[],
+  target: Pick<Feedback, "id" | "parent_id" | "thread_parent_id">,
+) {
+  if (!target.parent_id) return target.id;
+  const group = target.thread_parent_id ?? target.parent_id;
+  const latest = comments.find(
+    (c) => !c.deleted_at && (c.thread_parent_id ?? c.parent_id) === group,
+  );
+  return latest?.id === target.id ? group : target.id;
+}
+
 export function unresolvedCount(comments: Feedback[]) {
   const byId = new Map(comments.map((c) => [c.id, c]));
   return comments.filter((comment) => {

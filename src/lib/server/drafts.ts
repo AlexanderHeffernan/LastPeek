@@ -291,7 +291,7 @@ export async function draftComments(
 ): Promise<Feedback[]> {
   return (
     await db.query(
-      `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,c.parent_id,c.media_id,c.media_time,COALESCE(u.name,c.name) AS name,
+      `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,c.parent_id,c.thread_parent_id,c.media_id,c.media_time,COALESCE(u.name,c.name) AS name,
        u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at,
        c.deleted_at,c.edited_at,c.edit_version,
        (c.deleted_at IS NULL AND (c.user_id=$2 OR (c.user_id IS NULL AND c.guest_hash=$3))) IS TRUE AS can_manage,
@@ -300,7 +300,7 @@ export async function draftComments(
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
        LEFT JOIN x_accounts x ON x.user_id=u.id
        JOIN revisions r ON r.draft_id=c.draft_id AND r.number=c.revision
-       WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
+       WHERE c.draft_id=$1 ORDER BY c.created_at DESC,c.id DESC`,
       [id, userId ?? null, guestHash ?? null],
     )
   ).rows.map((row) => ({

@@ -4,6 +4,7 @@ import { transaction } from "./db";
 import { token, hash } from "./auth";
 import { notify } from "./notifications";
 import { ownedDraft, sharedDraft, snapshotDraft } from "./drafts";
+import { replyThread } from "../discussions";
 
 export function guestCommenter(
   cookies: Cookies,
@@ -154,15 +155,18 @@ async function writeComment(
         error(400, "A timestamp must refer to a video.");
     }
     let parentId: string | null = null;
+    let threadParentId: string | null = null;
     if (input.parentId) {
-      const parent = (
+      const comments = (
         await client.query(
-          "SELECT id,parent_id FROM comments WHERE id=$1 AND draft_id=$2",
-          [input.parentId, draftId],
+          "SELECT id,parent_id,thread_parent_id,deleted_at FROM comments WHERE draft_id=$1 ORDER BY created_at DESC,id DESC",
+          [draftId],
         )
-      ).rows[0];
+      ).rows;
+      const parent = comments.find((comment) => comment.id === input.parentId);
       if (!parent) error(400, "That conversation is unavailable.");
       parentId = parent.id;
+      threadParentId = replyThread(comments, parent);
       await client.query(
         `WITH RECURSIVE ancestors AS (
           SELECT id,parent_id FROM comments WHERE id=$1 AND draft_id=$2
@@ -189,7 +193,7 @@ async function writeComment(
       : null;
     const id = crypto.randomUUID();
     await client.query(
-      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id,parent_id,media_id,media_time,agent_name,guest_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+      "INSERT INTO comments(id,draft_id,revision,post_id,name,body,quote,user_id,parent_id,media_id,media_time,agent_name,guest_hash,thread_parent_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
       [
         id,
         draftId,
@@ -204,6 +208,7 @@ async function writeComment(
         mediaTime,
         agentName ?? null,
         userId ? null : (guestHash ?? null),
+        threadParentId,
       ],
     );
     const participants = parentId

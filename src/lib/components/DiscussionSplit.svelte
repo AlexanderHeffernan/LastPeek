@@ -81,11 +81,12 @@
   }
   .discussion-split::after {
     content: "";
-    position: absolute;
-    top: 76px;
+    display: block;
+    position: sticky;
+    top: calc(50dvh - 20px);
     height: 40px;
     width: 3px;
-    left: 10px;
+    margin-left: -2px;
     border-radius: 3px;
     background: var(--border);
     transition: background 150ms;

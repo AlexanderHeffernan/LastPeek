@@ -18,7 +18,10 @@ native post presentation, shared controls and responsive shell.
   Account requests remain invite-only and appear in the owner's Invitations queue.
 - One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
   before sharing and reply in the same space as reviewers. Replies attach to the exact selected
-  message at any depth; cap visual indentation to preserve room on mobile. Name and Author/Guest
+  message at any depth. Normal back-and-forth continues flat within its tier; replying to an earlier
+  message branches. View replies opens deeper branches with Back navigation and only one visible
+  indent, preserving reading width on mobile. Compose after existing replies, where the new message
+  will appear. Name and Author/Guest
   pills occupy the first line beside the 40px avatar; handle, time and compact Edited marker occupy the second.
   Comment content uses the full width below that identity header. Replies retain an indented connector.
   People can edit/delete their own messages. Guests use an HttpOnly browser-session credential,
@@ -35,7 +38,8 @@ native post presentation, shared controls and responsive shell.
   mounted when switching tabs; changing tabs must not discard a comment or a finding.
 - Authors and reviewers share an auto-growing composer without a redundant self-avatar. The compact comment action
   sits inside the field at the right. Enter sends, Shift+Enter adds a line, and composing IME input never sends.
-  Three quick-message pills animate below the focused general composer without replacing unsent text. Selected wording and media use removable
+  Three 44px quick-message pills animate below the focused general composer in one horizontally
+  scrollable row without replacing unsent text or losing focus on touch. Selected wording and media use removable
   context chips. Friendship actions sit in the comment action row so identity metadata stays compact.
 - Post/text/attachment context sits above the comment. Video feedback captures the current
   playhead without obstructing native controls. Context never silently migrates after an edit:

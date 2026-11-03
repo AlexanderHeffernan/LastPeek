@@ -4344,6 +4344,213 @@ test("guests / welcome, account prompts and sign-in preserve feedback", async (t
   assert.deepEqual(errors, []);
 });
 
+test("discussions / touch suggestions and flat conversations with focused branches", async (t) => {
+  const browser = await engine.launch();
+  const owner = randomUUID(),
+    id = randomUUID(),
+    session = token();
+  const ids = Array.from({ length: 6 }, () => randomUUID());
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM drafts WHERE id=$1", [id]);
+    await db.query("DELETE FROM users WHERE id=$1", [owner]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Branch author','unused')",
+    [owner, `${owner}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [tokenHash(session), owner],
+  );
+  const content = blankContent("Branch author");
+  content.posts[0].text = "Does the opening make the point clearly?";
+  await db.query("INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)", [
+    id,
+    owner,
+    content,
+  ]);
+  await db.query(
+    "INSERT INTO revisions(draft_id,number,content) VALUES($1,1,$2)",
+    [id, content],
+  );
+  const messages = [
+    "Opening question",
+    "First answer",
+    "Latest answer",
+    "Earlier-message branch",
+    "Latest branch answer",
+    "Deeper detail",
+  ];
+  const parents = [null, ids[0], ids[1], ids[1], ids[3], ids[3]];
+  const groups = [null, ids[0], ids[0], ids[1], ids[1], ids[3]];
+  for (let i = 0; i < ids.length; i++)
+    await db.query(
+      "INSERT INTO comments(id,draft_id,revision,name,body,user_id,parent_id,thread_parent_id,created_at) VALUES($1,$2,1,'Branch author',$3,$4,$5,$6,now()-interval '1 minute'+$7*interval '1 second')",
+      [ids[i], id, messages[i], owner, parents[i], groups[i], i],
+    );
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
+  await context.addCookies([
+    { name: "lastpeek_session", value: session, url: origin },
+  ]);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const ready = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/review-presence") &&
+      r.request().method() === "POST",
+  );
+  await page.goto(`${origin}/drafts/${id}`);
+  await ready;
+  assert.equal(
+    await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+    true,
+  );
+  const general = page.getByLabel("Your comment", { exact: true });
+  await general.tap();
+  // Safari may blur the textarea rather than focus the tapped button. Reproduce that
+  // default focus transfer; the pill must prevent it without cancelling touch scrolling/click.
+  await page.evaluate(() =>
+    document.addEventListener("mousedown", (event) => {
+      if (
+        !event.defaultPrevented &&
+        (event.target as Element).closest("button")
+      )
+        (document.activeElement as HTMLElement)?.blur();
+    }),
+  );
+  await page
+    .getByRole("button", { name: "Could you clarify this?", exact: true })
+    .tap();
+  assert.equal(await general.inputValue(), "Could you clarify this?");
+  await general.fill("");
+  const pills = await Promise.all(
+    ["Looks good!", "Could you clarify this?", "I’d make this shorter."].map(
+      (name) => page.getByRole("button", { name, exact: true }).boundingBox(),
+    ),
+  );
+  assert.ok(
+    pills.every((box) => box && box.height >= 44 && box.y === pills[0]!.y),
+    "quick replies have 44px targets in one scrollable row",
+  );
+  await general.fill("Keep this unsent thought.");
+  const message = (text: string) =>
+    page
+      .getByRole("article")
+      .filter({ has: page.getByText(text, { exact: true }) });
+  const reply = page.getByLabel("Your reply", { exact: true });
+  await message("Opening question")
+    .getByRole("button", { name: "Reply", exact: true })
+    .tap();
+  assert.equal(
+    await message("Latest answer").evaluate(
+      (node, input) =>
+        !!(
+          node.compareDocumentPosition(input!) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+        ),
+      await reply.elementHandle(),
+    ),
+    true,
+    "reply input follows the existing conversation",
+  );
+  await reply.fill("End of main thread");
+  await reply.press("Enter");
+  await message("End of main thread").waitFor();
+  await message("End of main thread")
+    .getByRole("button", { name: "Reply", exact: true })
+    .tap();
+  await reply.fill("Flat follow-up");
+  await reply.press("Enter");
+  await message("Flat follow-up").waitFor();
+  const flat = (
+    await db.query(
+      "SELECT parent_id,thread_parent_id FROM comments WHERE draft_id=$1 AND body='Flat follow-up'",
+      [id],
+    )
+  ).rows[0];
+  assert.equal(flat.thread_parent_id, ids[0]);
+  assert.notEqual(flat.parent_id, ids[0]);
+  await message("First answer")
+    .getByRole("button", { name: "Reply", exact: true })
+    .tap();
+  await page
+    .getByRole("region", { name: "Focused conversation", exact: true })
+    .waitFor();
+  await message("Latest branch answer").waitFor();
+  assert.equal(await message("Opening question").count(), 0);
+  assert.equal(
+    await message("Latest branch answer").evaluate(
+      (node, input) =>
+        !!(
+          node.compareDocumentPosition(input!) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+        ),
+      await reply.elementHandle(),
+    ),
+    true,
+  );
+  await reply.fill("Continuing the earlier branch");
+  await reply.press("Enter");
+  await message("Continuing the earlier branch").waitFor();
+  assert.equal(
+    (
+      await db.query(
+        "SELECT thread_parent_id FROM comments WHERE draft_id=$1 AND body='Continuing the earlier branch'",
+        [id],
+      )
+    ).rows[0].thread_parent_id,
+    ids[1],
+  );
+  await page
+    .getByRole("button", { name: "View replies to Branch author", exact: true })
+    .tap();
+  await message("Deeper detail").waitFor();
+  assert.equal(
+    await message("Earlier-message branch").count(),
+    1,
+    "focusing a branch never leaves a duplicate outgoing copy beneath its new root",
+  );
+  await page
+    .getByRole("button", { name: "Back to previous thread", exact: true })
+    .tap();
+  await message("First answer").waitFor();
+  await page
+    .getByRole("button", { name: "Back to discussion", exact: true })
+    .tap();
+  await message("Opening question").waitFor();
+  assert.equal(await general.inputValue(), "Keep this unsent thought.");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page
+    .getByRole("button", { name: "View replies to Branch author", exact: true })
+    .tap();
+  await message("Latest branch answer").waitFor();
+  await general.fill("");
+  await page.goto(`${origin}/drafts/${id}#feedback-${ids[5]}`);
+  await message("Deeper detail").waitFor();
+  assert.equal(
+    await page
+      .getByRole("region", { name: "Focused conversation", exact: true })
+      .count(),
+    1,
+    "deep links reveal a hidden branch",
+  );
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  assert.deepEqual(errors, []);
+});
+
 test(
   "discussions / author questions, contextual replies and draft type changes",
   { timeout: 45000 },

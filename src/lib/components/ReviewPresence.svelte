@@ -118,7 +118,7 @@
             <span class="online-dot"></span></span
           >
           <span class="viewer-name"
-            >{viewer.name}{viewer.guest ? " · Guest" : ""}</span
+            ><span>{viewer.name}{viewer.guest ? " · Guest" : ""}</span></span
           >
         </Button></span
       >{/each}
@@ -160,26 +160,32 @@
     background: var(--success);
   }
   .viewer-name {
-    max-width: 0;
+    display: grid;
+    grid-template-columns: 0fr;
+    max-width: 142px;
     opacity: 0;
+    padding-inline: 0;
+    font-size: 12px;
+    transition:
+      grid-template-columns 240ms ease-in-out,
+      opacity 240ms ease-in-out,
+      padding 240ms ease-in-out;
+  }
+  .viewer-name > span {
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 12px;
-    transition:
-      max-width 220ms ease,
-      opacity 160ms ease,
-      padding 220ms ease;
   }
   :global(.viewer.expanded) .viewer-name,
   :global(.viewer:focus-visible) .viewer-name {
-    max-width: 130px;
+    grid-template-columns: 1fr;
     opacity: 1;
     padding-inline: 6px;
   }
   @media (hover: hover) {
     :global(.viewer:hover) .viewer-name {
-      max-width: 130px;
+      grid-template-columns: 1fr;
       opacity: 1;
       padding-inline: 6px;
     }

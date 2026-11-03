@@ -137,8 +137,9 @@
           <Button
             variant="outline"
             size="sm"
-            class="rounded-full min-h-7 h-7 text-xs px-3"
+            class="rounded-full min-h-11 h-11 text-sm px-4"
             disabled={busy || disabled || !!value.trim()}
+            onmousedown={(event) => event.preventDefault()}
             onclick={() => {
               value = text;
               oninput?.();
@@ -169,9 +170,15 @@
   }
   .quick-replies {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     padding-top: 8px;
+    padding-right: 16px;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    overscroll-behavior-x: contain;
   }
   .composer-context {
     display: flex;

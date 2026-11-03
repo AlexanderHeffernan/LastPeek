@@ -11,8 +11,12 @@ SvelteKit renders the website and handles forms/API endpoints; adapter-node runs
 Migration 033 adds same-draft comment reply roots, immutable attachment/time anchors and per-account
 conversation read boundaries. `feedback.ts` owns both owner and reviewer writes. Owner comments
 serialize against the edit version and snapshot saved content even before sharing; reviewer writes
-retain capability/grant locks and the revision actually reviewed. Replies to replies flatten to the
-root. `discussions.ts` resolves notification destinations from ownership or participation plus current review
+retain capability/grant locks and the revision actually reviewed. Migration 039 separates the exact
+reply target (`parent_id`) from its stable display branch (`thread_parent_id`). Under the draft lock,
+a reply to a root starts its first tier, a reply to the latest live message continues that message's
+tier, and a reply to an earlier message starts a branch. Historical replies keep their existing
+grouping; writes from the preceding image use the exact parent as a fallback. Notifications,
+resolution, ownership and deletion continue following exact ancestry. `discussions.ts` resolves notification destinations from ownership or participation plus current review
 access. Reply notifications go to currently accessible account participants and the owner; their
 destination rechecks access. There is no standalone discussion inbox. The old read endpoint/table
 remain for rolling compatibility, but new browsers no longer write read receipts. Legacy resolution

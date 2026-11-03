@@ -77,6 +77,7 @@ export type Feedback = {
   edited_at?: string | null;
   edit_version?: number;
   parent_id?: string | null;
+  thread_parent_id?: string | null;
   media_id?: string | null;
   media_time?: number | null;
   original_post?: Post | null;

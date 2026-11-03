@@ -57,7 +57,12 @@ export const POST: RequestHandler = async (event) => {
   await db.query(
     `INSERT INTO review_presence(draft_id,viewer_hash,user_id,guest_name) VALUES($1,$2,$3,$4)
      ON CONFLICT(draft_id,viewer_hash) DO UPDATE SET user_id=$3,guest_name=$4,seen_at=now()`,
-    [draft.id, viewerHash, event.locals.user?.id ?? null, data.name || "Guest"],
+    [
+      draft.id,
+      viewerHash,
+      event.locals.user?.id ?? null,
+      data.name || "Unnamed",
+    ],
   );
   const viewers = await db.query(
     `SELECT DISTINCT ON (COALESCE(p.user_id::text,p.viewer_hash))

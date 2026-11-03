@@ -4,7 +4,7 @@
   import { Popover } from "bits-ui";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import ConfirmDialog from "./ConfirmDialog.svelte";
-  import type { Snippet } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import { slide } from "svelte/transition";
   import { Button } from "$lib/components/ui/button/index.js";
   import FriendControl from "$lib/components/FriendControl.svelte";
@@ -19,7 +19,7 @@
     type Content,
     type Media,
   } from "$lib/contracts";
-  import { contextChange, mediaTimeLabel } from "$lib/discussions";
+  import { contextChange, mediaTimeLabel, replyThread } from "$lib/discussions";
   let {
     comments,
     revision,
@@ -50,6 +50,63 @@
     emptyText?: string;
   } = $props();
   const roots = $derived(comments.filter((c) => !c.parent_id));
+  let focusPath = $state<string[]>([]);
+  const focusedThread = $derived(
+    comments.find((c) => c.id === focusPath.at(-1)),
+  );
+  const replyTarget = $derived(comments.find((c) => c.id === replyingTo));
+  const replyGroup = $derived(
+    replyTarget ? replyThread(comments, replyTarget) : null,
+  );
+  let openedHash = $state("");
+  $effect(() => {
+    const hash = page.url.hash;
+    if (!hash || hash === openedHash) return;
+    const target = comments.find((c) => hash === `#feedback-${c.id}`);
+    if (!target) return;
+    openedHash = hash;
+    const group = target.thread_parent_id ?? target.parent_id;
+    const anchor = comments.find((c) => c.id === group);
+    focusPath = anchor?.parent_id ? [anchor.id] : [];
+    void tick().then(() =>
+      document
+        .getElementById(`feedback-${target.id}`)
+        ?.scrollIntoView({ block: "center" }),
+    );
+  });
+  function childrenOf(id: string) {
+    return comments
+      .filter((c) => (c.thread_parent_id ?? c.parent_id) === id)
+      .toReversed();
+  }
+  async function openThread(comment: Feedback) {
+    focusPath = [...focusPath, comment.id];
+    await tick();
+    document
+      .getElementById(`feedback-${comment.id}`)
+      ?.focus({ preventScroll: true });
+    document
+      .getElementById(`feedback-${comment.id}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }
+  async function backThread() {
+    const closed = focusPath.at(-1);
+    focusPath = focusPath.slice(0, -1);
+    await tick();
+    const trigger =
+      document.getElementById(`view-replies-${closed}`) ??
+      document.getElementById(`feedback-${closed}`);
+    trigger?.focus({ preventScroll: true });
+    trigger?.scrollIntoView({ block: "nearest" });
+  }
+  async function reply(comment: Feedback, container: Feedback) {
+    const group = replyThread(comments, comment);
+    if (group !== container.id) {
+      const anchor = comments.find((c) => c.id === group);
+      if (anchor) await openThread(anchor);
+    }
+    onreply?.(comment);
+  }
   let showResolved = $state(false);
   let resolving = $state<string | null>(null);
   let resolveError = $state("");
@@ -139,46 +196,55 @@
 </script>
 
 {#if !comments.length}<p class="feedback-empty">{emptyText}</p>{/if}
-{#each [false, true] as resolved}
-  {#if resolved}
-    <button
-      class="resolved-divider"
-      disabled={!roots.some((c) => c.resolved)}
-      aria-expanded={showResolved}
-      onclick={() => (showResolved = !showResolved)}
-    >
-      <span></span>{roots.some((c) => c.resolved)
-        ? `Resolved · ${roots.filter((c) => c.resolved).length}`
-        : "Nothing resolved"}{#if roots.some((c) => c.resolved)}<Icon
-          name="down"
-          size={14}
-        />{/if}<span></span>
-    </button>
-  {/if}
-  {#each roots.filter((c) => !!c.resolved === resolved) as root (root.id)}
-    {#if !root.resolved || showResolved || containsTarget(root)}<section
-        transition:conversation
-        class="discussion-thread"
-        aria-label={root.deleted_at
-          ? "Conversation with deleted message"
-          : `Conversation from ${root.name}`}
+{#if focusedThread}
+  <div class="thread-navigation">
+    <Button variant="ghost" size="sm" onclick={backThread}>
+      <Icon name="back" size={16} />{focusPath.length > 1
+        ? "Back to previous thread"
+        : "Back to discussion"}
+    </Button>
+  </div>
+  {#key focusedThread.id}
+    <section class="focused-thread" aria-label="Focused conversation">
+      {@render branch(focusedThread)}
+    </section>
+  {/key}
+{:else}
+  {#each [false, true] as resolved}
+    {#if resolved}
+      <button
+        class="resolved-divider"
+        disabled={!roots.some((c) => c.resolved)}
+        aria-expanded={showResolved}
+        onclick={() => (showResolved = !showResolved)}
       >
-        {@render branch(root, 0)}
-      </section>{/if}
+        <span></span>{roots.some((c) => c.resolved)
+          ? `Resolved · ${roots.filter((c) => c.resolved).length}`
+          : "Nothing resolved"}{#if roots.some((c) => c.resolved)}<Icon
+            name="down"
+            size={14}
+          />{/if}<span></span>
+      </button>
+    {/if}
+    {#each roots.filter((c) => !!c.resolved === resolved) as root (root.id)}
+      {#if !root.resolved || showResolved || containsTarget(root)}<section
+          transition:conversation
+          class="discussion-thread"
+          aria-label={root.deleted_at
+            ? "Conversation with deleted message"
+            : `Conversation from ${root.name}`}
+        >
+          {@render branch(root)}
+        </section>{/if}
+    {/each}
   {/each}
-{/each}
+{/if}
 
-{#snippet branch(comment: Feedback, depth: number)}
-  {@render entry(comment)}
-  {#if composer && replyingTo === comment.id}<div class="thread-composer">
-      {@render composer()}
-    </div>{/if}
-  {@const children = comments
-    .filter((c) => c.parent_id === comment.id)
-    .toReversed()}
-  {#if children.length}<div
+{#snippet branch(comment: Feedback)}
+  {@render entry(comment, comment)}
+  {@const children = childrenOf(comment.id)}
+  {#if children.length || (composer && replyGroup === comment.id)}<div
       class="discussion-replies"
-      class:deep={depth >= 2}
       role="group"
       aria-label={comment.deleted_at
         ? "Replies to deleted message"
@@ -186,13 +252,30 @@
     >
       <div class="reply-entries">
         {#each children as child (child.id)}<div transition:conversation>
-            {@render branch(child, depth + 1)}
+            {@render entry(child, comment)}
+            {#if childrenOf(child.id).length}
+              <Button
+                id={`view-replies-${child.id}`}
+                variant="ghost"
+                size="sm"
+                class="view-replies"
+                aria-label={`View replies to ${child.deleted_at ? "deleted message" : child.name}`}
+                onclick={() => openThread(child)}
+                >View replies<Icon name="arrow" size={14} /></Button
+              >
+            {/if}
           </div>{/each}
+        {#if composer && replyGroup === comment.id}<div
+            class="thread-composer"
+            transition:conversation
+          >
+            {@render composer()}
+          </div>{/if}
       </div>
     </div>{/if}
 {/snippet}
 
-{#snippet entry(comment: Feedback)}
+{#snippet entry(comment: Feedback, container: Feedback)}
   {@const change = contextChange(comment, content)}
   {@const post = content.posts.find((p) => p.id === comment.post_id)}
   {@const file = media.find((m) => m.id === comment.media_id)}
@@ -317,7 +400,7 @@
         <div class="comment-actions">
           {#if onreply}<Button
               variant="ghost"
-              onclick={() => onreply?.(comment)}>Reply</Button
+              onclick={() => reply(comment, container)}>Reply</Button
             >{/if}
           {#if onresolve && !comment.parent_id}<Button
               variant="ghost"
@@ -526,9 +609,11 @@
     padding-left: 20px;
     border-left: 2px solid var(--border);
   }
-  .discussion-replies.deep {
-    margin-left: 0;
-    padding-left: 8px;
+  .thread-navigation {
+    padding: 4px 0 12px;
+  }
+  .focused-thread {
+    padding-bottom: 16px;
   }
   .deleted-message {
     color: var(--muted-foreground);
@@ -547,16 +632,11 @@
     padding-top: 8px;
   }
   .thread-composer {
-    margin-left: 19px;
-    padding-left: 20px;
-    border-left: 2px solid var(--border);
+    min-width: 0;
   }
-  @media (max-width: 400px) {
-    .thread-composer {
-      margin-left: 0;
-      padding-left: 0;
-      border-left: 0;
-    }
+  :global(.view-replies) {
+    margin-top: 4px;
+    color: var(--muted-foreground);
   }
   .feedback-card {
     position: relative;
