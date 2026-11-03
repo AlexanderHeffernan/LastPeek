@@ -1,0 +1,193 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
+import pg from "pg";
+
+test("discussions preserve anchors, flatten replies and recheck ownership and revoked access", async (t) => {
+  const original = process.env.DATABASE_URL!;
+  const schema = `discussions_${randomUUID().replaceAll("-", "")}`;
+  const admin = new pg.Pool({ connectionString: original });
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  const connection = new URL(original);
+  connection.searchParams.set("options", `-c search_path=${schema}`);
+  process.env.DATABASE_URL = connection.href;
+  const { db } = await import("../src/lib/server/db");
+  const { sendOwnerFeedback, sendFeedback, feedbackSchema } =
+    await import("../src/lib/server/feedback");
+  const { createDraft, publishDraft, saveDraft, draftComments } =
+    await import("../src/lib/server/drafts");
+  const { discussionInbox, discussionDestination } =
+    await import("../src/lib/server/discussions");
+  const { blankContent } = await import("../src/lib/contracts");
+  t.after(async () => {
+    await db.end();
+    await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+    await admin.end();
+    process.env.DATABASE_URL = original;
+  });
+  for (const name of (await readdir("migrations"))
+    .filter((n) => n.endsWith(".sql"))
+    .sort())
+    await db.query(await readFile(`migrations/${name}`, "utf8"));
+  const [owner, reviewer, outsider, draft, other, video, image] = Array.from(
+    { length: 7 },
+    () => randomUUID(),
+  );
+  for (const id of [owner, reviewer, outsider])
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'unused')",
+      [id, `${id}@example.test`, id === owner ? "Writer" : "Reader"],
+    );
+  const content = blankContent("Writer");
+  content.posts[0].text = "A focused opening, followed by a specific question.";
+  await createDraft(draft, owner, content);
+  await createDraft(other, outsider, blankContent("Other"));
+  await db.query(
+    "INSERT INTO media(id,draft_id,owner_id,mime,bytes,filename) VALUES($1,$2,$3,'video/mp4',10,'clip.mp4'),($4,$2,$3,'image/png',10,'image.png')",
+    [video, draft, owner, image],
+  );
+  content.posts[0].media = [video];
+  await saveDraft(draft, owner, content, 1);
+  const input = (body: string, extra: object = {}) =>
+    feedbackSchema.parse({ name: "", body, revision: 1, ...extra });
+  const question = await sendOwnerFeedback(
+    draft,
+    owner,
+    input("Is the opening specific enough?"),
+    2,
+  );
+  assert.equal(
+    (await discussionInbox(owner)).length,
+    1,
+    "author can ask before sharing",
+  );
+  await assert.rejects(
+    sendOwnerFeedback(draft, outsider, input("Intrusion"), 2),
+    { status: 404 },
+  );
+  await assert.rejects(sendOwnerFeedback(draft, owner, input("Stale"), 1), {
+    status: 409,
+  });
+  const shared = await publishDraft(draft, owner, 2);
+  await db.query("UPDATE comments SET resolved=true WHERE id=$1", [
+    question.id,
+  ]);
+  const reply = await sendFeedback(
+    shared.token,
+    reviewer,
+    input("Yes, especially the specific question.", {
+      parentId: question.id,
+      postId: content.posts[0].id,
+      quote: "specific question",
+    }),
+  );
+  const follow = await sendOwnerFeedback(
+    draft,
+    owner,
+    input("Thanks. What about this frame?", {
+      parentId: reply.id,
+      postId: content.posts[0].id,
+      mediaId: video,
+      mediaTime: 3.25,
+    }),
+    2,
+  );
+  const comments = await draftComments(draft);
+  assert.equal(
+    comments.find((c) => c.id === question.id)?.resolved,
+    false,
+    "a new reply reopens its resolved conversation",
+  );
+  assert.equal(
+    comments.find((c) => c.id === follow.id)?.parent_id,
+    question.id,
+  );
+  assert.equal(comments.find((c) => c.id === follow.id)?.media_time, 3.25);
+  assert.equal(
+    (await discussionInbox(reviewer)).length,
+    1,
+    "one inbox row per conversation, not per reply",
+  );
+  assert.equal((await discussionInbox(reviewer))[0].unread, true);
+  assert.equal((await discussionInbox(outsider)).length, 0);
+  assert.ok(
+    (await discussionDestination(reviewer, follow.id)).href.startsWith(
+      `/r/${shared.token}`,
+    ),
+  );
+  await assert.rejects(discussionDestination(outsider, question.id), {
+    status: 404,
+  });
+  await assert.rejects(
+    sendOwnerFeedback(
+      other,
+      outsider,
+      input("Wrong draft", { parentId: question.id }),
+      1,
+    ),
+    { status: 400 },
+  );
+  await assert.rejects(
+    sendFeedback(
+      shared.token,
+      reviewer,
+      input("Not attached", { postId: content.posts[0].id, mediaId: image }),
+    ),
+    { status: 400 },
+  );
+  content.posts[0].text = "A new opening without the old phrase.";
+  await saveDraft(draft, owner, content, 2);
+  assert.equal(
+    (await draftComments(draft)).find((c) => c.id === reply.id)?.original_post
+      ?.text,
+    "A focused opening, followed by a specific question.",
+  );
+  await sendFeedback(
+    shared.token,
+    reviewer,
+    input("Late but still anchored", {
+      postId: content.posts[0].id,
+      quote: "specific question",
+    }),
+  );
+  await db.query("UPDATE drafts SET share_token=NULL WHERE id=$1", [draft]);
+  assert.deepEqual(await discussionInbox(reviewer), []);
+  await assert.rejects(discussionDestination(reviewer, follow.id), {
+    status: 404,
+  });
+  await assert.rejects(sendFeedback(shared.token, reviewer, input("Revoked")), {
+    status: 404,
+  });
+  assert.equal(
+    (await discussionInbox(owner)).length,
+    2,
+    "revocation preserves author discussion history",
+  );
+  const existingReply = blankContent("Other");
+  existingReply.source = {
+    kind: "reply",
+    url: "https://x.com/example/status/123456",
+  };
+  await db.query("UPDATE drafts SET content=$1,posted_at=now() WHERE id=$2", [
+    JSON.stringify(existingReply),
+    other,
+  ]);
+  existingReply.posts[0].text = "Editing a published reply after a downgrade.";
+  await saveDraft(other, outsider, existingReply, 1);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT content->'source'->>'kind' AS kind FROM drafts WHERE id=$1",
+        [other],
+      )
+    ).rows[0].kind,
+    "reply",
+  );
+  delete existingReply.source;
+  await assert.rejects(
+    saveDraft(other, outsider, existingReply, 2),
+    { status: 409 },
+    "published drafts cannot switch their source, but unchanged relationships remain editable",
+  );
+});

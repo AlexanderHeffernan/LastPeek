@@ -1,6 +1,11 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
-  import { onMount, untrack } from "svelte";
+  import DiscussionComposer from "$lib/components/DiscussionComposer.svelte";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Select } from "$lib/components/ui/select/index.js";
+  import { applyAIEdit } from "$lib/ai";
+  import { unresolvedCount } from "$lib/discussions";
+  import { onMount, untrack, tick } from "svelte";
   import { Popover } from "bits-ui";
   import {
     beforeNavigate,
@@ -18,9 +23,11 @@
   import Icon from "$lib/components/Icon.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import {
     contentSchema,
     authorSchema,
+    xPostURLSchema,
     type Content,
     type Media,
     type Feedback,
@@ -55,6 +62,22 @@
     origin = $state("");
   let copied = $state(false);
   let sharingOpen = $state(false);
+  let commentBody = $state("");
+  let replyBody = $state("");
+  let replyError = $state("");
+  let commentPost = $state("");
+  let commentQuote = $state("");
+  let commentMedia = $state("");
+  let commentTime = $state<number | null>(null);
+  let commentParent = $state<Feedback | null>(null);
+  let commenting = $state(false);
+  let commentError = $state("");
+  let reviewTab = $state("discussion");
+  let typeOpen = $state(false);
+  let nextType = $state("post");
+  let sourceURL = $state("");
+  let typeError = $state("");
+  let changingType = $state(false);
   let shareError = $state("");
   let moreOpen = $state(false);
   let finishOpen = $state(false);
@@ -78,7 +101,7 @@
   }
   const postKind = $derived(
     content.source?.kind === "reply"
-      ? "Comment"
+      ? "Reply"
       : content.source?.kind === "quote"
         ? "Quote"
         : "Post",
@@ -128,7 +151,7 @@
       return;
     }
     if (
-      (dirty || uploading || saving) &&
+      (dirty || uploading || saving || commentBody || replyBody) &&
       !confirm("There are unsaved changes or uploads. Leave this draft?")
     )
       cancel();
@@ -319,16 +342,74 @@
       error = `Couldn’t copy the link. Copy this address: ${origin}/r/${shareToken}`;
     }
   }
-  async function resolveComment(comment: Feedback) {
+  function focusComment(id: string, quote: string) {
+    reviewTab = "discussion";
+    commentPost = id;
+    commentQuote = quote;
+    commentMedia = "";
+    commentTime = null;
+  }
+  async function sendComment(inline = false) {
+    commenting = true;
+    if (inline) replyError = "";
+    else commentError = "";
     try {
+      if (!(await save())) throw new Error(error || "Save your draft first.");
       await api({
-        action: "resolve",
-        commentId: comment.id,
-        resolved: !comment.resolved,
+        action: "comment",
+        version,
+        revision: sharedRevision ?? 1,
+        name: "",
+        body: inline ? replyBody : commentBody,
+        parentId: inline ? (commentParent?.id ?? "") : "",
+        postId: inline ? "" : commentPost,
+        quote: inline ? "" : commentQuote,
+        mediaId: inline ? "" : commentMedia,
+        mediaTime: inline ? null : commentTime,
       });
+      if (inline) {
+        replyBody = "";
+        commentParent = null;
+      } else {
+        commentBody = "";
+        focusComment("", "");
+      }
       await invalidateAll();
     } catch (e) {
-      error = (e as Error).message;
+      if (inline) replyError = (e as Error).message;
+      else commentError = (e as Error).message;
+    } finally {
+      commenting = false;
+    }
+  }
+  async function changeType() {
+    changingType = true;
+    typeError = "";
+    try {
+      if (!(await save())) throw new Error(error || "Save your draft first.");
+      const snapshot = structuredClone($state.snapshot(content));
+      if (nextType === "post") delete snapshot.source;
+      else {
+        const parsed = xPostURLSchema.safeParse(sourceURL);
+        if (!parsed.success) throw new Error("Enter a valid X post link.");
+        snapshot.source = {
+          kind: nextType as "reply" | "quote",
+          url: parsed.data,
+        };
+      }
+      const result = await api({ action: "save", content: snapshot, version });
+      version = result.version;
+      sharedRevision = result.revision;
+      content.source = snapshot.source;
+      content.author = authorSchema.parse(result.author);
+      saved = JSON.stringify({ ...snapshot, author: content.author });
+      typeOpen = false;
+      await invalidateAll();
+      if (dirty) changed();
+    } catch (cause) {
+      typeError = (cause as Error).message;
+    } finally {
+      changingType = false;
     }
   }
   async function apply(comment: Feedback) {
@@ -468,7 +549,7 @@
 
 <svelte:window
   onbeforeunload={(event) => {
-    if (dirty || saving || uploading) {
+    if (dirty || saving || uploading || commentBody || replyBody) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -541,6 +622,17 @@
       onchange={changed}
       onupload={upload}
       oncopy={copy}
+      focusedPost={commentPost}
+      onfocuspost={focusComment}
+      onfocusmedia={async (id, file, time) => {
+        focusComment(id, "");
+        commentMedia = file;
+        commentTime = time;
+        await tick();
+        const input = document.getElementById("author-comment");
+        input?.focus({ preventScroll: true });
+        input?.scrollIntoView({ block: "center" });
+      }}
       publishing={data.draft.posted_at ||
       content.source ||
       data.xPublishing.enabled ||
@@ -628,7 +720,26 @@
           </Popover.Root>{/if}
       </div>
       <div class="secondary-actions">
-        {#if data.aiEnabled}<AIReview draftId={data.draft.id} {content} />{/if}
+        <div class="desktop-draft-actions">
+          {#if !data.draft.posted_at}<Button
+              variant="ghost"
+              class="icon-button"
+              title="Mark as posted"
+              aria-label="Mark as posted"
+              disabled={busy || saving || uploading || deleting}
+              onclick={() => completeDraft()}
+              ><Icon name="done" size={20} /></Button
+            >{/if}
+          <Button
+            variant="ghost"
+            class="icon-button danger"
+            title="Delete draft"
+            aria-label="Delete draft"
+            disabled={uploading || saving || busy || deleting}
+            onclick={() => removeDraft()}
+            ><Icon name="trash" size={20} /></Button
+          >
+        </div>
         <Popover.Root bind:open={moreOpen}>
           <Popover.Trigger>
             {#snippet child({ props })}
@@ -648,27 +759,39 @@
             align="end"
             aria-label="More draft actions"
           >
-            {#if !data.draft.posted_at}
-              <Button
+            {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
                 variant="ghost"
-                disabled={busy || saving || uploading || deleting}
                 onclick={() => {
                   moreOpen = false;
-                  void completeDraft();
-                }}
+                  nextType = content.source?.kind ?? "post";
+                  sourceURL = content.source?.url ?? "";
+                  typeError = "";
+                  typeOpen = true;
+                }}><Icon name="edit" size={16} />Change draft type</Button
+              >{/if}
+            <div class="mobile-draft-actions">
+              {#if !data.draft.posted_at}
+                <Button
+                  variant="ghost"
+                  disabled={busy || saving || uploading || deleting}
+                  onclick={() => {
+                    moreOpen = false;
+                    void completeDraft();
+                  }}
+                >
+                  <Icon name="done" size={16} />Mark as posted
+                </Button>
+              {/if}
+              <Button
+                variant="ghost"
+                class="danger"
+                disabled={uploading || saving || busy || deleting}
+                onclick={() => {
+                  moreOpen = false;
+                  void removeDraft();
+                }}><Icon name="trash" size={16} />Delete draft</Button
               >
-                <Icon name="done" size={16} />Mark as posted
-              </Button>
-            {/if}
-            <Button
-              variant="ghost"
-              class="danger"
-              disabled={uploading || saving || busy || deleting}
-              onclick={() => {
-                moreOpen = false;
-                void removeDraft();
-              }}><Icon name="trash" size={16} />Delete draft</Button
-            >
+            </div>
           </Popover.Content>
         </Popover.Root>
       </div>
@@ -681,22 +804,175 @@
         </div>{/if}
     </div>
     <div id="feedback" class="draft-feedback">
-      <FeedbackList
-        comments={data.comments}
-        draftId={data.draft.id}
-        revision={dirty ? null : sharedRevision}
-        {content}
-        emptyText={data.recipients.length
-          ? "No feedback yet. Your friends can find this post in Friends."
-          : shareToken
-            ? "No feedback yet. Send your link to get a second look."
-            : "A second pair of eyes? Share your draft to get feedback."}
-        onresolve={resolveComment}
-        onapply={apply}
-      />
+      <Tabs.Root bind:value={reviewTab} class="gap-0">
+        <Tabs.List
+          variant="line"
+          class="review-tabs w-full border-b border-border p-0 h-14"
+          aria-label="Draft review"
+        >
+          <Tabs.Trigger value="discussion" class="text-sm"
+            >Discussion <span class="muted"
+              >{unresolvedCount(data.comments)}</span
+            ></Tabs.Trigger
+          >
+          {#if data.aiEnabled || data.aiReviews.length}<Tabs.Trigger
+              value="ai"
+              aria-label="AI review"
+              class="text-sm"
+              >AI review <span
+                title="Private to you. Only post text is sent to OpenAI, not attachments, identity or review links. Each run uses your AI allowance."
+                aria-label="Private AI review: only post text is sent to OpenAI"
+                ><Icon name="lock" size={14} /></span
+              ></Tabs.Trigger
+            >{/if}
+        </Tabs.List>
+        <Tabs.Content value="discussion">
+          <div class="discussion-panel">
+            {@render commentComposer()}
+            {#snippet commentComposer(inline = false)}
+              <form
+                class="owner-comment"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void sendComment(inline);
+                }}
+              >
+                <DiscussionComposer
+                  id={inline ? "author-reply" : "author-comment"}
+                  label={inline ? "Your reply" : "Your comment"}
+                  bind:value={
+                    () => (inline ? replyBody : commentBody),
+                    (value) => {
+                      if (inline) replyBody = value;
+                      else commentBody = value;
+                    }
+                  }
+                  user={data.user}
+                  replyName={inline ? commentParent?.name : undefined}
+                  postLabel={!inline && commentPost
+                    ? `Post ${content.posts.findIndex((p) => p.id === commentPost) + 1}`
+                    : undefined}
+                  quote={inline ? "" : commentQuote}
+                  media={inline
+                    ? undefined
+                    : media.find((m) => m.id === commentMedia)}
+                  time={inline ? null : commentTime}
+                  error={inline ? replyError : commentError}
+                  busy={commenting}
+                  disabled={uploading}
+                  oncancelreply={() => (commentParent = null)}
+                  onclear={() => focusComment("", "")}
+                />
+              </form>
+            {/snippet}
+            {#snippet replyComposer()}{@render commentComposer(true)}{/snippet}
+            <FeedbackList
+              comments={data.comments}
+              draftId={data.draft.id}
+              ownerId={data.user.id}
+              {media}
+              revision={dirty ? null : sharedRevision}
+              {content}
+              replyingTo={commentParent?.parent_id ?? commentParent?.id}
+              composer={replyComposer}
+              emptyText="No comments yet."
+              onreply={async (comment) => {
+                commentParent = comment;
+                await tick();
+                const input = document.getElementById("author-reply");
+                input?.focus({ preventScroll: true });
+                input?.scrollIntoView({ block: "center" });
+              }}
+              onapply={apply}
+              onresolve={async (comment) => {
+                await api({
+                  action: "resolve",
+                  commentId: comment.id,
+                  resolved: !comment.resolved,
+                });
+                if (!comment.resolved && page.url.hash)
+                  replaceState(page.url.pathname + page.url.search, page.state);
+                await invalidateAll();
+              }}
+            />
+          </div>
+        </Tabs.Content>
+        {#if data.aiEnabled || data.aiReviews.length}<Tabs.Content value="ai">
+            <AIReview
+              draftId={data.draft.id}
+              {content}
+              history={data.aiReviews}
+              enabled={data.aiEnabled && version > 0 && !saving && !dirty}
+              onapply={(postId, reviewed, quote, replacement) => {
+                const post = content.posts.find((p) => p.id === postId);
+                if (!post) return false;
+                const text = applyAIEdit(
+                  post.text,
+                  reviewed,
+                  quote,
+                  replacement,
+                );
+                if (text === null) return false;
+                post.text = text;
+                changed();
+                return true;
+              }}
+            />
+          </Tabs.Content>{/if}
+      </Tabs.Root>
     </div>
   </aside>
 </main>
+<Dialog.Root bind:open={typeOpen}>
+  <Dialog.Content class="sm:max-w-[400px]">
+    <Dialog.Header
+      ><Dialog.Title>Change draft type</Dialog.Title><Dialog.Description
+        >Keep your writing, attachments and discussion.</Dialog.Description
+      ></Dialog.Header
+    >
+    <form
+      class="stack"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void changeType();
+      }}
+    >
+      <label
+        >Draft type<Select
+          aria-label="Draft type"
+          bind:value={nextType}
+          disabled={changingType}
+          options={[
+            { value: "post", label: "Post" },
+            {
+              value: "reply",
+              label: data.mentionsEnabled ? "Reply" : "Reply · Pro",
+              disabled: !data.mentionsEnabled,
+            },
+            {
+              value: "quote",
+              label: data.mentionsEnabled ? "Quote" : "Quote · Pro",
+              disabled: !data.mentionsEnabled,
+            },
+          ]}
+        /></label
+      >
+      {#if nextType !== "post"}<label
+          >Original X post<Input
+            type="url"
+            bind:value={sourceURL}
+            required
+            placeholder="https://x.com/…/status/…"
+            disabled={changingType}
+          /></label
+        >{/if}
+      {#if typeError}<p class="action-error" role="alert">{typeError}</p>{/if}
+      <Button type="submit" disabled={changingType}
+        >{changingType ? "Updating…" : "Save type"}</Button
+      >
+    </form>
+  </Dialog.Content>
+</Dialog.Root>
 <Dialog.Root bind:open={finishOpen}>
   <Dialog.Content class="sm:max-w-[400px]">
     <Dialog.Header>
@@ -802,6 +1078,9 @@
 <ConfirmDialog bind:this={confirmation} />
 
 <style>
+  .owner-comment {
+    border-bottom: 1px solid var(--border);
+  }
   .share-friends {
     max-height: 40dvh;
     overflow-y: auto;
@@ -849,6 +1128,10 @@
   .secondary-actions :global(.icon-button) {
     min-width: 44px;
     min-height: 44px;
+  }
+  .desktop-draft-actions :global(.icon-button) {
+    border-radius: 999px;
+    background: var(--secondary);
   }
   .action-error {
     grid-column: 1 / -1;

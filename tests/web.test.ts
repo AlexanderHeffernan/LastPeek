@@ -599,7 +599,8 @@ test("user identities / compact feedback friend actions and friends-only presenc
         false,
       );
     }
-    await page.goto(`${baseURL}/feedback`);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(baseURL);
     await page.getByText("Guest reviewer", { exact: true }).waitFor();
     const newReviewer = page.getByRole("article", {
       name: "Feedback from Rae Rivers",
@@ -625,7 +626,7 @@ test("user identities / compact feedback friend actions and friends-only presenc
       .waitFor();
     assert.equal(
       new URL(page.url()).pathname,
-      "/feedback",
+      "/",
       "the inline action never opens the feedback link",
     );
     await page.unroute("**/api/friends");
@@ -701,7 +702,9 @@ test("user identities / compact feedback friend actions and friends-only presenc
     const feedback = page.getByRole("article", {
       name: "Feedback from Galen Green",
     });
-    await feedback.getByText("Earlier feedback", { exact: true }).waitFor();
+    await feedback
+      .getByText("Draft edited since this comment", { exact: true })
+      .waitFor();
     assert.equal(await page.getByText(/Last seen|Active now/).count(), 0);
     for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -3546,7 +3549,7 @@ test(
         .getByText("Updated private wording.", { exact: true })
         .waitFor();
       await reviewer
-        .getByText("Earlier feedback", { exact: true })
+        .getByText("Draft edited since this comment", { exact: true })
         .first()
         .waitFor();
       await reviewer
@@ -4080,6 +4083,288 @@ test("new drafts save only after interaction", { timeout: 45000 }, async () => {
   }
 });
 
+test(
+  "discussions / author questions, contextual replies and draft type changes",
+  { timeout: 45000 },
+  async (t) => {
+    const browser = await engine.launch();
+    const owner = randomUUID(),
+      id = randomUUID(),
+      image = randomUUID(),
+      session = token();
+    t.after(async () => {
+      await browser.close();
+      await db.query("DELETE FROM drafts WHERE owner_id=$1", [owner]);
+      await db.query("DELETE FROM users WHERE id=$1", [owner]);
+      await rm(mediaPath(image), { force: true });
+    });
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Discussion author','unused')",
+      [owner, `${owner}@example.test`],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [tokenHash(session), owner],
+    );
+    await setPlan(owner, owner, "pro", false);
+    const content = blankContent("Discussion author");
+    content.posts[0].text = "A careful opening with a concrete example.";
+    content.posts[0].media = [image];
+    content.source = {
+      kind: "quote",
+      url: "https://x.com/example/status/123456",
+    };
+    await db.query("INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)", [
+      id,
+      owner,
+      JSON.stringify(content),
+    ]);
+    const bytes = await sharp({
+      create: { width: 100, height: 60, channels: 3, background: "#bb6655" },
+    })
+      .png()
+      .toBuffer();
+    await mkdir(dirname(mediaPath(image)), { recursive: true });
+    await writeFile(mediaPath(image), bytes);
+    await db.query(
+      "INSERT INTO media(id,draft_id,owner_id,mime,filename,bytes,width,height) VALUES($1,$2,$3,'image/png','example.png',$4,100,60)",
+      [image, id, owner, bytes.length],
+    );
+    const author = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+    });
+    await author.addCookies([
+      { name: "lastpeek_session", value: session, url: origin },
+    ]);
+    const page = await author.newPage();
+    const crashes: string[] = [];
+    page.on("pageerror", (error) => crashes.push(error.message));
+    await page.goto(`${origin}/drafts/${id}`);
+    await page.getByLabel("Post 1 text", { exact: true }).waitFor();
+    await page
+      .getByLabel("Your comment", { exact: true })
+      .fill("Does the example make the opening clearer?");
+    const questionSent = page.waitForResponse(
+      (r) =>
+        r.url().endsWith(`/api/drafts/${id}`) &&
+        r.request().postDataJSON()?.action === "comment",
+    );
+    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    assert.equal((await questionSent).status(), 200);
+    const thread = page.getByRole("region", {
+      name: "Conversation from Discussion author",
+    });
+    await thread
+      .getByText("Does the example make the opening clearer?", { exact: true })
+      .waitFor();
+    assert.equal(
+      (await db.query("SELECT share_token FROM drafts WHERE id=$1", [id]))
+        .rows[0].share_token,
+      null,
+    );
+    await page.getByRole("button", { name: "More draft actions" }).click();
+    await page
+      .getByRole("button", { name: "Change draft type", exact: true })
+      .click();
+    const type = page.getByRole("dialog", { name: "Change draft type" });
+    await type
+      .getByRole("combobox", { name: "Draft type", exact: true })
+      .click();
+    // Three choices must fit without pointer-triggered scrolling or clipping.
+    const options = type.getByRole("listbox");
+    await options.waitFor();
+    assert.equal(await options.getByRole("option").count(), 3);
+    assert.equal(
+      await options.evaluate((node) => node.scrollHeight <= node.clientHeight),
+      true,
+    );
+    const triggerBox = await type
+      .getByRole("combobox", { name: "Draft type", exact: true })
+      .boundingBox();
+    const optionsBox = await options.boundingBox();
+    assert.ok(
+      triggerBox &&
+        optionsBox &&
+        optionsBox.y >= triggerBox.y + triggerBox.height,
+    );
+    await type.getByRole("option", { name: "Reply", exact: true }).click();
+    await type.getByRole("button", { name: "Save type", exact: true }).click();
+    await page.getByRole("heading", { name: "Reply", exact: true }).waitFor();
+    await page.getByRole("button", { name: "More draft actions" }).click();
+    await page
+      .getByRole("button", { name: "Change draft type", exact: true })
+      .click();
+    await type
+      .getByRole("combobox", { name: "Draft type", exact: true })
+      .click();
+    await type.getByRole("option", { name: "Post", exact: true }).click();
+    await type.getByRole("button", { name: "Save type", exact: true }).click();
+    await page.getByRole("heading", { name: "Post", exact: true }).waitFor();
+    assert.equal(
+      await page.getByLabel("Post 1 text", { exact: true }).inputValue(),
+      content.posts[0].text,
+    );
+    assert.equal(
+      await page.getByRole("img", { name: "example.png", exact: true }).count(),
+      1,
+    );
+    await thread.waitFor();
+    await thread.getByText("Source changed · Compare", { exact: true }).click();
+    assert.equal(
+      await page
+        .getByRole("dialog")
+        .getByRole("link", { name: content.source.url, exact: true })
+        .getAttribute("href"),
+      content.source.url,
+    );
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    const version = (
+      await db.query("SELECT edit_version FROM drafts WHERE id=$1", [id])
+    ).rows[0].edit_version;
+    const shared = await action(author.request, id, {
+      action: "publish",
+      version,
+    });
+    const guest = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+    });
+    const reviewer = await guest.newPage();
+    reviewer.on("pageerror", (error) => crashes.push(error.message));
+    await reviewer.goto(`${origin}/r/${shared.token}`);
+    const guestThread = reviewer.getByRole("region", {
+      name: "Conversation from Discussion author",
+    });
+    await reviewer
+      .getByLabel("Your feedback", { exact: true })
+      .fill("Keep this general thought.");
+    await guestThread
+      .getByRole("button", { name: "Reply", exact: true })
+      .click();
+    // Reply composition stays inside the conversation rather than jumping to the page form.
+    await guestThread
+      .getByLabel("Your reply", { exact: true })
+      .fill("Yes, keep the example but shorten the opening.");
+    await reviewer
+      .getByRole("button", { name: "Send reply", exact: true })
+      .click();
+    const identity = reviewer.getByRole("dialog", {
+      name: "Who’s giving feedback?",
+    });
+    await identity.getByLabel("Your name", { exact: true }).fill("Sam");
+    await identity
+      .getByRole("button", { name: "Send feedback", exact: true })
+      .click();
+    await guestThread
+      .getByText("Yes, keep the example but shorten the opening.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await reviewer.getByLabel("Your feedback", { exact: true }).inputValue(),
+      "Keep this general thought.",
+    );
+    await page.reload();
+    await thread.getByRole("button", { name: "Resolve", exact: true }).click();
+    await thread.waitFor({ state: "hidden" });
+    await page
+      .getByRole("tab", { name: "Discussion 0", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Resolved · 1", exact: true })
+      .click();
+    await thread.getByRole("button", { name: "Reopen", exact: true }).click();
+    await thread
+      .getByRole("button", { name: "Resolve", exact: true })
+      .waitFor();
+    await page
+      .getByRole("tab", { name: "Discussion 2", exact: true })
+      .waitFor();
+    assert.equal(
+      await reviewer.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    await reviewer
+      .getByRole("button", {
+        name: "Open image 1 on post 1",
+        exact: true,
+      })
+      .click();
+    await reviewer
+      .getByRole("dialog")
+      .getByRole("button", { name: "Comment on attachment", exact: true })
+      .click();
+    await reviewer.waitForFunction(
+      () => document.activeElement?.id === "review-comment",
+    );
+    await reviewer
+      .getByLabel("Your feedback", { exact: true })
+      .fill("This crop works well.");
+    await reviewer
+      .getByRole("button", { name: "Send feedback", exact: true })
+      .click();
+    await reviewer
+      .getByText("This crop works well.", { exact: true })
+      .waitFor();
+    assert.equal(
+      (
+        await db.query(
+          "SELECT media_id FROM comments WHERE draft_id=$1 AND body='This crop works well.'",
+          [id],
+        )
+      ).rows[0].media_id,
+      image,
+    );
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Comment on post 1", exact: true })
+      .click();
+    await page
+      .getByLabel("Your comment", { exact: true })
+      .fill("Is this opening too cautious?");
+    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await page
+      .getByText("Is this opening too cautious?", { exact: true })
+      .waitFor();
+    await edited(page, () =>
+      page
+        .getByLabel("Post 1 text", { exact: true })
+        .fill("A shorter opening with the same example."),
+    );
+    await page.getByText("Post edited · Compare", { exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByText("When reviewed", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page.getByRole("link", { name: "Discussions", exact: true }).click();
+    await page
+      .getByRole("main", { name: "Discussions", exact: true })
+      .waitFor();
+    await page.getByRole("tab", { name: "All", exact: true }).click();
+    await page
+      .getByLabel("Search discussions", { exact: true })
+      .fill("Does the example");
+    assert.equal(
+      await page.getByRole("button", { name: /^Open conversation:/ }).count(),
+      1,
+    );
+    await page.getByRole("button", { name: /^Open conversation:/ }).click();
+    await page.waitForURL(
+      (url) => url.pathname === `/drafts/${id}` && !!url.hash,
+    );
+    assert.deepEqual(crashes, []);
+  },
+);
+
 for (const scenario of [
   "authentication and navigation",
   "draft feed and queue",
@@ -4607,7 +4892,7 @@ for (const scenario of [
         assert.equal(
           await page
             .getByRole("article", { name: "Draft preview", exact: true })
-            .getByRole("link", { name: "1 open comment", exact: true })
+            .getByRole("link", { name: "1 comment", exact: true })
             .count(),
           1,
         );
@@ -4671,11 +4956,11 @@ for (const scenario of [
         assert.equal(
           await feedbackLinks.count(),
           5,
-          "five recent open comments, not resolved feedback",
+          "five recent comments, including legacy resolved feedback",
         );
         assert.ok(
           (await feedbackLinks.first().getAttribute("href"))?.endsWith(
-            `#feedback-${feedbackIds[4]}`,
+            `#feedback-${feedbackIds[5]}`,
           ),
         );
         await page.getByLabel("Search posts").fill("  MANGO 5  ");
@@ -4685,30 +4970,26 @@ for (const scenario of [
           "draft search does not match feedback",
         );
         await navigation
-          .getByRole("link", { name: "Feedback", exact: true })
+          .getByRole("link", { name: "Discussions", exact: true })
           .click();
         await page
-          .getByRole("main", { name: "Feedback", exact: true })
+          .getByRole("main", { name: "Discussions", exact: true })
           .waitFor();
-        await page.getByLabel("Search feedback").fill("  MANGO 5  ");
+        await page.getByLabel("Search discussions").fill("  MANGO 5  ");
         const feedbackFeed = page.getByRole("region", {
-          name: "Feedback feed",
+          name: "Discussion feed",
           exact: true,
         });
         assert.equal(
           await feedbackFeed
-            .getByRole("link", { name: /^Open feedback from/ })
+            .getByRole("button", { name: /^Open conversation:/ })
             .count(),
           1,
           "resolved feedback remains searchable",
         );
-        await page.getByRole("button", { name: "Open", exact: true }).click();
-        assert.equal(await feedbackFeed.getByRole("link").count(), 0);
-        await page
-          .getByRole("button", { name: "Resolved", exact: true })
-          .click();
+        await page.getByRole("tab", { name: "All", exact: true }).click();
         await feedbackFeed
-          .getByRole("link", { name: /^Open feedback from/ })
+          .getByRole("button", { name: /^Open conversation:/ })
           .click();
         await page.waitForURL(
           (url) => url.hash === `#feedback-${feedbackIds[5]}`,
@@ -4775,13 +5056,15 @@ for (const scenario of [
         await page
           .getByRole("link", { name: /^Open draft: Feed example 1/ })
           .click();
+        await page
+          .getByRole("button", { name: "Mark as posted", exact: true })
+          .waitFor();
         assert.equal(
           await page
             .getByRole("button", { name: "Mark as posted", exact: true })
             .count(),
-          0,
+          1,
         );
-        await page.getByRole("button", { name: "More draft actions" }).click();
         await page
           .getByRole("button", { name: "Mark as posted", exact: true })
           .click();
@@ -5805,7 +6088,7 @@ for (const scenario of [
           await page.getByLabel("Post 1 text", { exact: true }).waitFor();
           await page
             .getByRole("heading", {
-              name: kind === "reply" ? "Comment" : "Quote",
+              name: kind === "reply" ? "Reply" : "Quote",
               exact: true,
             })
             .waitFor();
@@ -5860,7 +6143,7 @@ for (const scenario of [
           await reviewer.waitForLoadState("networkidle");
           await reviewer
             .getByRole("heading", {
-              name: kind === "reply" ? "Comment" : "Quote",
+              name: kind === "reply" ? "Reply" : "Quote",
               exact: true,
             })
             .waitFor();
@@ -5997,9 +6280,6 @@ for (const scenario of [
             "Edit focuses the inline post without switching modes",
           );
           await page
-            .getByRole("button", { name: "More draft actions", exact: true })
-            .click();
-          await page
             .getByRole("button", { name: "Delete draft", exact: true })
             .click();
           const deletion = page.getByRole("alertdialog", {
@@ -6033,7 +6313,7 @@ for (const scenario of [
           // Even administrators default Free. Plan changes take effect without re-login.
           assert.equal(
             await page
-              .getByRole("button", { name: "AI Review", exact: true })
+              .getByRole("tab", { name: "AI review", exact: true })
               .count(),
             0,
           );
@@ -6047,7 +6327,7 @@ for (const scenario of [
           await page.reload();
           assert.equal(
             await page
-              .getByRole("button", { name: "AI Review", exact: true })
+              .getByRole("tab", { name: "AI review", exact: true })
               .count(),
             process.env.OPENAI_API_KEY ? 1 : 0,
           );
@@ -6061,7 +6341,7 @@ for (const scenario of [
           await page.reload();
           assert.equal(
             await page
-              .getByRole("button", { name: "AI Review", exact: true })
+              .getByRole("tab", { name: "AI review", exact: true })
               .count(),
             0,
           );
@@ -6071,7 +6351,7 @@ for (const scenario of [
           if (!process.env.OPENAI_API_KEY) {
             assert.equal(
               await page
-                .getByRole("button", { name: "AI Review", exact: true })
+                .getByRole("tab", { name: "AI review", exact: true })
                 .count(),
               0,
             );
@@ -6093,7 +6373,10 @@ for (const scenario of [
             await page.getByLabel("X handle", { exact: true }).count(),
             0,
           );
-          assert.equal(await page.getByRole("tab").count(), 0);
+          assert.equal(
+            await page.getByRole("tab", { name: /^(Write|Preview)$/ }).count(),
+            0,
+          );
           await page.getByText("@alex", { exact: true }).waitFor();
 
           // The writable preview keeps exact text and safely highlights X entities.
@@ -6298,6 +6581,12 @@ for (const scenario of [
               0,
             );
           }
+          await page
+            .getByRole("button", {
+              name: "Open image 1 on post 1",
+              exact: true,
+            })
+            .click();
           const download = page.waitForEvent("download");
           await page
             .getByRole("link", {
@@ -6308,6 +6597,10 @@ for (const scenario of [
           const downloaded = await download;
           assert.equal(downloaded.suggestedFilename(), "a-quiet-thought.png");
           assert.deepEqual(await readFile((await downloaded.path())!), image);
+          await page
+            .getByRole("dialog")
+            .getByRole("button", { name: "Close", exact: true })
+            .click();
           const rejected = page.waitForResponse((r) =>
             r.url().endsWith(`/api/drafts/${id}/media`),
           );
@@ -6725,7 +7018,7 @@ for (const scenario of [
           );
           await reviewer.goto(link);
           await reviewer
-            .getByText("Earlier feedback", { exact: true })
+            .getByText("Post edited · Compare", { exact: true })
             .waitFor();
           assert.equal(
             await reviewer
@@ -6747,7 +7040,13 @@ for (const scenario of [
           // A genuinely stale browser keeps its unsaved text rather than overwriting another tab.
           const stale = await owner.newPage();
           await stale.goto(`${baseURL}/drafts/${id}`);
-          await stale.waitForLoadState("networkidle");
+          await stale.getByLabel("Post 1 text", { exact: true }).waitFor();
+          await stale.waitForFunction(
+            () =>
+              !document.querySelector<HTMLTextAreaElement>(
+                'textarea[aria-label="Post 1 text"]',
+              )?.disabled,
+          );
           const followUp = await page
             .getByLabel("Post 2 text", { exact: true })
             .inputValue();
@@ -6797,12 +7096,18 @@ for (const scenario of [
             ).revision,
             latestRevision,
           );
-          await page
-            .getByRole("button", { name: "Resolve", exact: true })
-            .click();
-          await page
-            .getByRole("button", { name: "Reopen", exact: true })
-            .waitFor();
+          assert.equal(
+            await page
+              .getByRole("button", { name: "Resolve", exact: true })
+              .count(),
+            1,
+          );
+          assert.equal(
+            await page
+              .getByRole("button", { name: "Reply", exact: true })
+              .count(),
+            1,
+          );
           await screenshot(page, "author-shared");
           await page
             .getByRole("button", { name: "Review link options" })
@@ -6957,9 +7262,6 @@ for (const scenario of [
           );
           await page.goto(`${baseURL}/drafts/${id}`);
           await page.getByText("All changes saved", { exact: true }).waitFor();
-          await page
-            .getByRole("button", { name: "More draft actions", exact: true })
-            .click();
           await page
             .getByRole("button", { name: "Delete draft", exact: true })
             .click();
@@ -7204,7 +7506,11 @@ for (const scenario of [
         await reviewer
           .getByRole("button", { name: "Feedback sent", exact: true })
           .waitFor();
-        await reviewer.getByText("General feedback", { exact: true }).waitFor();
+        const general = reviewer
+          .getByRole("article", { name: "Feedback from Sam" })
+          .filter({ hasText: "The thread works as a whole." });
+        await general.waitFor();
+        assert.equal(await general.getByRole("blockquote").count(), 0);
         await reviewer
           .getByRole("button", { name: "Comment on post 2", exact: true })
           .click();
@@ -7260,13 +7566,14 @@ for (const scenario of [
           .getByRole("article", { name: "Feedback from Sam" })
           .filter({ hasText: "Tighten this wording." });
         await quoteCard
-          .getByText("Earlier feedback", { exact: true })
+          .getByText("Text changed · Compare", { exact: true })
           .waitFor();
         assert.equal(
           await quoteCard.getByRole("blockquote").innerText(),
           selected,
         );
         await reviewer
+          .getByRole("article", { name: "Post 1", exact: true })
           .getByText("An updated opening without the old phrase.", {
             exact: true,
           })
@@ -7387,7 +7694,7 @@ for (const scenario of [
           .getByRole("link", { name: "Drafts", exact: true })
           .waitFor();
         await reviewNavigation
-          .getByRole("link", { name: "Feedback", exact: true })
+          .getByRole("link", { name: "Discussions", exact: true })
           .waitFor();
         assert.equal(await stranger.locator("footer").count(), 0);
         for (const width of [390, 320]) {
@@ -7524,8 +7831,13 @@ for (const scenario of [
           `/avatars/${reviewerAvatar}`,
         );
         await page.goto(`${baseURL}/feedback`);
+        await page.getByRole("tab", { name: "All", exact: true }).click();
         await page
-          .getByRole("link", { name: /^Open feedback from Reviewer renamed:/ })
+          .getByRole("button", {
+            name: "Open conversation: Feedback from another signed-in account.",
+            exact: true,
+          })
+          .getByText("Reviewer renamed", { exact: true })
           .waitFor();
         const newReviewerPhoto = await other.request.post(
           `${baseURL}/api/profile/avatar`,

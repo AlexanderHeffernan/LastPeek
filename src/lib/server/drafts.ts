@@ -11,7 +11,9 @@ import {
 import { db, transaction } from "./db";
 import { notify } from "./notifications";
 import { token } from "./auth";
-import { claimDraft } from "./plans";
+import { claimDraft, isPro } from "./plans";
+import { sourcePost } from "./x-post";
+import { X_SOURCE_UNAVAILABLE } from "../x-post";
 
 export async function createDraft(
   id: string,
@@ -104,6 +106,32 @@ export async function saveDraft(
   raw: unknown,
   version: number,
 ) {
+  const parsedSource = contentSchema.safeParse(raw);
+  const previous = version > 0 ? await ownedDraft(id, userId) : null;
+  const sourceChanged =
+    parsedSource.success &&
+    (previous?.content.source?.kind !== parsedSource.data.source?.kind ||
+      previous?.content.source?.url !== parsedSource.data.source?.url);
+  if (version === 0 && parsedSource.success && parsedSource.data.source)
+    error(400, "Create replies and quotes from an X post link.");
+  if (sourceChanged && previous) {
+    if (previous.edit_version !== version)
+      error(409, "This draft changed. Reload before changing its type.");
+    if (
+      previous.posted_at ||
+      (await db.query("SELECT 1 FROM x_publications WHERE draft_id=$1", [id]))
+        .rowCount
+    )
+      error(409, "Draft type cannot change after publishing has started.");
+  }
+  if (sourceChanged && parsedSource.success && parsedSource.data.source) {
+    if (!(await isPro(userId))) error(403, "Replies and quotes require Pro.");
+    if (
+      previous?.content.source?.url !== parsedSource.data.source.url &&
+      !(await sourcePost(userId, parsedSource.data.source.url))
+    )
+      error(400, X_SOURCE_UNAVAILABLE);
+  }
   return transaction(async (client) => {
     if (version === 0) {
       if (!/^[0-9a-f-]{36}$/i.test(id)) error(400, "Invalid draft ID.");
@@ -123,7 +151,17 @@ export async function saveDraft(
       "SELECT id FROM drafts WHERE id=$1 AND owner_id=$2 FOR UPDATE",
       [id, userId],
     );
-    await ownedDraft(id, userId, client);
+    const current = await ownedDraft(id, userId, client);
+    if (
+      sourceChanged &&
+      (current.posted_at ||
+        (
+          await client.query("SELECT 1 FROM x_publications WHERE draft_id=$1", [
+            id,
+          ])
+        ).rowCount)
+    )
+      error(409, "Draft type cannot change after publishing has started.");
     const content = await validateContent(raw, id, client);
     const profile = await client.query(
       "SELECT u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id AS avatar FROM users u LEFT JOIN x_accounts x ON x.user_id=u.id WHERE u.id=$1",
@@ -156,7 +194,7 @@ export async function saveDraft(
   });
 }
 
-async function snapshotDraft(client: PoolClient, draft: Draft) {
+export async function snapshotDraft(client: PoolClient, draft: Draft) {
   const last = await client.query(
     "SELECT number,content FROM revisions WHERE draft_id=$1 ORDER BY number DESC LIMIT 1",
     [draft.id],
@@ -249,10 +287,13 @@ export async function draftMedia(id: string): Promise<Media[]> {
 export async function draftComments(id: string): Promise<Feedback[]> {
   return (
     await db.query(
-      `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,
-       u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at
+      `SELECT c.id,c.user_id,c.agent_name,c.revision,c.post_id,c.parent_id,c.media_id,c.media_time,COALESCE(u.name,c.name) AS name,
+       u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at,
+       (SELECT p FROM jsonb_array_elements(r.content->'posts') p WHERE p->>'id'=c.post_id::text) AS original_post,
+       r.content->'source' AS original_source
        FROM comments c LEFT JOIN users u ON u.id=c.user_id
        LEFT JOIN x_accounts x ON x.user_id=u.id
+       JOIN revisions r ON r.draft_id=c.draft_id AND r.number=c.revision
        WHERE c.draft_id=$1 ORDER BY c.created_at DESC`,
       [id],
     )

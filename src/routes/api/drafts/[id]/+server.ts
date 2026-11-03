@@ -1,5 +1,5 @@
 import { error, json } from "@sveltejs/kit";
-import { requireUser, sameOrigin } from "$lib/server/auth";
+import { requireUser, sameOrigin, rateLimit } from "$lib/server/auth";
 import {
   ownedDraft,
   saveDraft,
@@ -11,6 +11,7 @@ import { readBody } from "$lib/server/request";
 import { rm } from "node:fs/promises";
 import { mediaPath } from "$lib/server/media";
 import { markPosted, linkPostedX } from "$lib/server/posted-x";
+import { feedbackSchema, sendOwnerFeedback } from "$lib/server/feedback";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -32,6 +33,15 @@ export const POST: RequestHandler = async (event) => {
     return json(await saveDraft(id, user.id, body.content, body.version));
   }
   await ownedDraft(id, user.id);
+  if (body.action === "comment") {
+    await rateLimit(`comment:${user.id}`, 30, 600);
+    const parsed = feedbackSchema.safeParse(body);
+    if (!parsed.success || !Number.isInteger(body.version))
+      error(400, "Write a comment of up to 2,000 characters.");
+    return json(
+      await sendOwnerFeedback(id, user.id, parsed.data, body.version),
+    );
+  }
   if (body.action === "complete") {
     if (body.completed !== true || !Number.isInteger(body.version))
       error(400, "Save your latest edits before marking this as posted.");

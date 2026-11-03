@@ -19,13 +19,15 @@
   } = $props();
   const openAdmin = getContext<() => void>("open-siteadmin");
   const mobileTitle = $derived(
-    page.url.pathname === "/notifications"
-      ? "Notifications"
-      : page.url.pathname === "/friends"
-        ? page.url.searchParams.get("view") === "requests"
-          ? "Add friends"
-          : "Friends"
-        : null,
+    page.url.pathname === "/feedback"
+      ? "Discussions"
+      : page.url.pathname === "/notifications"
+        ? "Notifications"
+        : page.url.pathname === "/friends"
+          ? page.url.searchParams.get("view") === "requests"
+            ? "Add friends"
+            : "Friends"
+          : null,
   );
   let shell = $state<HTMLDivElement>();
   let header = $state<HTMLElement>();
@@ -237,8 +239,8 @@
       class="icon-button drafts-link"
       href="/feedback"
       aria-current={page.url.pathname === "/feedback" ? "page" : undefined}
-      aria-label="Feedback"
-      title="Feedback"
+      aria-label="Discussions"
+      title="Discussions"
       ><Icon
         name="comment"
         size={30}

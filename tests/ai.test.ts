@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { aiReviewSchema, reviewInputSchema } from "../src/lib/ai";
+import {
+  aiReviewSchema,
+  reviewInputSchema,
+  applyAIEdit,
+  reviewTypes,
+} from "../src/lib/ai";
 import { generateStructured } from "../src/lib/server/openai";
 import type { AIUsageReport } from "../src/lib/server/usage";
 
@@ -26,6 +31,32 @@ test("AI review bounds the whole thread and strips unrelated private fields", ()
     reviewInputSchema.safeParse({ posts: [{ ...a, text: " \n" }] }).success,
     false,
   );
+});
+
+test("AI review presets stay bounded and edits require exact unchanged unique text", () => {
+  const posts = [{ id: randomUUID(), text: "We ship on Frday, not Monday." }];
+  for (const type of Object.keys(reviewTypes))
+    assert.equal(reviewInputSchema.parse({ posts, type }).type, type);
+  assert.equal(
+    reviewInputSchema.safeParse({ posts, type: "chat" }).success,
+    false,
+  );
+  const text = posts[0].text;
+  assert.equal(
+    applyAIEdit(text, text, "Frday", "Friday"),
+    "We ship on Friday, not Monday.",
+  );
+  assert.equal(
+    applyAIEdit(text, text, "Frday", "$&"),
+    "We ship on $&, not Monday.",
+  );
+  assert.equal(applyAIEdit(`${text}!`, text, "Frday", "Friday"), null);
+  assert.equal(applyAIEdit("bad bad", "bad bad", "bad", "good"), null);
+  assert.equal(
+    applyAIEdit(text, text, "Monday", ""),
+    "We ship on Frday, not .",
+  );
+  assert.equal(applyAIEdit(text, text, "Tuesday", "Wednesday"), null);
 });
 
 test("structured AI requests are bounded, non-stored, validated and fail safely", async (t) => {

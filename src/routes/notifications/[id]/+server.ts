@@ -1,6 +1,7 @@
 import { error, redirect } from "@sveltejs/kit";
 import { db } from "$lib/server/db";
 import { requireUser } from "$lib/server/auth";
+import { discussionDestination } from "$lib/server/discussions";
 import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async ({ locals, params }) => {
   const user = requireUser(locals);
@@ -17,7 +18,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
   if (row.kind === "friend_request" || row.kind === "friend_accepted")
     redirect(303, "/friends");
   if (row.kind === "feedback")
-    redirect(303, `/drafts/${row.draft_id}#feedback-${row.comment_id}`);
+    redirect(303, (await discussionDestination(user.id, row.comment_id)).href);
   const access = await db.query(
     `SELECT 1 FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id
     WHERE fr.draft_id=$1 AND fr.recipient_id=$2 AND f.accepted_at IS NOT NULL`,

@@ -9,6 +9,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const draft = await sharedDraft(params.token, locals.user?.id);
   const allowedIds = new Set(mediaIds(draft.content));
   const comments = await draftComments(draft.id);
+  for (const comment of comments)
+    if (comment.media_id) allowedIds.add(comment.media_id);
   return {
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     token: params.token,
@@ -48,6 +50,9 @@ export const actions: Actions = {
       form.set("revision", String(form.get("currentRevision") ?? ""));
       form.set("postId", "");
       form.set("quote", "");
+      form.set("parentId", "");
+      form.set("mediaId", "");
+      form.delete("mediaTime");
     }
     const parsed = feedbackSchema.safeParse(Object.fromEntries(form));
     if (!parsed.success)

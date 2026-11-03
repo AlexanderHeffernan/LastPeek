@@ -12,6 +12,8 @@
     avatarOnly = false,
     showPresence = true,
     compact = false,
+    discussion = false,
+    metadata,
     children,
   }: {
     name: string;
@@ -22,6 +24,8 @@
     avatarOnly?: boolean;
     showPresence?: boolean;
     compact?: boolean;
+    discussion?: boolean;
+    metadata?: Snippet;
     children?: Snippet;
   } = $props();
   const presence = getContext<Presence>("presence");
@@ -40,7 +44,7 @@
   const label = $derived(showPresence ? presenceLabel(seen, presence.now) : "");
 </script>
 
-<span class="user-identity" class:avatar-only={avatarOnly}>
+<div class="user-identity" class:avatar-only={avatarOnly} class:discussion>
   <span class="identity-photo">
     <span class="avatar" aria-hidden="true">
       {#if avatarId}<img
@@ -57,19 +61,21 @@
       ></span>{/if}
   </span>
   {#if !avatarOnly}
-    <span class="identity-copy">
+    <div class="identity-copy">
       <span class="identity-byline">
         <strong title={name}>{name}</strong>
         {#if handle}<span class="identity-handle"
             >{handle.startsWith("@") ? handle : `@${handle}`}</span
           >{/if}
+        {#if metadata}{@render metadata()}{/if}
       </span>
       {#if label && !compact}<span class="identity-presence">{label}</span>{/if}
-      {#if children}<span class="identity-details">{@render children()}</span
-        >{/if}
-    </span>
+      {#if children}<div class="identity-details">
+          {@render children()}
+        </div>{/if}
+    </div>
   {/if}
-</span>
+</div>
 
 <style>
   .user-identity {
@@ -137,5 +143,23 @@
     min-height: 20px;
     color: var(--muted-foreground);
     font-size: 12px;
+  }
+  .discussion {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .discussion .identity-byline {
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+  }
+  .discussion .identity-handle {
+    flex-shrink: 2;
+  }
+  .discussion .identity-details {
+    display: block;
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 20px;
   }
 </style>

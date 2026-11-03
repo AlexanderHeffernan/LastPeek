@@ -2,7 +2,7 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Popover } from "bits-ui";
-  import { getContext, onDestroy, untrack } from "svelte";
+  import { getContext, onDestroy } from "svelte";
   import { page } from "$app/state";
   import { replaceState } from "$app/navigation";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
@@ -14,11 +14,7 @@
   import FriendControl from "$lib/components/FriendControl.svelte";
   import { relativeTime, xPostURLSchema } from "$lib/contracts";
   import type { PageData, ActionData } from "../../routes/(app)/$types";
-  let {
-    data,
-    form,
-    feedbackPage = false,
-  }: { data: PageData; form?: ActionData; feedbackPage?: boolean } = $props();
+  let { data, form }: { data: PageData; form?: ActionData } = $props();
   const navigation = getContext<{ reveal: () => void }>("mobile-navigation");
   let busy = $state(false);
   let createOpen = $state<string | null>(null);
@@ -104,30 +100,12 @@
   });
   let query = $state("");
   let filter = $state(
-    untrack(() => feedbackPage)
-      ? "all"
-      : ["review", "done"].includes(page.url.searchParams.get("tab") ?? "")
-        ? page.url.searchParams.get("tab")!
-        : "drafts",
+    ["review", "done"].includes(page.url.searchParams.get("tab") ?? "")
+      ? page.url.searchParams.get("tab")!
+      : "drafts",
   );
   const search = $derived(query.trim().toLocaleLowerCase());
-  const matchingFeedback = $derived(
-    data.comments.filter((comment) =>
-      [comment.name, comment.body, comment.suggestion, comment.quote].some(
-        (text) => text?.toLocaleLowerCase().includes(search),
-      ),
-    ),
-  );
-  const recentFeedback = $derived(
-    data.comments.filter((comment) => !comment.resolved).slice(0, 5),
-  );
-  const visibleComments = $derived(
-    matchingFeedback.filter(
-      (comment) =>
-        filter === "all" ||
-        (filter === "resolved" ? comment.resolved : !comment.resolved),
-    ),
-  );
+  const recentFeedback = $derived(data.comments.slice(0, 5));
   const filters = [
     { value: "drafts", label: "Drafts", icon: "drafts" },
     { value: "review", label: "To review", icon: "review" },
@@ -320,63 +298,43 @@
   bind:value={filter}
   class="contents"
   onValueChange={(value) => {
-    if (!feedbackPage) {
-      const url = new URL(page.url.href);
-      if (value === "drafts") url.searchParams.delete("tab");
-      else url.searchParams.set("tab", value);
-      replaceState(url, page.state);
-    }
+    const url = new URL(page.url.href);
+    if (value === "drafts") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", value);
+    replaceState(url, page.state);
   }}
 >
-  <main
-    class="drafts-page"
-    class:feedback-page={feedbackPage}
-    aria-label={feedbackPage ? "Feedback" : "Drafts"}
-  >
+  <main class="drafts-page" aria-label="Drafts">
     <div class="feed-toolbar" onfocusin={() => navigation.reveal()}>
       <div class="drafts-filters">
-        {#if feedbackPage}
-          <div role="group" aria-label="Filter feedback" class="contents">
-            {#each feedbackPage ? [{ value: "all", label: "All", icon: "comment" }, { value: "open", label: "Open", icon: "eye" }, { value: "resolved", label: "Resolved", icon: "check" }] : filters as item}
-              <Button
-                variant="ghost"
-                aria-pressed={filter === item.value}
-                onclick={() => (filter = item.value)}
-                ><Icon name={item.icon} size={16} />{item.label}</Button
-              >
-            {/each}
-          </div>
-        {:else}
-          <Tabs.List
-            variant="line"
-            class="w-full h-11 p-0 gap-0"
-            aria-label="Draft queues"
-          >
-            {#each filters as item}
-              <Tabs.Trigger
-                value={item.value}
-                aria-label={item.value === "done"
-                  ? item.label
-                  : `${item.label} ${counts[item.value as keyof typeof counts]}`}
-                ><Icon
-                  name={item.icon}
-                  size={18}
-                />{item.label}{#if item.value !== "done"}<span
-                    class="queue-count"
-                    >{counts[item.value as keyof typeof counts]}</span
-                  >{/if}</Tabs.Trigger
-              >
-            {/each}
-          </Tabs.List>
-        {/if}
+        <Tabs.List
+          variant="line"
+          class="w-full h-11 p-0 gap-0"
+          aria-label="Draft queues"
+        >
+          {#each filters as item}
+            <Tabs.Trigger
+              value={item.value}
+              aria-label={item.value === "done"
+                ? item.label
+                : `${item.label} ${counts[item.value as keyof typeof counts]}`}
+              ><Icon
+                name={item.icon}
+                size={18}
+              />{item.label}{#if item.value !== "done"}<span class="queue-count"
+                  >{counts[item.value as keyof typeof counts]}</span
+                >{/if}</Tabs.Trigger
+            >
+          {/each}
+        </Tabs.List>
       </div>
     </div>
     <div class="draft-search">
       <Icon name="search" size={18} />
       <Input
         type="search"
-        aria-label={feedbackPage ? "Search feedback" : "Search posts"}
-        placeholder={feedbackPage ? "Search feedback" : "Search posts"}
+        aria-label="Search posts"
+        placeholder="Search posts"
         bind:value={query}
       />
     </div>
@@ -393,33 +351,8 @@
         </p>{/if}
     </div>
     <Tabs.Content value={filter} class="contents">
-      <section
-        class="drafts-column"
-        aria-label={feedbackPage ? "Feedback feed" : "Draft feed"}
-      >
-        {#if feedbackPage}
-          {#each visibleComments as comment (comment.id)}
-            {@render feedbackEntry(comment)}
-          {:else}
-            <div class="empty">
-              <div class="empty-mascot"><Brand markOnly decorative /></div>
-              <h2>{search ? "Not a peep." : "A little quiet here."}</h2>
-              <p>
-                {search
-                  ? "No feedback matches that search."
-                  : "Share a draft for a second pair of eyes."}
-              </p>
-              {#if search || filter !== "all"}<Button
-                  variant="outline"
-                  onclick={() => {
-                    query = "";
-                    filter = "all";
-                  }}>Clear search and filters</Button
-                >{:else}<Button href="/" variant="outline">Browse drafts</Button
-                >{/if}
-            </div>
-          {/each}
-        {:else if !data.drafts.length && !data.reviews.length && filter === "drafts"}
+      <section class="drafts-column" aria-label="Draft feed">
+        {#if !data.drafts.length && !data.reviews.length && filter === "drafts"}
           <div class="empty">
             <div class="empty-mascot"><Brand markOnly decorative /></div>
             <h2>Start something worth sharing.</h2>
@@ -478,7 +411,7 @@
                     variant="ghost"
                     class="draft-stat stat-feedback"
                     href={`${href}#feedback`}
-                    aria-label={`${draft.feedback} open ${draft.feedback === 1 ? "comment" : "comments"}`}
+                    aria-label={`${draft.feedback} ${draft.feedback === 1 ? "comment" : "comments"}`}
                   >
                     <span class="stat-icon"
                       ><Icon name="comment" size={20} /></span
@@ -567,41 +500,16 @@
         {/if}
       </section>
     </Tabs.Content>
-    <aside
-      class="recent-feedback"
-      class:recent-drafts={feedbackPage}
-      aria-label={feedbackPage ? "Recent drafts" : "Recent feedback"}
-    >
-      {#if feedbackPage}
-        <h2>Recent drafts</h2>
-        {#each data.drafts.slice(0, 5) as draft}
-          <a class="feedback-entry" href={`/drafts/${draft.id}`}
-            ><span class="stat-icon"><Icon name="drafts" size={22} /></span>
-            <div class="feedback-content">
-              <p class="feedback-body">
-                {draft.content.posts[0].text || "Untitled draft"}
-              </p>
-              <time class="feedback-status" datetime={draft.updated_at}
-                >{relativeTime(draft.updated_at)}</time
-              >
-            </div></a
-          >
-        {:else}<p class="feedback-empty">
-            Your next idea starts with a draft.
-          </p>{/each}
+    <aside class="recent-feedback" aria-label="Recent feedback">
+      <h2>Recent feedback</h2>
+      {#each recentFeedback as comment (comment.id)}
+        {@render feedbackEntry(comment)}
       {:else}
-        <h2>Recent feedback</h2>
-        {#each recentFeedback as comment (comment.id)}
-          {@render feedbackEntry(comment)}
-        {:else}
-          <p class="feedback-empty">
-            No open feedback. A second pair of eyes will show up here.
-          </p>
-        {/each}
-        <Button variant="ghost" href="/feedback" class="all-feedback"
-          >View all feedback<Icon name="arrow" size={16} /></Button
-        >
-      {/if}
+        <p class="feedback-empty">A second pair of eyes will show up here.</p>
+      {/each}
+      <Button variant="ghost" href="/feedback" class="all-feedback"
+        >View discussions<Icon name="arrow" size={16} /></Button
+      >
     </aside>
   </main>
 </Tabs.Root>
@@ -641,11 +549,8 @@
         <p class="feedback-draft">
           {draft.content.posts[0].text || "Untitled draft"}
         </p>
-        {#if comment.revision !== draft.shared_revision}
-          <span class="feedback-status">Earlier feedback</span>
-        {/if}
-        {#if comment.resolved}
-          <span class="feedback-status">Resolved</span>
+        {#if draft.shared_revision && comment.revision !== draft.shared_revision}
+          <span class="feedback-status">Draft edited since this comment</span>
         {/if}
       </a>
     </div>
@@ -726,10 +631,6 @@
   }
   .floating-create {
     display: none;
-  }
-  .feedback-page .drafts-column > .feedback-entry {
-    border-bottom: 1px solid var(--border);
-    border-top: 0;
   }
   :global(.all-feedback) {
     width: 100%;

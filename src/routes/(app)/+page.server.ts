@@ -26,7 +26,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
   }>(
     `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,d.posted_at,
     (d.share_token IS NOT NULL OR EXISTS (SELECT 1 FROM friend_reviews fr WHERE fr.draft_id=d.id)) AS shared,
-    (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
+    (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id) AS feedback
     FROM drafts d WHERE owner_id=$1 ORDER BY updated_at DESC`,
     [user.id],
   );
@@ -42,7 +42,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     `SELECT d.id,r.content,d.updated_at,fr.created_at,d.friend_token AS token,
       (SELECT max(c.created_at) FROM comments c
        WHERE c.draft_id=d.id AND c.user_id=fr.recipient_id AND c.revision=d.shared_revision) AS completed_at,
-      (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND NOT c.resolved) AS feedback
+      (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id) AS feedback
      FROM friend_reviews fr
      JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
      JOIN drafts d ON d.id=fr.draft_id AND d.friend_token IS NOT NULL

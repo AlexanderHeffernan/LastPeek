@@ -2,6 +2,57 @@
 
 LastPeek is the quiet moment before posting on X. Minimal does not mean unfinished. Make the interface precise, distinctive, and obvious without explaining it away.
 
+## Review overhaul trial
+
+The current review overhaul supersedes the flat-feedback, All/Open/Resolved and blanket
+“Earlier feedback” descriptions in the baseline below. Keep the existing dark coral identity,
+native post presentation, shared controls and responsive shell.
+
+- One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
+  before sharing and reply in the same space as reviewers. Keep a single reply indentation level;
+  all replies stay visible without reply-count disclosures. Name, handle,
+  a small Author pill and time share one line. Comment content stays in the content column beside
+  the 40px avatar, with continuous avatar-column reply connectors, not stacked feedback cards.
+  Reply composition stays inside its conversation in one row with send and cancel. The general
+  composer remains in place and retains its text. Guests provide a name only when sending.
+- The desktop discussion column is 380px beside the 600px post when space permits. The page has
+  one document scroll, never an independently scrolling, viewport-height discussion sidebar.
+  Only Discussion/AI review tabs stick during scrolling; sharing and destructive actions scroll away.
+  Tabs have breathing room beneath the action strip. Private AI results stay
+  mounted when switching tabs; changing tabs must not discard a comment or a finding.
+- Authors and reviewers share an avatar-led, auto-growing composer. The compact comment action
+  sits alongside the field, not stranded beneath it. Selected wording and media use removable
+  context chips. Friendship actions sit in the comment action row so identity metadata stays compact.
+- Post/text/attachment context sits above the comment. Video feedback captures the current
+  playhead without obstructing native controls. Context never silently migrates after an edit:
+  Text changed, Post edited, Post removed, Attachment removed or Source changed opens a limited
+  original/current comparison. General comments simply say the draft has been edited.
+- Authors can resolve conversations, which fade out of the active discussion. A quiet bottom
+  separator opens resolved conversations; the empty separator says Nothing resolved. A new reply
+  reopens them. Discussion counts exclude resolved conversations and their replies.
+- The Discussions destination uses Unread/All, search and compact conversation rows. Opening a row
+  returns to the actual draft/comment. No separate messaging surface or dashboard metrics.
+- AI is private, not chat: one-click Quick review, Proofread, Clarity, Tighten, Tone and Thread
+  flow stay above saved newest-first results. Findings offer Apply (when safe) and Dismiss, never
+  Share to discussion. A lock beside the tab explains text-only provider/privacy/allowance details
+  on hover. Each saved run has a menu to delete that private review without changing the draft.
+  No automatic edits or public AI comments. Changed drafts disable stale actions.
+- More draft actions contains Change draft type, using shared Select, with a source field for Reply/Quote.
+  Errors stay inside the change dialog; writing, media and discussion remain intact.
+- Desktop exposes Mark as posted and Delete beside sharing; mobile keeps them in More. No duplicate
+  AI action above its tab. Images open a shared large Dialog; video enlargement sits below playback
+  controls. Downloads live in the viewer, not repeated under posts. Image removal uses circular
+  controls; video removal never overlays sound controls.
+
+AI preset prompts follow [OpenAI’s prompting guidance](https://platform.openai.com/docs/guides/prompt-engineering)
+on specific task boundaries, instruction/input separation and representative evaluation, and
+[RISD’s editorial guidance](https://artsandlanguage.risd.edu/ai-literacy-grammarly-tips) on preserving
+meaning, voice and quotations. Proofread corrects errors, not style; clarity names ambiguity rather
+than inventing context; tightening retains meaningful qualifiers; tone describes plausible reader
+interpretations, not the author's emotions; flow examines actual transitions. All modes avoid
+flattery, forced criticism, new facts and engagement bait. Prompt changes do not guarantee model
+quality; evaluate representative clean, faulty and subjective drafts when iterating.
+
 ## Identity
 
 - Dark only. Neutral near-black page (`#0b0b0c`), restrained raised surfaces (`#161618`), hairline borders (`#2b2b2e`), warm off-white text (`#f2f0ec`). Never switch with the OS theme or introduce a separate light variant.
@@ -16,7 +67,7 @@ LastPeek is the quiet moment before posting on X. Minimal does not mean unfinish
 - Use the checked-in shadcn-svelte (Vega) controls under `src/lib/components/ui`: Button (also for action links), Input, Textarea, Checkbox, Badge, Tabs, Dialog and Alert Dialog. Use Checkbox for every checkbox, including form submission, disabled and indeterminate states. Use the shared `ConfirmDialog` for destructive draft, post, friendship and notification actions, and audience changes; never browser alerts. Preserve browser-managed unsaved-navigation warnings. Tailwind 4 and semantic CSS variables in `src/app.css` supply the theme. Change a shared control for a shared visual rule; do not create competing page-local buttons or form fields.
 - Components are owned source, customized for LastPeek, not a runtime hosted service. Additional components should come from shadcn-svelte and be added only when needed. The CLI currently cannot resolve Kit 3's `$app/tsconfig`; components can be copied from the official registry (`https://www.shadcn-svelte.com/registry/styles/vega/<name>.json`), replacing its utility/UI aliases with this repository's aliases. Do not downgrade Kit or rewrite its TypeScript setup to accommodate the CLI.
 - Use Phosphor (`phosphor-svelte`), regular weight, through `Icon.svelte`. Import individual `phosphor-svelte/lib/<Name>` modules so builds do not compile the entire icon library. Custom SVG is for the brand, not a second icon family.
-- Use component variants rather than legacy `primary`/`quiet` classes. Layout classes describe real surfaces and relationships; don't create one-off control themes. Native select, file input, progress, and disclosure semantics are valid; preserve keyboard and touch usability.
+- Use component variants rather than legacy `primary`/`quiet` classes. Layout classes describe real surfaces and relationships; don't create one-off control themes. Use the prepared shared Select, not native selects. File input and progress semantics remain valid; review context uses shared Dialog rather than disclosure accordions. Preserve keyboard and touch usability.
 
 ## The post is the product
 

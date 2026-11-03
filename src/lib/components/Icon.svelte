@@ -37,12 +37,14 @@
   import PlugsConnected from "phosphor-svelte/lib/PlugsConnected";
   import Monitor from "phosphor-svelte/lib/Monitor";
   import DeviceMobile from "phosphor-svelte/lib/DeviceMobile";
+  import ArrowsOut from "phosphor-svelte/lib/ArrowsOut";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    expand: ArrowsOut,
     monitor: Monitor,
     mobile: DeviceMobile,
     agents: PlugsConnected,

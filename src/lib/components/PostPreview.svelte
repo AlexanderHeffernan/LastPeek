@@ -6,6 +6,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import XSourcePost from "./XSourcePost.svelte";
   import MentionEditor from "./MentionEditor.svelte";
+  import MediaViewer from "./MediaViewer.svelte";
   import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
   import type { XSourcePost as SourcePost } from "$lib/x-post";
   import twitter from "twitter-text";
@@ -27,6 +28,7 @@
     onupload = () => {},
     oncopy,
     onfocuspost,
+    onfocusmedia,
     focusedPost,
     timeline = false,
     sourcePost = null,
@@ -43,6 +45,11 @@
     onupload?: (postId: string, files: File[]) => void;
     oncopy?: (text: string) => void;
     onfocuspost?: (postId: string, quote: string) => void;
+    onfocusmedia?: (
+      postId: string,
+      mediaId: string,
+      time: number | null,
+    ) => void;
     focusedPost?: string;
     timeline?: boolean;
     sourcePost?: SourcePost | null;
@@ -55,6 +62,14 @@
   let activeId = $state(content.posts.at(-1)?.id);
   let confirmation = $state<ConfirmDialog>();
   let invalidMentions = $state<Record<string, string[]>>({});
+  let viewerPost = $state<string>();
+  let viewerIndex = $state<number | null>(null);
+  let viewerTime = $state(0);
+  const viewerItems = $derived(
+    (content.posts.find((p) => p.id === viewerPost)?.media ?? []).flatMap(
+      (id) => media.find((m) => m.id === id) ?? [],
+    ),
+  );
   const active = $derived(
     content.posts.some((p) => p.id === activeId)
       ? activeId
@@ -102,9 +117,22 @@
 
 <svelte:document
   onselectionchange={() => {
-    if (editing || !onfocuspost) return;
+    if (!onfocuspost) return;
+    const input = document.activeElement;
+    if (
+      editing &&
+      input instanceof HTMLTextAreaElement &&
+      input.classList.contains("post-editor")
+    ) {
+      const quote = input.value.slice(input.selectionStart, input.selectionEnd);
+      const postId = input.closest<HTMLElement>("article")?.dataset.postId;
+      if (postId && quote.trim()) onfocuspost(postId, quote);
+      return;
+    }
     const selection = window.getSelection();
-    const text = selection?.anchorNode?.parentElement?.closest(".post-text");
+    const text = selection?.anchorNode?.parentElement?.closest(
+      ".post-text,[contenteditable]",
+    );
     const postId = text?.closest<HTMLElement>("article")?.dataset.postId;
     if (
       postId &&
@@ -141,7 +169,9 @@
       onclick={(event) => {
         if (
           !onfocuspost ||
-          (event.target as Element).closest("a,button,input,video")
+          (event.target as Element).closest(
+            "a,button,input,textarea,video,[contenteditable]",
+          )
         )
           return;
         const selection = window.getSelection();
@@ -237,16 +267,6 @@
                 >{:else}{part.text}{/if}{/each}
           </p>
         </div>
-        {#if onfocuspost}<Button
-            variant="ghost"
-            class="post-feedback-button"
-            aria-label={`Comment on post ${index + 1}`}
-            aria-pressed={focusedPost === post.id}
-            onclick={() => onfocuspost?.(post.id, "")}
-            ><Icon name="comment" size={16} />{focusedPost === post.id
-              ? "Selected for feedback"
-              : "Comment"}</Button
-          >{/if}
         {#if post.media.length}<div
             class="media-grid"
             class:multi={post.media.length > 1}
@@ -275,46 +295,62 @@
                       alt={item.filename}
                       loading="lazy"
                     />
-                  {:else}<a
-                      href={mediaURL(id, token)}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {:else}<Button
+                      variant="ghost"
+                      class="media-open h-full w-full min-h-0 rounded-none p-0"
                       aria-label={`Open image ${mediaIndex + 1} on post ${index + 1}`}
-                      ><img src={mediaURL(id, token)} alt={item.filename} /></a
+                      onclick={() => {
+                        viewerPost = post.id;
+                        viewerTime = 0;
+                        viewerIndex = mediaIndex;
+                      }}
+                      ><img
+                        src={mediaURL(id, token)}
+                        alt={item.filename}
+                      /></Button
                     >{/if}
-                  {#if editing}<div class="media-actions">
-                      {#if mediaIndex > 0}<Button
-                          variant="outline"
-                          class="icon-button"
-                          aria-label={`Move attachment ${mediaIndex + 1} earlier on post ${index + 1}`}
-                          onclick={() => moveMedia(index, mediaIndex, -1)}
-                          ><Icon name="back" size={12} /></Button
-                        >{/if}{#if mediaIndex < post.media.length - 1}<Button
-                          variant="outline"
-                          class="icon-button"
-                          aria-label={`Move attachment ${mediaIndex + 1} later on post ${index + 1}`}
-                          onclick={() => moveMedia(index, mediaIndex, 1)}
-                          ><Icon name="arrow" size={12} /></Button
-                        >{/if}<Button
-                        variant="outline"
-                        class="icon-button"
-                        aria-label={`Remove attachment ${mediaIndex + 1} from post ${index + 1}`}
-                        onclick={() => {
-                          post.media = post.media.filter((m) => m !== id);
-                          onchange();
-                        }}><Icon name="close" size={13} /></Button
-                      >
-                    </div>{:else if !timeline && item.mime.startsWith("video/")}<div
+                  {#if !timeline && (editing || item.mime.startsWith("video/"))}<div
                       class="media-actions"
+                      class:video-actions={item.mime.startsWith("video/")}
                     >
-                      <Button
-                        variant="ghost"
-                        class="icon-button"
-                        href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
-                        aria-label={`Download video on post ${index + 1}`}
-                        title="Download video"
-                        ><Icon name="download" size={16} /></Button
-                      >
+                      {#if item.mime.startsWith("video/")}<Button
+                          variant="ghost"
+                          class="icon-button"
+                          aria-label={`Open video on post ${index + 1}`}
+                          title="Enlarge video"
+                          onclick={(event) => {
+                            const video = event.currentTarget
+                              .closest(".media-item")
+                              ?.querySelector("video");
+                            viewerTime = video?.currentTime ?? 0;
+                            video?.pause();
+                            viewerPost = post.id;
+                            viewerIndex = mediaIndex;
+                          }}><Icon name="expand" size={18} /></Button
+                        >{/if}
+                      {#if editing}
+                        {#if mediaIndex > 0}<Button
+                            variant="outline"
+                            class="icon-button"
+                            aria-label={`Move attachment ${mediaIndex + 1} earlier on post ${index + 1}`}
+                            onclick={() => moveMedia(index, mediaIndex, -1)}
+                            ><Icon name="back" size={12} /></Button
+                          >{/if}{#if mediaIndex < post.media.length - 1}<Button
+                            variant="outline"
+                            class="icon-button"
+                            aria-label={`Move attachment ${mediaIndex + 1} later on post ${index + 1}`}
+                            onclick={() => moveMedia(index, mediaIndex, 1)}
+                            ><Icon name="arrow" size={12} /></Button
+                          >{/if}<Button
+                          variant="outline"
+                          class="icon-button"
+                          aria-label={`Remove attachment ${mediaIndex + 1} from post ${index + 1}`}
+                          onclick={() => {
+                            post.media = post.media.filter((m) => m !== id);
+                            onchange();
+                          }}><Icon name="close" size={13} /></Button
+                        >
+                      {/if}
                     </div>{/if}
                 </div>{/if}
             {/each}
@@ -338,10 +374,19 @@
             </div>
           {/if}
         {/if}
-        {#if (editing && (post.id === active || (publishing && index === content.posts.length - 1))) || (!editing && oncopy)}{@const count =
+        {#if (editing && (post.id === active || (publishing && index === content.posts.length - 1))) || (!editing && (oncopy || onfocuspost))}{@const count =
             twitter.parseTweet(post.text).weightedLength}
           <div class="post-tools">
             <div class="post-action-icons">
+              {#if onfocuspost}<Button
+                  variant="ghost"
+                  class="icon-button"
+                  aria-label={`Comment on post ${index + 1}`}
+                  title="Discuss this post, or select specific text"
+                  aria-pressed={focusedPost === post.id}
+                  onclick={() => onfocuspost?.(post.id, "")}
+                  ><Icon name="comment" size={18} /></Button
+                >{/if}
               {#if editing}<label class="upload-button" title="Add media"
                   ><Icon name="image" size={20} /><Input
                     type="file"
@@ -362,17 +407,6 @@
                   onclick={() => oncopy?.(post.text)}
                   ><Icon name="copy" size={20} /></Button
                 >{/if}
-              {#each post.media as id}{@const file = media.find(
-                  (m) => m.id === id,
-                )}{#if file}<Button
-                    variant="ghost"
-                    class="icon-button"
-                    aria-label={`Download ${file.filename}`}
-                    title={`Download ${file.filename}`}
-                    href={`${mediaURL(id, token)}${token ? "&" : "?"}download=1`}
-                    download={file.filename}
-                    ><Icon name="download" size={20} /></Button
-                  >{/if}{/each}
             </div>
             {#if editing}
               <div class="post-count">
@@ -423,6 +457,16 @@
     </article>
   {/each}
 </section>
+
+{#if !timeline}<MediaViewer
+    items={viewerItems}
+    bind:index={viewerIndex}
+    time={viewerTime}
+    {token}
+    oncomment={onfocusmedia
+      ? (file, time) => onfocusmedia?.(viewerPost!, file.id, time)
+      : undefined}
+  />{/if}
 
 {#if editing}
   <ConfirmDialog bind:this={confirmation} />

@@ -6,6 +6,7 @@ import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
 import { db } from "$lib/server/db";
 import { blankContent } from "$lib/contracts";
+import { draftReviews } from "$lib/server/ai-review";
 import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
@@ -47,6 +48,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     mentionsEnabled: await isPro(draft.owner_id),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
+    aiReviews: fresh ? [] : await draftReviews(draft.id, user.id),
     draft: {
       ...draft,
       posted_at: draft.posted_at?.toISOString() ?? null,

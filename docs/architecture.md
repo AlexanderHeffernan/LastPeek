@@ -8,6 +8,26 @@ SvelteKit renders the website and handles forms/API endpoints; adapter-node runs
 
 ## Working draft versus review
 
+Migration 033 adds same-draft comment reply roots, immutable attachment/time anchors and per-account
+conversation read boundaries. `feedback.ts` owns both owner and reviewer writes. Owner comments
+serialize against the edit version and snapshot saved content even before sharing; reviewer writes
+retain capability/grant locks and the revision actually reviewed. Replies to replies flatten to the
+root. `discussions.ts` derives inbox membership from ownership or participation plus current review
+access. Reply notifications go to currently accessible account participants and the owner; their
+destination rechecks access. Read receipts advance monotonically to observed comment timestamps;
+opening an inbox conversation marks the currently available conversation read. Legacy resolution
+fields and tools remain compatible. Authors can hide resolved roots in the browser; a new reply
+reopens the root in the same transaction as its comment write.
+
+Feedback reads return the original post/source from its immutable revision for local comparison.
+Sharing the draft also shares existing author questions and their attached review context. Private
+AI findings never become browser discussion comments. Migration 034 stores successful built-in AI
+runs, including reviewed text and validated output, under their draft with owner-scoped reads and
+cascading deletion. Delegated MCP reviews keep their existing result-only contract. AI's structured
+local edits require a unique exact quote in the reviewed post; the browser checks the entire post
+is unchanged before applying. Invalid provider anchors are rejected. No trusted agent identity is
+inferred from an account name or comment body.
+
 X source reads require the draft owner's current Pro entitlement before
 cache access or API requests. This includes anonymous review pages; reviewers do
 not need accounts or paid plans. Accounts without access have no quote/reply menu,
@@ -53,7 +73,7 @@ Settings requests permission only from a user gesture and supports enabling/disa
 
 ## Security and bounded operation
 
-Optional AI review uses the server-only OpenAI Responses client. Authors explicitly send a bounded snapshot of post text; no media, review capabilities or identity is sent. Structured results stay in the browser session, separate from revision-bound human feedback, and stale results retain their original text. No model output mutates drafts. Owner/origin checks, a current Pro entitlement and database-backed monetary allowances plus per-author and instance rate limits protect the endpoint. Missing credentials disable AI without affecting core workflows; see README for configuration and provider-retention caveats. PostgreSQL owns plan assignments, protected current-period entitlements, future experimental feature grants and transactional audit history; the optional restricted SSH operator gateway adds no required application service. Plan and invitation writes require same-origin owner authentication in site admin. See [operations](operations.md).
+Optional AI review uses the server-only OpenAI Responses client. Authors explicitly send a bounded snapshot of post text; no media, review capabilities or identity is sent. Successful built-in results persist privately with their reviewed text in `ai_reviews`, separate from revision-bound human feedback. Reads recheck draft ownership; draft deletion cascades history. No model output automatically mutates drafts. Owner/origin checks, a current Pro entitlement and database-backed monetary allowances plus per-author and instance rate limits protect the endpoint. Missing credentials disable new reviews without hiding saved results or affecting core workflows; see README for configuration and provider-retention caveats. PostgreSQL owns plan assignments, protected current-period entitlements, future experimental feature grants and transactional audit history; the optional restricted SSH operator gateway adds no required application service. Plan and invitation writes require same-origin owner authentication in site admin. See [operations](operations.md).
 
 Better Auth handles password sign-in and its server-side sessions inside the existing SvelteKit server, using PostgreSQL directly. Passwords retain the existing salted scrypt format through its custom hash/verify configuration; account IDs and ownership never change. LastPeek's transactional invitation flow, seed, account password form and local recovery CLI own credential writes. An additive migration backfills credential accounts and a database trigger synchronizes these writes, including writes from the preceding image during rollout. Password changes atomically invalidate both Better Auth and hashed sessions. No general-purpose Better Auth HTTP handler is mounted: only the existing rate-limited, CSRF-protected form actions invoke its server API, and public sign-up is disabled in the library too. Email delivery is not enabled.
 

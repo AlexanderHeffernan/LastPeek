@@ -1,118 +1,302 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
+  import { DropdownMenu } from "bits-ui";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
-  import type { Content } from "$lib/contracts";
-  import { aiReviewSchema, type AIReview } from "$lib/ai";
-  let { draftId, content }: { draftId: string; content: Content } = $props();
-  let dialog = $state<HTMLDialogElement>();
-  let busy = $state(false),
-    error = $state(""),
-    reviewed = $state("");
-  let review: AIReview | null = $state(null);
-  const snapshot = $derived(
-    JSON.stringify({
-      posts: content.posts.map(({ id, text }) => ({ id, text })),
-    }),
+  import { relativeTime, type Content } from "$lib/contracts";
+  import { reviewTypes, type AIReviewRun, type ReviewType } from "$lib/ai";
+  let {
+    draftId,
+    content,
+    history = [],
+    enabled = true,
+    onapply,
+  }: {
+    draftId: string;
+    content: Content;
+    history?: AIReviewRun[];
+    enabled?: boolean;
+    onapply?: (
+      postId: string,
+      reviewed: string,
+      quote: string,
+      replacement: string,
+    ) => boolean;
+  } = $props();
+  let completed = $state<AIReviewRun[]>([]);
+  let deleted = $state<string[]>([]);
+  let deleting = $state<string | null>(null);
+  let confirmation = $state<ConfirmDialog>();
+  const runs = $derived(
+    [
+      ...completed,
+      ...history.filter(
+        (run) => !completed.some((local) => local.id === run.id),
+      ),
+    ]
+      .filter((run) => !deleted.includes(run.id))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at)),
   );
-  let reviewedPosts: { id: string; text: string }[] = $state([]);
-  const stale = $derived(!!review && reviewed !== snapshot);
-  const length = $derived(
-    content.posts.reduce((sum, p) => sum + p.text.length, 0),
-  );
-  async function run() {
-    busy = true;
+  let busy = $state<ReviewType | null>(null);
+  let error = $state("");
+  let dismissed = $state<string[]>([]),
+    applied = $state<string[]>([]);
+  const posts = $derived(content.posts.map(({ id, text }) => ({ id, text })));
+  const length = $derived(posts.reduce((sum, p) => sum + p.text.length, 0));
+  async function remove(reviewId: string) {
+    if (
+      !(await confirmation?.ask({
+        title: "Delete AI review?",
+        description:
+          "This removes this private review and its suggestions. Your draft and discussion stay unchanged.",
+        confirmLabel: "Delete review",
+      }))
+    )
+      return;
+    deleting = reviewId;
     error = "";
-    const input = snapshot;
+    try {
+      const response = await fetch(`/api/drafts/${draftId}/ai-review`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewId }),
+      });
+      if (!response.ok)
+        throw new Error(
+          (await response.json()).message || "Couldn’t delete this review.",
+        );
+      deleted = [...deleted, reviewId];
+    } catch (cause) {
+      error = (cause as Error).message;
+    } finally {
+      deleting = null;
+    }
+  }
+  async function run(type: ReviewType) {
+    if (busy) return;
+    busy = type;
+    error = "";
     try {
       const response = await fetch(`/api/drafts/${draftId}/ai-review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: input,
+        body: JSON.stringify({ posts, type }),
       });
       const result = await response.json();
       if (!response.ok)
         throw new Error(
           result.message || "AI review didn’t finish. Please try again.",
         );
-      review = aiReviewSchema.parse(result);
-      reviewed = input;
-      reviewedPosts = JSON.parse(input).posts;
-    } catch (e) {
-      error = (e as Error).message;
+      completed = [result as AIReviewRun, ...completed];
+    } catch (cause) {
+      error = (cause as Error).message;
     } finally {
-      busy = false;
+      busy = null;
     }
   }
 </script>
 
-<div class="ai-action">
-  <Button
-    variant="outline"
-    class="icon-button"
-    aria-label={busy ? "Reviewing…" : "AI Review"}
-    title={busy ? "Reviewing…" : "AI Review"}
-    onclick={() => dialog?.showModal()}
-  >
-    <Icon name="sparkle" size={20} />
-  </Button>
-  <dialog
-    bind:this={dialog}
-    class="confirm-dialog ai-results"
-    aria-label="AI review"
-    aria-busy={busy}
-  >
-    <div class="row between">
-      <h2>AI Review</h2>
+<div class="ai-results">
+  <div class="review-modes" role="group" aria-label="Review type">
+    {#each Object.entries(reviewTypes) as [key, mode]}
       <Button
-        variant="ghost"
-        class="icon-button"
-        aria-label="Close AI review"
-        onclick={() => dialog?.close()}><Icon name="close" size={16} /></Button
+        variant="outline"
+        size="sm"
+        title={mode.description}
+        aria-label={mode.label}
+        aria-busy={busy === key}
+        disabled={!!busy ||
+          !enabled ||
+          !posts.some((p) => p.text.trim()) ||
+          length > 20000 ||
+          (key === "flow" && posts.length < 2)}
+        onclick={() => run(key as ReviewType)}
+        >{busy === key ? "Reviewing…" : mode.label}</Button
       >
-    </div>
-    <p>
-      Send post text to OpenAI for a private review. No attachments or automatic
-      edits.
-    </p>
-    <Button
-      disabled={busy ||
-        !content.posts.some((p) => p.text.trim()) ||
-        length > 20000}
-      onclick={run}
-      >{busy ? "Reviewing…" : review ? "Review again" : "Review text"}</Button
-    >
-    {#if length > 20000}<p role="status">
-        AI review supports up to 20,000 characters. Your draft can be longer.
-      </p>{/if}
-    {#if error}<div class="notice error" role="alert" style="margin-top:12px">
-        {error}
-      </div>{/if}
-    {#if busy}<p role="status">Reading your draft…</p>{/if}
-    {#if review}
-      {#if stale}<p class="notice" role="status">
-          Earlier-text review — review again for your current wording.
-        </p>{/if}
-      <div class="stack" style="margin-top:16px;gap:16px" aria-live="polite">
-        <p style="margin:0;color:var(--foreground)">{review.summary}</p>
-        {#each review.findings as finding}
-          <div>
-            <strong class="small"
-              >Post {reviewedPosts.findIndex((p) => p.id === finding.postId) +
-                1} ·
-              {finding.category}</strong
+    {/each}
+  </div>
+  {#if length > 20000}<p class="action-error">
+      AI review supports up to 20,000 characters.
+    </p>{/if}
+  {#if error}<p class="action-error" role="alert">{error}</p>{/if}
+  <section aria-label="AI review history" aria-live="polite">
+    {#each runs as review (review.id)}
+      {@const stale = JSON.stringify(review.posts) !== JSON.stringify(posts)}
+      <article
+        class="review-run"
+        aria-label={`${reviewTypes[review.type].label} review`}
+      >
+        <div class="run-heading">
+          <h3>{reviewTypes[review.type].label}</h3>
+          <time datetime={review.created_at}
+            >{relativeTime(review.created_at)}</time
+          >
+          {#if stale}<span
+              class="small muted"
+              title="The draft changed. Run another review before applying suggestions."
+              >Draft edited</span
+            >{/if}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger
+              >{#snippet child({ props })}<Button
+                  {...props}
+                  class="ml-auto"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Actions for ${reviewTypes[review.type].label} review`}
+                  disabled={deleting === review.id}><Icon name="more" /></Button
+                >{/snippet}</DropdownMenu.Trigger
             >
-            <p style="margin-top:6px;color:var(--foreground)">
-              {finding.feedback}
-            </p>
-            <details class="small muted">
-              <summary>Reviewed text</summary>
-              <p style="white-space:pre-wrap;overflow-wrap:anywhere">
-                {reviewedPosts.find((p) => p.id === finding.postId)?.text}
-              </p>
-            </details>
-          </div>
+            <DropdownMenu.Portal
+              ><DropdownMenu.Content
+                align="end"
+                sideOffset={4}
+                class="z-50 rounded-lg border border-border bg-popover p-1 shadow-lg"
+              >
+                <DropdownMenu.Item
+                  class="cursor-pointer rounded-md px-3 py-2 text-sm text-destructive outline-none data-highlighted:bg-muted"
+                  onSelect={() => {
+                    void remove(review.id);
+                  }}>Delete review</DropdownMenu.Item
+                >
+              </DropdownMenu.Content></DropdownMenu.Portal
+            >
+          </DropdownMenu.Root>
+        </div>
+        <p>{review.result.summary}</p>
+        {#each review.result.findings as finding, index}
+          {@const key = `${review.id}:${index}`}
+          {#if !dismissed.includes(key)}
+            <article
+              class="ai-finding"
+              aria-label={`${finding.category} finding`}
+            >
+              <span class="small muted"
+                >Post {review.posts.findIndex((p) => p.id === finding.postId) +
+                  1} · {finding.category}</span
+              >
+              <p>{finding.feedback}</p>
+              {#if finding.replacement !== null}<div class="suggested-edit">
+                  <p class="original" aria-label="Original wording">
+                    <span aria-hidden="true">−</span>{finding.quote}
+                  </p>
+                  <p class="replacement" aria-label="Suggested wording">
+                    <span aria-hidden="true">+</span>{finding.replacement ||
+                      "Remove this text"}
+                  </p>
+                </div>
+              {:else if finding.quote}<blockquote class="feedback-quote">
+                  {finding.quote}
+                </blockquote>{/if}
+              <div class="finding-actions">
+                {#if onapply && finding.quote && finding.replacement !== null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={stale || applied.includes(key)}
+                    onclick={() => {
+                      if (
+                        onapply?.(
+                          finding.postId,
+                          review.posts.find((p) => p.id === finding.postId)!
+                            .text,
+                          finding.quote!,
+                          finding.replacement!,
+                        )
+                      )
+                        applied = [...applied, key];
+                      else
+                        error =
+                          "That text changed. Run another review before applying.";
+                    }}>{applied.includes(key) ? "Applied" : "Apply"}</Button
+                  >
+                {/if}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onclick={() => (dismissed = [...dismissed, key])}
+                  >Dismiss</Button
+                >
+              </div>
+            </article>
+          {/if}
         {/each}
-      </div>
-    {/if}
-  </dialog>
+      </article>
+    {:else}<p class="small muted empty-history">
+        Choose a review above. Your results stay here, newest first.
+      </p>{/each}
+  </section>
 </div>
+<ConfirmDialog bind:this={confirmation} />
+
+<style>
+  .ai-results {
+    padding-block: 8px 20px;
+  }
+  .run-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .review-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .review-modes :global(button) {
+    min-height: 40px;
+  }
+  .review-run {
+    padding-block: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .run-heading {
+    flex-wrap: wrap;
+  }
+  h3 {
+    margin: 0;
+    font-size: 14px;
+  }
+  time {
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+  .review-run p {
+    font-size: 13px;
+    line-height: 20px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin-block: 8px;
+  }
+  .ai-finding {
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .suggested-edit {
+    margin-block: 10px;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .suggested-edit p {
+    display: flex;
+    gap: 8px;
+    padding: 7px 10px;
+    margin: 0;
+  }
+  .original {
+    background: #ff6b5b0d;
+    color: #e6a398;
+  }
+  .replacement {
+    background: #71b9890d;
+    color: #a2c8ae;
+  }
+  .finding-actions {
+    display: flex;
+    gap: 4px;
+  }
+  .empty-history {
+    margin-top: 20px;
+  }
+</style>
