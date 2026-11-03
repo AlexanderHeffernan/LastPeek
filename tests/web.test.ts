@@ -29,7 +29,9 @@ after(() => db.end());
 
 test("agents / OAuth consent, permission editing and disconnect on desktop and mobile", async (t) => {
   const browser = await engine.launch();
-  const context = await browser.newContext();
+  // Worker installation/offline recovery has its own scenario. OAuth should
+  // exercise native navigation without an unrelated worker-startup dependency.
+  const context = await browser.newContext({ serviceWorkers: "block" });
   const account = randomUUID(),
     clientId = token(),
     session = token();
@@ -74,11 +76,11 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
       .getAttribute("aria-current"),
     "page",
   );
-  // Finish app startup before full-document OAuth navigation; WebKit can report
-  // an access-control error if navigation interrupts the worker script load.
-  await page.evaluate(() =>
-    navigator.serviceWorker.ready.then(() => undefined),
-  );
+  // A visible SSR control alone does not establish hydrated handlers.
+  await page
+    .getByRole("button", { name: "Save profile", includeHidden: true })
+    .and(page.locator(":disabled"))
+    .waitFor({ state: "attached" });
   await page.clock.install();
   await page.evaluate(`Object.assign(navigator.clipboard, {
     writeText: async text => { sessionStorage.setItem("agent-copied-address", text); }
