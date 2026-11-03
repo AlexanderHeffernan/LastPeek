@@ -4607,7 +4607,21 @@ test(
     const page = await author.newPage();
     const crashes: string[] = [];
     page.on("pageerror", (error) => crashes.push(error.message));
+    await page.clock.install();
+    controlledClocks.add(page);
+    const initialPresence = page.waitForResponse((r) =>
+      r.url().endsWith("/api/review-presence"),
+    );
     await page.goto(`${origin}/drafts/${id}`);
+    assert.equal((await initialPresence).status(), 200);
+    async function heartbeat(who: Page) {
+      const response = who.waitForResponse((r) =>
+        r.url().endsWith("/api/review-presence"),
+      );
+      // Exercise real polling and invalidation without spending five seconds per update.
+      await who.clock.fastForward(5000);
+      assert.equal((await response).status(), 200);
+    }
     await page.getByLabel("Post 1 text", { exact: true }).waitFor();
     await page
       .getByLabel("Your comment", { exact: true })
@@ -4734,7 +4748,12 @@ test(
     });
     const reviewer = await guest.newPage();
     reviewer.on("pageerror", (error) => crashes.push(error.message));
+    await reviewer.clock.install();
+    const guestPresence = reviewer.waitForResponse((r) =>
+      r.url().endsWith("/api/review-presence"),
+    );
     await reviewer.goto(`${origin}/r/${shared.token}`);
+    assert.equal((await guestPresence).status(), 200);
     const identity = reviewer.getByRole("dialog", {
       name: "Welcome to LastPeek",
     });
@@ -4742,6 +4761,8 @@ test(
     await identity
       .getByRole("button", { name: "Continue as guest", exact: true })
       .click();
+    await heartbeat(reviewer);
+    await heartbeat(page);
     await page
       .getByRole("button", { name: "Sam · Guest is viewing", exact: true })
       .waitFor();
@@ -4783,6 +4804,7 @@ test(
       await reviewer.getByLabel("Your feedback", { exact: true }).inputValue(),
       "Keep this general thought.",
     );
+    await heartbeat(page);
     await thread
       .getByText("Yes, keep the example but shorten the opening.", {
         exact: true,
@@ -4810,6 +4832,7 @@ test(
         exact: true,
       })
       .waitFor();
+    await heartbeat(page);
     await thread
       .getByText("Keep the example; shorten the first sentence.", {
         exact: true,
