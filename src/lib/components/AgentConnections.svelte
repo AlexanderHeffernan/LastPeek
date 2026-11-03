@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
-  import { goto } from "$app/navigation";
+  import { goto, invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
   import { untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
@@ -75,6 +75,18 @@
     if (!copied) return;
     const timeout = setTimeout(() => (copied = false), 2500);
     return () => clearTimeout(timeout);
+  });
+  $effect(() => {
+    if (!data.agents.some((agent) => agent.requestedScopes)) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void invalidateAll();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   });
   const date = (value: string) =>
     new Date(value).toLocaleString(undefined, {
@@ -257,17 +269,19 @@
         </p>{:else}
         <AgentPermissions bind:selected prefix={editing.id} />
         {#if editing.requestedScopes}
-          <p class="permission-note muted">
-            Return to {editing.name} to finish approving access. If it doesn’t ask,
-            use its reauthorize action. You don’t need to remove this connection.
-          </p>
-          <Button
-            type="submit"
-            name="intent"
-            value="cancel-permissions"
-            variant="outline"
-            disabled={saving}>Cancel added permissions</Button
-          >
+          <div class="permission-pending">
+            <p class="permission-note muted">
+              Return to {editing.name} to finish approving access. If it doesn’t ask,
+              use its reauthorize action. You don’t need to remove this connection.
+            </p>
+            <Button
+              type="submit"
+              name="intent"
+              value="cancel-permissions"
+              variant="outline"
+              disabled={saving}>Cancel added permissions</Button
+            >
+          </div>
         {:else if addingPermissions}
           <p class="permission-note muted">
             Your agent will ask you to approve the added access. Your existing
@@ -421,7 +435,17 @@
     line-height: 1.6;
     margin-top: 20px;
   }
+  .permission-pending {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .permission-pending .permission-note {
+    margin: 0;
+  }
   .expiry {
+    display: block;
     margin-top: 24px;
   }
   .edit-actions {

@@ -69,6 +69,7 @@
           <Select
             name="connection"
             aria-label="Connection"
+            class="mt-2"
             bind:value={connection}
             options={[
               { value: "", label: "New connection" },
@@ -166,7 +167,8 @@
     margin: 24px 0;
   }
   .expiry {
-    margin-top: 24px;
+    display: block;
+    margin: 24px 0;
   }
   .actions {
     display: flex;

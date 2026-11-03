@@ -285,17 +285,43 @@ test("agents / OAuth consent, permission editing and disconnect on desktop and m
       .isDisabled(),
     true,
   );
-  await page.goto(`${origin}/oauth/authorize?${query}`);
-  await page
+  // OAuth completes in another tab; returning must refresh the pending editor.
+  const approval = await context.newPage();
+  await approval.bringToFront();
+  await approval.goto(`${origin}/oauth/authorize?${query}`);
+  await approval
     .getByRole("heading", { name: "Update Browser test agent access?" })
     .waitFor();
   assert.equal(
-    await page.getByRole("combobox", { name: "Connection expiry" }).count(),
+    await approval.getByRole("combobox", { name: "Connection expiry" }).count(),
     0,
   );
-  await page
+  await approval
     .getByRole("button", { name: "Add permissions", exact: true })
     .click();
+  await approval
+    .getByRole("heading", { name: "Agents", exact: true })
+    .waitFor();
+  await page.bringToFront();
+  // Headless tabs all remain visible/focused, so emit the return-focus event.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await editor
+    .getByRole("button", { name: "Save changes", exact: true })
+    .waitFor();
+  assert.equal(
+    await editor
+      .getByRole("button", { name: "Cancel added permissions" })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await editor
+      .getByRole("checkbox", { name: "Create and edit drafts" })
+      .isChecked(),
+    true,
+  );
+  await approval.close();
+  await editor.getByRole("link", { name: "Cancel", exact: true }).click();
   await card.waitFor();
   assert.equal(
     (
