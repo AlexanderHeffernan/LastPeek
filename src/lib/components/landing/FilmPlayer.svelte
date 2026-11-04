@@ -170,6 +170,12 @@
     }}
     onseeked={finishSoundRestart}
     onvolumechange={() => video && (muted = video.muted)}
+    ontimeupdate={(event) => {
+      // Playback must not depend on a delayed visibility notification.
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (bounds.bottom <= 0 || bounds.top >= innerHeight)
+        event.currentTarget.pause();
+    }}
     onended={() => {
       if (!video) return;
       if (watching) {

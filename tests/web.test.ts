@@ -149,6 +149,14 @@ test("landing / film stays muted through rewind before sound starts", async (t) 
             previous?.isIntersecting && !entries.at(-1)?.isIntersecting
               ? [previous, ...entries]
               : entries;
+          const target = entries.at(-1)?.target;
+          // Audible playback must also stop if an exit notification is missed.
+          if (
+            target instanceof HTMLVideoElement &&
+            !target.muted &&
+            !entries.at(-1)?.isIntersecting
+          )
+            return;
           callback(batch, observer);
           previous = entries.at(-1);
         }, options);
