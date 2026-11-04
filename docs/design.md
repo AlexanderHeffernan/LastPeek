@@ -89,6 +89,26 @@ interpretations, not the author's emotions; flow examines actual transitions. Al
 flattery, forced criticism, new facts and engagement bait. Prompt changes do not guarantee model
 quality; evaluate representative clean, faulty and subjective drafts when iterating.
 
+## Landing page
+
+The signed-out landing page is the one marketing surface. It may use Outfit for its own type
+(self-hosted, matching the wordmark and launch film) and a soft coral glow behind the hero and
+closing call to action; product mocks on it, and the application itself, keep the system type stack
+and no decorative gradients. Show the real product, never stock product imagery: the hero is a live
+recreation of a draft receiving feedback, using the same post tokens as `PostPreview`; people in mocks
+use the bundled fictional portraits. One primary action (Join the waitlist) is a one-second hold (the
+app's hold-to-post gesture) in the hero and closing section only. Its button stays muted and asks for
+an email until the address is valid, then celebrates with the app's spark burst before the
+confirmation replaces the form; the mascot reacts throughout. Sign in is always one click away in a
+header that never hides, and opens a dialog over the page, as do `/login` and invitation links.
+Write copy in Alex's plain first-person voice, keep it short, use no em dashes, and open every link
+that leaves the site in a new tab. The film is the one walkthrough:
+chapter buttons jump it to each step, phones get a portrait cut framed around the action, and its
+controls stay docked along the bottom edge; never pin or hijack page scrolling. Sections reveal on scroll
+without blurring text, and demos loop only while visible; content is fully present without JavaScript,
+and reduced motion shows the finished states without animation. Keep the
+copy concrete; no invented testimonials, user counts or engagement numbers.
+
 ## Identity
 
 - Settings → Personalisation offers Auto, Dark and Light. Auto is the default and follows OS changes immediately. Save the choice to the account; retain a cosmetic browser cookie for signed-out and offline pages. Server-render the preference before paint rather than flashing a different theme or weakening CSP for a boot script. Explicit changes cross-fade the page over 240ms using native view transitions; reduced motion and browsers without that API switch immediately. Never animate initial rendering or move the layout when changing appearance.

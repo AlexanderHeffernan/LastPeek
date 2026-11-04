@@ -3,6 +3,7 @@
   import { invalidateAll } from "$app/navigation";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "./Icon.svelte";
+  import { HoldSound } from "$lib/hold-sound";
   import { postingProblem, type XPublishing } from "$lib/x-publishing";
   import type { Content } from "$lib/contracts";
 
@@ -36,8 +37,7 @@
     started = 0,
     suppressClick = false,
     pointerId: number | null = null;
-  let audio: AudioContext | undefined, chargeGain: GainNode | undefined;
-  let voices: OscillatorNode[] = [];
+  const sound = new HoldSound();
   let lastPulse = 0;
   let disposed = false;
   const multiple = $derived(content.posts.length > 1);
@@ -67,84 +67,12 @@
   const continuing = $derived(Boolean(publication?.resumable));
   let heldFingerprint = "";
 
-  function stopTone() {
-    if (audio && chargeGain) {
-      chargeGain.gain.cancelScheduledValues(audio.currentTime);
-      chargeGain.gain.setTargetAtTime(0, audio.currentTime, 0.012);
-      for (const voice of voices) voice.stop(audio.currentTime + 0.06);
-    }
-    voices = [];
-    chargeGain = undefined;
-  }
   function cancelHold() {
     if (typeof window !== "undefined") cancelAnimationFrame(frame);
     holding = false;
     progress = 0;
     pointerId = null;
-    stopTone();
-    if (typeof navigator !== "undefined") navigator.vibrate?.(0);
-  }
-  function note(
-    frequency: number,
-    at: number,
-    duration: number,
-    volume: number,
-  ) {
-    if (!audio) return;
-    const voice = audio.createOscillator(),
-      envelope = audio.createGain();
-    voice.type = "sine";
-    voice.frequency.setValueAtTime(frequency, at);
-    envelope.gain.setValueAtTime(0, at);
-    envelope.gain.linearRampToValueAtTime(volume, at + 0.006);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, at + duration);
-    voice.connect(envelope).connect(chargeGain || audio.destination);
-    voice.start(at);
-    voice.stop(at + duration + 0.02);
-    if (chargeGain) voices.push(voice);
-  }
-  function tone() {
-    try {
-      audio ??= new AudioContext();
-      void audio.resume().catch(() => {});
-      chargeGain = audio.createGain();
-      chargeGain.gain.setValueAtTime(0, audio.currentTime);
-      chargeGain.gain.linearRampToValueAtTime(0.7, audio.currentTime + 1.5);
-      chargeGain.connect(audio.destination);
-      // A warm octave swell under the accelerating, tuned detents.
-      for (const [frequency, volume] of [
-        [110, 0.07],
-        [220, 0.035],
-      ]) {
-        const voice = audio.createOscillator(),
-          level = audio.createGain();
-        voice.type = "triangle";
-        voice.frequency.setValueAtTime(frequency, audio.currentTime);
-        voice.frequency.exponentialRampToValueAtTime(
-          frequency * 4,
-          audio.currentTime + 1.5,
-        );
-        level.gain.value = volume;
-        voice.connect(level).connect(chargeGain);
-        voice.start();
-        voices.push(voice);
-      }
-    } catch {
-      /* Sound is progressive enhancement. */
-    }
-  }
-  function celebrate() {
-    navigator.vibrate?.([18, 25, 45]);
-    if (!audio) return;
-    try {
-      const now = audio.currentTime;
-      note(65.41, now, 0.3, 0.13);
-      [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) =>
-        note(frequency, now + index * 0.045, 0.45, 0.085),
-      );
-    } catch {
-      /* Feedback must never mask successful publication. */
-    }
+    sound.stop();
   }
   function capture() {
     if (unavailable || !ready || !connection.account) return false;
@@ -165,28 +93,13 @@
     holding = true;
     started = performance.now();
     lastPulse = 0;
-    tone();
+    sound.start();
     const step = (now: number) => {
       if (!holding) return;
       progress = Math.min((now - started) / 1500, 1);
       const pulse = Math.floor(progress * progress * 9);
       if (pulse > lastPulse) {
-        navigator.vibrate?.(6 + pulse * 2);
-        if (audio && chargeGain) {
-          try {
-            const notes = [
-              261.63, 329.63, 392, 523.25, 659.25, 783.99, 1046.5, 1318.5, 1568,
-            ];
-            note(
-              notes[Math.min(pulse - 1, notes.length - 1)],
-              audio.currentTime,
-              0.1,
-              0.12,
-            );
-          } catch {
-            /* Audio is optional. */
-          }
-        }
+        sound.detent(pulse);
         lastPulse = pulse;
       }
       if (progress === 1) {
@@ -244,7 +157,7 @@
         completed = result;
         if (result.publication?.status === "posted") {
           launched = true;
-          celebrate();
+          sound.celebrate();
           break;
         }
         if (!result.publication?.resumable)
@@ -281,7 +194,7 @@
   onDestroy(() => {
     disposed = true;
     cancelHold();
-    void audio?.close();
+    sound.close();
   });
 </script>
 
@@ -453,8 +366,9 @@
     ><Button
       disabled={unavailable}
       onclick={() => {
-        tone();
-        stopTone();
+        // Unlock audio during this gesture so success can still sound.
+        sound.start();
+        sound.stop();
         void send();
       }}>Post now</Button
     >

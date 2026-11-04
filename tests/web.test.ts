@@ -27,6 +27,232 @@ const engine = process.env.TEST_BROWSER === "webkit" ? webkit : chromium;
 // File-wide cleanup also runs when a focused selection skips the final journey.
 after(() => db.end());
 
+test("landing / waitlist purpose, cancelled holds, failures and keyboard signup", async (t) => {
+  const browser = await engine.launch();
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    serviceWorkers: "block",
+  });
+  const email = `landing-${randomUUID()}@example.test`;
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM account_requests WHERE email=$1", [email]);
+  });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(baseURL);
+  const hero = page.getByRole("region", {
+    name: "Take one last peek before you post.",
+  });
+  const form = hero.getByRole("form", { name: "Join the waitlist" });
+  await form
+    .getByRole("button", { name: "Join waitlist", exact: true })
+    .waitFor();
+  await form.getByLabel("Email address").fill("not-an-email");
+  // Enter works as a native form submission gesture after hydration.
+  // Opening and closing the dialog establishes hydrated client handlers first.
+  await page
+    .getByRole("banner")
+    .getByRole("link", { name: "Sign in", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await form.getByLabel("Email address").press("Enter");
+  await hero
+    .getByRole("alert")
+    .getByText("That email address doesn’t look right.")
+    .waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await form.getByLabel("Email address").fill(email);
+  const join = form.getByRole("button", { name: "Hold to join", exact: true });
+  await join.focus();
+  await page.keyboard.down("Space");
+  await page.keyboard.up("Space");
+  await form
+    .getByRole("button", { name: "Keep holding…", exact: true })
+    .waitFor();
+  assert.equal(
+    (await db.query("SELECT 1 FROM account_requests WHERE email=$1", [email]))
+      .rowCount,
+    0,
+  );
+  await page.route("**/api/account-requests", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "Waitlist unavailable. Try again." }),
+    }),
+  );
+  await form.getByLabel("Email address").press("Enter");
+  await hero
+    .getByRole("alert")
+    .getByText("Waitlist unavailable. Try again.")
+    .waitFor();
+  assert.equal(await form.getByLabel("Email address").inputValue(), email);
+  await page.unroute("**/api/account-requests");
+  const response = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/account-requests") &&
+      response.request().method() === "POST",
+  );
+  await form.getByRole("button").focus();
+  // The real one-second charge is the gesture contract, not an arbitrary debounce.
+  await page.keyboard.down("Space");
+  assert.equal((await response).status(), 200);
+  await page.keyboard.up("Space");
+  const confirmation = hero.getByRole("status");
+  await confirmation.getByText(email, { exact: true }).waitFor();
+  assert.equal(
+    await confirmation.evaluate(
+      (element) => element === document.activeElement,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    (
+      await db.query("SELECT email,name FROM account_requests WHERE email=$1", [
+        email,
+      ])
+    ).rows,
+    [{ email, name: null }],
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM users WHERE email=$1", [email])).rowCount,
+    0,
+  );
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  assert.deepEqual(errors, []);
+});
+
+test("landing / film stays muted through rewind before sound starts", async (t) => {
+  const browser = await engine.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ serviceWorkers: "block" });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(baseURL);
+    const video = page.getByLabel("LastPeek walkthrough film", { exact: true });
+    await video.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const video = document.querySelector("video");
+      return (
+        video && !video.paused && !video.seeking && video.currentTime >= 11
+      );
+    });
+    assert.equal(
+      await video.evaluate((element) => (element as HTMLVideoElement).muted),
+      true,
+    );
+    for (const [name, at] of [
+      ["2 Share it", 15.5],
+      ["4 Post it", 36],
+      ["3 Fix it", 30],
+    ] as const) {
+      await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+      await page.waitForFunction((at) => {
+        const video = document.querySelector("video");
+        return (
+          video &&
+          !video.seeking &&
+          video.currentTime >= at &&
+          video.currentTime < at + 2
+        );
+      }, at);
+    }
+    const audible = video.evaluate(
+      (element) =>
+        new Promise<{ time: number; seeking: boolean }>((resolve) => {
+          const video = element as HTMLVideoElement;
+          video.addEventListener("volumechange", () => {
+            if (video.muted) return;
+            resolve({ time: video.currentTime, seeking: video.seeking });
+          });
+        }),
+    );
+    await page
+      .getByRole("button", { name: /^(Watch with sound|Sound)$/ })
+      .click();
+    const firstSound = await audible;
+    assert.equal(
+      firstSound.seeking,
+      false,
+      "audio must stay muted until rewind has completed",
+    );
+    assert.ok(
+      firstSound.time < 1,
+      "sound begins at the opening, not at the old preview position",
+    );
+    await page.waitForFunction(() => {
+      const video = document.querySelector("video");
+      return video && !video.paused && !video.muted && video.currentTime > 0;
+    });
+    assert.equal(
+      await video.evaluate((element) => (element as HTMLVideoElement).error),
+      null,
+    );
+    await page
+      .getByRole("heading", {
+        name: "Take one last peek before you post.",
+        exact: true,
+      })
+      .scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector("video")?.paused);
+  }
+  // A slow connection may not have supplied metadata when sound is requested.
+  // No seeked event fires in that case: playback readiness must release the mute.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let releaseMedia!: () => void;
+  const mediaReady = new Promise<void>((resolve) => (releaseMedia = resolve));
+  t.after(() => releaseMedia());
+  await page.route("**/landing/*.mp4", async (route) => {
+    await mediaReady;
+    await route.continue();
+  });
+  await page.goto(baseURL, { waitUntil: "domcontentloaded" });
+  await page
+    .getByRole("banner")
+    .getByRole("link", { name: "Sign in", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  assert.equal(
+    await page
+      .locator("video")
+      .evaluate((v) => (v as HTMLVideoElement).readyState),
+    0,
+  );
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  assert.equal(
+    await page.locator("video").evaluate((v) => (v as HTMLVideoElement).muted),
+    true,
+  );
+  releaseMedia();
+  await page.waitForFunction(() => {
+    const video = document.querySelector("video");
+    return video && !video.paused && !video.muted && video.currentTime > 0;
+  });
+  assert.ok(
+    await page
+      .locator("video")
+      .evaluate((v) => (v as HTMLVideoElement).currentTime < 1),
+  );
+  assert.deepEqual(errors, []);
+});
+
 test("agents / OAuth consent, permission editing and disconnect on desktop and mobile", async (t) => {
   const browser = await engine.launch();
   // Worker installation/offline recovery has its own scenario. OAuth should
@@ -432,7 +658,7 @@ const email = `test-${userId}@example.test`,
 
 async function login(page: Page, account: string, secret = password) {
   await page.goto(`${baseURL}/login`);
-  await page.waitForLoadState("networkidle");
+  // The native form works before hydration too; the background film may still load.
   await page.getByLabel("Email", { exact: true }).fill(account);
   await page.getByLabel("Password", { exact: true }).fill(secret);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -3242,9 +3468,8 @@ test(
       );
       await context.clearCookies();
       await page.goto(`${baseURL}/login?x=unlinked`);
-      // Unlike the native sign-in form, dismissing this SSR notice needs the
-      // client bootstrap to finish before its first keyboard interaction.
-      await page.waitForLoadState("networkidle");
+      // Dialog autofocus proves hydration without waiting on the background film.
+      await page.getByRole("dialog").locator(":focus").waitFor();
       await page
         .getByRole("heading", { name: "Welcome back.", exact: true })
         .waitFor();
@@ -3276,7 +3501,7 @@ test(
       );
       await page.waitForURL(`${baseURL}/login?x=cancelled`);
       await page.goto(`${baseURL}/login?x=unlinked`);
-      await page.waitForLoadState("networkidle");
+      await page.getByRole("dialog").locator(":focus").waitFor();
       await page
         .getByRole("button", { name: "Dismiss X sign-in notice", exact: true })
         .click();
@@ -5769,7 +5994,8 @@ for (const scenario of [
           { ...sessionCookie, value: `${sessionCookie.value.slice(0, -1)}!` },
         ]);
         assert.equal(
-          new URL((await tampered.request.get(`${baseURL}/`)).url()).pathname,
+          new URL((await tampered.request.get(`${baseURL}/settings`)).url())
+            .pathname,
           "/login",
         );
         await tampered.close();

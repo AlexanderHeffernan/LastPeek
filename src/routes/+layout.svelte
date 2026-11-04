@@ -100,8 +100,12 @@
         console.error("Service worker registration failed", error);
       });
   });
+  // Signed-out visitors to / get the public, indexable landing page.
+  // /login and invitation links show the same page with a dialog; only / is indexable.
+  const marketing = $derived(page.data.landing === true);
+  const landing = $derived(page.route.id === "/" && marketing);
   const shellUser = $derived(
-    page.route.id?.startsWith("/(app)")
+    page.route.id?.startsWith("/(app)") || page.route.id === "/"
       ? page.data.user
       : page.route.id === "/r/[token]"
         ? page.data.reviewer
@@ -178,14 +182,17 @@
     />
   {/if}
   <!-- Response headers alone cannot update the document after client-side navigation. -->
-  <meta name="referrer" content={referrerPolicy(page.route.id)} />
-  {#if page.route.id !== "/r/[token]"}<meta
+  <meta name="referrer" content={referrerPolicy(page.route.id, !!shellUser)} />
+  {#if page.route.id !== "/r/[token]" && !marketing}<meta
       name="description"
       content="A little space for a second opinion before you post. Private drafts, thoughtful feedback."
     /><meta property="og:title" content="Take a peek on LastPeek" /><meta
       property="og:description"
       content="A friend has something they’d like your thoughts on. Open their private review link."
-    />{/if}<meta name="robots" content="noindex,nofollow,noarchive" />
+    />{/if}{#if !landing}<meta
+      name="robots"
+      content="noindex,nofollow,noarchive"
+    />{/if}
   {#each appleLaunchImages as image}
     <link
       rel="apple-touch-startup-image"
@@ -237,7 +244,7 @@
     </div>
   </dialog>
 {/if}
-{#if !shellUser && !guestReview}
+{#if !shellUser && !guestReview && !marketing}
   <footer class="footer-note">
     LastPeek · <a href="https://github.com/AlexanderHeffernan/LastPeek"
       >Source code</a

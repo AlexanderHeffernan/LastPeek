@@ -1,101 +1,14 @@
 <script lang="ts">
-  import { Input } from "$lib/components/ui/input/index.js";
-  import { Button } from "$lib/components/ui/button/index.js";
-  import { enhance } from "$app/forms";
-  import Brand from "$lib/components/Brand.svelte";
-  import Icon from "$lib/components/Icon.svelte";
+  import Landing from "$lib/components/landing/Landing.svelte";
   let { data, form } = $props();
-  let busy = $state(false);
-  let xNoticeDismissed = $state(false);
 </script>
 
-<header class="topbar">
-  <Brand href="/login" /><span class="small muted">A second pair of eyes.</span>
-</header>
-<main class="auth-shell">
-  <section class="auth-copy">
-    <span class="eyebrow">Before you tell everyone</span>
-    <h1>One last look.<br /><em>Then let it fly.</em></h1>
-    <p>Draft for X. Get a second opinion.<br />Post with confidence.</p>
-    <div class="auth-decoration">
-      <Icon name="eye" /><span>A little perspective goes a long way.</span>
-    </div>
-  </section>
-  <section class="auth-card">
-    <h2>Welcome back.</h2>
-    {#if data.xCancelled}<p class="notice" role="status">
-        X sign-in cancelled. You can try again or use your password.
-      </p>{/if}
-    {#if data.xEnabled}
-      <form method="POST" action="/auth/x/start" class="social-auth">
-        <Button variant="outline" type="submit"
-          ><Icon name="x" size={18} />Sign in with X</Button
-        >
-      </form>
-      {#if data.xUnlinked && !xNoticeDismissed}
-        <div class="notice mt-3 flex items-start gap-2" role="status">
-          <p class="m-0 min-w-0 flex-1">
-            This X account isn’t linked yet. Try another X account, sign in with
-            your password to link it from Account, or use an invitation to join.
-          </p>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="-mt-1 -mr-2 size-10 text-muted-foreground"
-            aria-label="Dismiss X sign-in notice"
-            onclick={() => (xNoticeDismissed = true)}
-            ><Icon name="close" size={16} /></Button
-          >
-        </div>
-      {/if}
-      <p class="small muted auth-divider">or use your password</p>
-    {/if}
-    <form
-      method="POST"
-      use:enhance={() => {
-        busy = true;
-        return async ({ update }) => {
-          await update();
-          busy = false;
-        };
-      }}
-    >
-      <label
-        >Email<Input
-          name="email"
-          type="email"
-          autocomplete="email"
-          value={form?.email || ""}
-          required
-        /></label
-      >
-      <label
-        >Password<Input
-          name="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          maxlength={256}
-        /></label
-      >
-      {#if form?.message}<div class="notice error" role="alert">
-          {form.message}
-        </div>{/if}
-      <Button variant="default" type="submit" disabled={busy}
-        >{busy ? "Signing in…" : "Sign in"}<Icon
-          name="arrow"
-          size={16}
-        /></Button
-      >
-    </form>
-    <p class="auth-footer">Invite-only. Have a link? You’re in.</p>
-    {#if data.devSignIn}<form
-        method="POST"
-        action="/login/dev"
-        use:enhance
-        class="dev-sign-in"
-      >
-        <Button variant="ghost" type="submit">Dev sign in</Button>
-      </form>{/if}
-  </section>
-</main>
+<Landing
+  {...data}
+  auth={{
+    kind: "signin",
+    xCancelled: data.xCancelled,
+    xUnlinked: data.xUnlinked,
+  }}
+  {form}
+/>

@@ -1,5 +1,6 @@
 // Native account forms require an Origin; capability-bearing pages must not leak referrers.
-export function referrerPolicy(routeId: string | null) {
+export function referrerPolicy(routeId: string | null, signedIn: boolean) {
+  if (routeId === "/") return signedIn ? "no-referrer" : "strict-origin";
   return [
     "/login",
     "/join/[token]",

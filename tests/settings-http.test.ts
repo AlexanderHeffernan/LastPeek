@@ -129,6 +129,61 @@ test("guest account requests are same-origin, private and never grant access", a
     ).rows,
     [{ email, name: "Guest" }],
   );
+  // The public landing page joins the same waitlist with an email alone.
+  const waitlisted = `waitlist-${randomUUID()}@example.test`;
+  const joined = await client.post(endpoint, {
+    headers: { Origin: origin },
+    data: { email: waitlisted },
+  });
+  assert.equal(joined.status(), 200);
+  assert.equal(
+    (
+      await client.post(endpoint, {
+        headers: { Origin: origin },
+        data: { email: "not-an-email" },
+      })
+    ).status(),
+    400,
+  );
+  // Only signed-out / is indexable; the signed-in home stays private.
+  const landing = await client.get(`${origin}/`, { maxRedirects: 0 });
+  assert.equal(landing.status(), 200);
+  assert.equal(landing.headers()["x-robots-tag"], undefined);
+  const landingHTML = await landing.text();
+  assert.match(landingHTML, /Join the waitlist/);
+  // Shared site links use the static card, not the on-page walkthrough video.
+  assert.match(
+    landingHTML,
+    /property="og:image" content="[^"]+\/landing\/og.png"/,
+  );
+  assert.match(
+    landingHTML,
+    /name="twitter:card" content="summary_large_image"/,
+  );
+  assert.doesNotMatch(landingHTML, /property="og:video|name="twitter:player/);
+  assert.equal((landingHTML.match(/name="description"/g) ?? []).length, 1);
+  assert.match(landingHTML, /rel="canonical"/);
+  const image = await client.get(`${origin}/landing/og.png`);
+  assert.equal(image.status(), 200);
+  assert.match(image.headers()["content-type"], /image\/png/);
+  const loginPage = await client.get(`${origin}/login`);
+  assert.match(loginPage.headers()["x-robots-tag"], /noindex/);
+  assert.equal(
+    ((await loginPage.text()).match(/name="description"/g) ?? []).length,
+    1,
+  );
+  const robots = await client.get(`${origin}/robots.txt`);
+  assert.match(await robots.text(), /Disallow: \/\n/);
+  const sitemap = await client.get(`${origin}/sitemap.xml`);
+  assert.equal(sitemap.status(), 200);
+  assert.equal(((await sitemap.text()).match(/<loc>/g) ?? []).length, 1);
+  const home = await client.get(`${origin}/`, {
+    maxRedirects: 0,
+    headers: { Cookie: `lastpeek_session=${ownerSession}` },
+  });
+  assert.equal(home.status(), 200);
+  assert.match(home.headers()["x-robots-tag"], /noindex/);
+  assert.doesNotMatch(await home.text(), /Join the waitlist/);
   assert.equal(
     (await db.query("SELECT 1 FROM users WHERE email=$1", [email])).rowCount,
     0,
@@ -150,7 +205,10 @@ test("guest account requests are same-origin, private and never grant access", a
     (await queue(ownerSession)).map(
       ({ email, name }: { email: string; name: string }) => ({ email, name }),
     ),
-    [{ email, name: "Guest" }],
+    [
+      { email: waitlisted, name: null },
+      { email, name: "Guest" },
+    ],
   );
   assert.deepEqual(
     await queue(adminSession),
@@ -163,9 +221,9 @@ test("guest account requests are same-origin, private and never grant access", a
   });
   assert.equal(invitation.status(), 200);
   assert.deepEqual(
-    await queue(ownerSession),
-    [],
-    "An issued invitation clears the pending request queue.",
+    (await queue(ownerSession)).map(({ email }: { email: string }) => email),
+    [waitlisted],
+    "An issued invitation clears that request from the queue.",
   );
 });
 

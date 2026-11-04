@@ -82,10 +82,18 @@ export const handle: Handle = async ({ event, resolve }) => {
         `data-theme="${themePreference(event.locals.user?.theme ?? event.cookies.get("lastpeek_theme"))}"`,
       ),
   });
-  response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  // Only the signed-out landing page and its sitemap are meant for search engines.
+  if (
+    event.locals.user ||
+    !["/", "/robots.txt", "/sitemap.xml"].includes(event.url.pathname)
+  )
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   // Native account forms need a non-null Origin for CSRF checks, even before hydration.
   // Send only the origin on these pages; review capabilities keep no-referrer.
-  response.headers.set("Referrer-Policy", referrerPolicy(event.route.id));
+  response.headers.set(
+    "Referrer-Policy",
+    referrerPolicy(event.route.id, !!event.locals.user),
+  );
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set(
     "Permissions-Policy",

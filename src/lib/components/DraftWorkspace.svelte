@@ -13,8 +13,12 @@
   import UserIdentity from "$lib/components/UserIdentity.svelte";
   import FriendControl from "$lib/components/FriendControl.svelte";
   import { relativeTime, xPostURLSchema } from "$lib/contracts";
-  import type { PageData, ActionData } from "../../routes/(app)/$types";
-  let { data, form }: { data: PageData; form?: ActionData } = $props();
+  import type { PageData, ActionData } from "../../routes/$types";
+  let {
+    data,
+    form,
+  }: { data: Extract<PageData, { landing: false }>; form?: ActionData } =
+    $props();
   const navigation = getContext<{ reveal: () => void }>("mobile-navigation");
   let busy = $state(false);
   let createOpen = $state<string | null>(null);

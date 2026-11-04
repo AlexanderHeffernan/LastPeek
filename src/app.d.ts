@@ -10,6 +10,10 @@ declare global {
       viewerId: string | null;
       unreadNotifications: number;
     }
+    interface PageState {
+      // The landing page's sign-in dialog, opened over / with /login as its address.
+      signIn?: boolean;
+    }
   }
 }
 export {};

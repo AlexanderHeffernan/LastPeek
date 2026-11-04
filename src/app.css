@@ -1455,10 +1455,6 @@ progress {
     height: 28px;
   }
 }
-.auth-divider {
-  text-align: center;
-  margin: 24px 0;
-}
 .profile-photo {
   position: relative;
   width: 88px;
@@ -1594,69 +1590,6 @@ progress {
   text-align: center;
   margin: 28px auto;
 }
-.auth-shell {
-  max-width: 1040px;
-  padding: 0 36px;
-  margin: 100px auto;
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 90px;
-  align-items: center;
-}
-.auth-copy h1 {
-  font-size: clamp(44px, 5vw, 66px);
-  letter-spacing: -3px;
-  line-height: 1.05;
-  margin: 24px 0;
-}
-.auth-copy h1 em {
-  font-style: normal;
-  color: var(--primary);
-}
-.auth-copy p {
-  font-size: 17px;
-  color: var(--muted-foreground);
-  max-width: 330px;
-}
-.auth-decoration {
-  margin-top: 40px;
-  color: var(--primary);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-.auth-card {
-  padding: 32px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--card);
-}
-.auth-card form {
-  display: grid;
-  gap: 22px;
-}
-.auth-card h2 {
-  font-size: 24px;
-  margin-bottom: 28px;
-  letter-spacing: -0.7px;
-}
-.auth-card .intro {
-  color: var(--muted-foreground);
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-.auth-footer {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  margin: 24px 0 0;
-  text-align: center;
-}
-.dev-sign-in {
-  display: flex;
-  justify-content: center;
-  margin-top: 8px;
-}
 .error-page {
   max-width: 500px;
   margin: 100px auto;
@@ -1664,11 +1597,6 @@ progress {
   text-align: center;
 }
 
-@media (max-width: 900px) {
-  .auth-shell {
-    gap: 40px;
-  }
-}
 @media (min-width: 601px) and (max-width: 1000px) {
   .app-content.with-shell {
     max-width: 668px;
@@ -1824,28 +1752,6 @@ progress {
   }
   .post-tools {
     flex-wrap: wrap;
-  }
-  .auth-shell {
-    grid-template-columns: 1fr;
-    padding: 0 20px;
-    margin: 40px auto;
-    gap: 28px;
-    max-width: 460px;
-  }
-  .auth-copy h1 {
-    font-size: 48px;
-    letter-spacing: -2.5px;
-    margin: 16px 0;
-  }
-  .auth-copy p {
-    font-size: 15px;
-    margin-bottom: 0;
-  }
-  .auth-decoration {
-    display: none;
-  }
-  .auth-card {
-    padding: 26px;
   }
 }
 @media (max-width: 600px), (pointer: coarse) {

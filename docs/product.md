@@ -40,6 +40,30 @@ The owner sees unfulfilled requests in Invitations and explicitly creates an inv
 existing flow. There is no automatic account, plan grant, email delivery or email verification.
 Duplicate requests receive the same response and do not overwrite the original request.
 
+## Public landing page and waitlist
+
+Signed-out visitors to `/` see the public landing page; signed-in accounts keep their work queue at
+the same address. The page explains the product with a recreation of a draft receiving feedback, the launch film as
+its walkthrough (muted preview while visible, chapters for each step, sound only on request),
+a real quote from an early user, and a short FAQ. `/login` and `/join/<token>` render
+the same page with the sign-in or create-account dialog open; their native forms work without
+JavaScript. Its primary
+action is joining the waitlist with an email address; existing users sign in from the header, the
+hero and the closing section. A browser that has signed in before sees Sign in as the primary header
+action. An installed app opened while signed out goes straight to sign-in.
+
+Waitlist entries reuse the account-request queue (migration 041 makes the name optional). The owner
+sees them under site admin Invitations → Waitlist with Copy emails and an Invite action per entry.
+Joining never creates an account or invitation, and repeated emails receive the same response.
+When public sign-up opens, replace the waitlist form; the rest of the page stays.
+
+Only the signed-out landing page, `robots.txt` and `sitemap.xml` are indexable. Every other response,
+including the signed-in home, keeps `noindex`. The page ships its own title, description, canonical
+URL, static Open Graph/X card image (never a video link preview), and WebApplication, VideoObject
+and FAQPage structured data. The on-page film stays muted until its restart finishes when sound is requested. Landing
+assets live in `static/landing` (film, poster, card image and a subset of Outfit, OFL); no external
+service, font host or analytics is loaded.
+
 ## Replies and quote posts
 
 New Quote and New Reply are available to Pro accounts. Shared reviews use the author's access, not the

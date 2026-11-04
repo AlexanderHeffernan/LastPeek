@@ -73,6 +73,10 @@
   class="portrait-dialog"
   aria-labelledby="portrait-title"
   oncancel={(event) => event.preventDefault()}
+  onkeydown={(event) => {
+    // Escape belongs to this top-layer prompt, not a sign-in dialog underneath.
+    if (event.key === "Escape") event.stopPropagation();
+  }}
 >
   <div class="portrait-message">
     <Brand markOnly decorative />

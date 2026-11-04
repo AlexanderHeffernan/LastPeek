@@ -44,16 +44,40 @@
   import UserCircleDashed from "phosphor-svelte/lib/UserCircleDashed";
   import PaperPlaneRight from "phosphor-svelte/lib/PaperPlaneRight";
   import Smiley from "phosphor-svelte/lib/Smiley";
+  import Play from "phosphor-svelte/lib/Play";
+  import Pause from "phosphor-svelte/lib/Pause";
+  import GithubLogo from "phosphor-svelte/lib/GithubLogo";
+  import ShieldCheck from "phosphor-svelte/lib/ShieldCheck";
+  import Cursor from "phosphor-svelte/lib/Cursor";
+  import HandPointing from "phosphor-svelte/lib/HandPointing";
+  import VideoCamera from "phosphor-svelte/lib/VideoCamera";
+  import TextAa from "phosphor-svelte/lib/TextAa";
+  import SpeakerHigh from "phosphor-svelte/lib/SpeakerHigh";
+  import SpeakerSlash from "phosphor-svelte/lib/SpeakerSlash";
   let {
     name,
     size = 20,
     weight = "regular",
-  }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
+  }: {
+    name: string;
+    size?: number;
+    weight?: "regular" | "bold" | "fill";
+  } = $props();
   const icons = {
     react: Smiley,
     send: PaperPlaneRight,
+    play: Play,
+    pause: Pause,
+    github: GithubLogo,
+    shield: ShieldCheck,
+    cursor: Cursor,
+    pointer: HandPointing,
+    video: VideoCamera,
+    text: TextAa,
     guest: UserCircleDashed,
     expand: ArrowsOut,
+    sound: SpeakerHigh,
+    muted: SpeakerSlash,
     sun: Sun,
     moon: Moon,
     palette: Palette,

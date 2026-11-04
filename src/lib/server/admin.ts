@@ -104,7 +104,7 @@ export async function adminData(
        WHERE NOT EXISTS (SELECT 1 FROM users u WHERE lower(u.email)=r.email)
        AND NOT EXISTS (SELECT 1 FROM invites i WHERE lower(i.email)=r.email
          AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>now())
-       ORDER BY r.created_at DESC LIMIT 200`,
+       ORDER BY r.created_at DESC LIMIT 1000`,
           )
         ).rows.map((row) => ({
           ...row,

@@ -2,13 +2,13 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { db, transaction } from "$lib/server/db";
 import { hash, passwordHash, signIn, rateLimit } from "$lib/server/auth";
-import { xAuthEnabled } from "$lib/server/x-auth";
+import { landing } from "$lib/server/landing";
 import type { Actions, PageServerLoad } from "./$types";
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   if (locals.user) redirect(303, "/");
   const invitation = (
     await db.query(
-      "SELECT email FROM invites WHERE hash=$1 AND email IS NOT NULL AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
+      "SELECT email,(SELECT name FROM users WHERE id=invites.created_by) AS inviter FROM invites WHERE hash=$1 AND email IS NOT NULL AND expires_at>now() AND used_at IS NULL AND revoked_at IS NULL",
       [hash(params.token)],
     )
   ).rows[0];
@@ -18,9 +18,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       "This invitation has expired, was revoked, or has already been used. Ask your friend for a new one.",
     );
   return {
-    xEnabled: xAuthEnabled(),
+    ...landing(cookies),
     invite: params.token,
     email: invitation.email as string,
+    inviter: (invitation.inviter as string | null) ?? null,
   };
 };
 export const actions: Actions = {

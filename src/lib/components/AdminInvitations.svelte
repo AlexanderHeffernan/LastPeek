@@ -22,7 +22,8 @@
   let link = $state(""),
     busy = $state(false),
     failure = $state(""),
-    copied = $state(false);
+    copied = $state(false),
+    emailsCopied = $state(false);
   let revoke = $state<string | null>(null),
     query = $state(""),
     filter = $state("all");
@@ -96,19 +97,37 @@
     >{/if}
 </div>
 {#if owner && accountRequests.length}
-  <h3>Account requests</h3>
-  <table aria-label="Account requests">
+  <div class="waitlist-heading">
+    <h3>Waitlist <span class="muted">{accountRequests.length}</span></h3>
+    <Button
+      variant="ghost"
+      size="sm"
+      onclick={async () => {
+        await navigator.clipboard.writeText(
+          accountRequests.map((request) => request.email).join("\n"),
+        );
+        emailsCopied = true;
+        setTimeout(() => (emailsCopied = false), 2500);
+      }}
+      ><Icon name={emailsCopied ? "check" : "copy"} size={16} />{emailsCopied
+        ? "Copied"
+        : "Copy emails"}</Button
+    >
+  </div>
+  <table aria-label="Waitlist">
     <tbody
       >{#each accountRequests as request (request.email)}
         <tr
           ><th scope="row"
-            >{request.name}<br /><span class="muted">{request.email}</span></th
+            >{request.email}{#if request.name}<br /><span class="muted"
+                >{request.name}</span
+              >{/if}</th
           >
-          <td data-label="Requested">{date(request.created_at)}</td>
+          <td data-label="Joined">{date(request.created_at)}</td>
           <td
             ><Button
               variant="outline"
-              aria-label={`Invite ${request.name}`}
+              aria-label={`Invite ${request.name ?? request.email}`}
               onclick={() => {
                 email = request.email;
                 plan = "free";
@@ -266,6 +285,20 @@
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 20px;
+  }
+  .waitlist-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .waitlist-heading h3 {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+  }
+  .waitlist-heading + table {
+    margin-bottom: 28px;
   }
   .filters {
     display: grid;

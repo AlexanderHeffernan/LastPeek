@@ -2,6 +2,7 @@ import { fail, redirect, isHttpError } from "@sveltejs/kit";
 import { db, transaction } from "$lib/server/db";
 import { createDraft } from "$lib/server/drafts";
 import { requireUser } from "$lib/server/auth";
+import { landing } from "$lib/server/landing";
 import { sourcePost } from "$lib/server/x-post";
 import { isPro, claimDraft } from "$lib/server/plans";
 import { X_SOURCE_UNAVAILABLE } from "$lib/x-post";
@@ -12,8 +13,17 @@ import {
   type Media,
 } from "$lib/contracts";
 import type { Actions, PageServerLoadEvent } from "./$types";
-export const load = async ({ locals }: PageServerLoadEvent) => {
-  const user = requireUser(locals);
+type User = NonNullable<App.Locals["user"]>;
+export const load = async ({ locals, cookies }: PageServerLoadEvent) => {
+  // Signed-out visitors get the public landing page; accounts keep their work queue at /.
+  if (!locals.user) return landing(cookies);
+  return {
+    landing: false as const,
+    user: locals.user,
+    ...(await home(locals.user)),
+  };
+};
+async function home(user: User) {
   const drafts = await db.query<{
     id: string;
     content: Content;
@@ -112,7 +122,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
       created_at: d.created_at.toISOString(),
     })),
   };
-};
+}
 export const actions = {
   create: async ({ locals, request }) => {
     const user = requireUser(locals),

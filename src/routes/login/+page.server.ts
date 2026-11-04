@@ -1,14 +1,13 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
-import { signIn, rateLimit, devSignIn } from "$lib/server/auth";
-import { xAuthEnabled } from "$lib/server/x-auth";
+import { signIn, rateLimit } from "$lib/server/auth";
+import { landing } from "$lib/server/landing";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals, url }) => {
+export const load: PageServerLoad = ({ locals, url, cookies }) => {
   if (locals.user) redirect(303, "/");
   return {
-    devSignIn: devSignIn(),
-    xEnabled: xAuthEnabled(),
+    ...landing(cookies),
     xCancelled: url.searchParams.get("x") === "cancelled",
     xUnlinked: url.searchParams.get("x") === "unlinked",
   };
