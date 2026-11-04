@@ -29,14 +29,17 @@ export const load: PageServerLoad = async ({
     token: params.token,
     ownerId: draft.owner_id,
     private: draft.private,
+    postedURL: draft.posted_url,
     review:
       locals.user && draft.private && draft.owner_id !== locals.user.id
         ? {
-            completed: comments.some(
-              (comment) =>
-                comment.user_id === locals.user?.id &&
-                comment.revision === draft.shared_revision,
-            ),
+            completed:
+              !!draft.posted_at ||
+              comments.some(
+                (comment) =>
+                  comment.user_id === locals.user?.id &&
+                  comment.revision === draft.shared_revision,
+              ),
           }
         : null,
     reviewURL: new URL(`/r/${params.token}`, url.origin).href,

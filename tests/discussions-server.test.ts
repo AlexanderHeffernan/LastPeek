@@ -19,9 +19,16 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     feedbackSchema,
     changeComment,
     resolveConversation,
+    reactToComment,
   } = await import("../src/lib/server/feedback");
-  const { createDraft, publishDraft, saveDraft, draftComments } =
-    await import("../src/lib/server/drafts");
+  const {
+    createDraft,
+    publishDraft,
+    saveDraft,
+    draftComments,
+    sharedDraft,
+    shareWithFriend,
+  } = await import("../src/lib/server/drafts");
   const { discussionDestination } =
     await import("../src/lib/server/discussions");
   const { blankContent } = await import("../src/lib/contracts");
@@ -175,6 +182,68 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     (await discussionDestination(reviewer, grandchild.id)).root,
     guest.id,
   );
+  await reactToComment(guest.id, owner, undefined, {
+    emoji: "❤️",
+    active: true,
+  });
+  await reactToComment(guest.id, owner, undefined, {
+    emoji: "❤️",
+    active: true,
+  });
+  await reactToComment(guest.id, undefined, guestHash, {
+    token: shared.token,
+    emoji: "❤️",
+    active: true,
+  });
+  assert.deepEqual(
+    (await draftComments(draft, owner)).find((c) => c.id === guest.id)
+      ?.reactions,
+    [{ emoji: "❤️", count: 2, mine: true }],
+    "retries cannot double-count a reaction; account and guest reactions share the count",
+  );
+  await reactToComment(guest.id, undefined, "different-session", {
+    token: shared.token,
+    emoji: "❤️",
+    active: false,
+  });
+  assert.deepEqual(
+    (await draftComments(draft, undefined, "different-session")).find(
+      (c) => c.id === guest.id,
+    )?.reactions,
+    [{ emoji: "❤️", count: 2, mine: false }],
+    "a guest cannot remove another session's reaction",
+  );
+  await reactToComment(guest.id, undefined, guestHash, {
+    token: shared.token,
+    emoji: "❤️",
+    active: false,
+  });
+  assert.deepEqual(
+    (await draftComments(draft, owner)).find((c) => c.id === guest.id)
+      ?.reactions,
+    [{ emoji: "❤️", count: 1, mine: true }],
+  );
+  assert.deepEqual(
+    (await draftComments(draft, reviewer, guestHash)).find(
+      (c) => c.id === guest.id,
+    )?.reactions,
+    [{ emoji: "❤️", count: 1, mine: false }],
+    "signing in does not claim another identity's reactions",
+  );
+  await assert.rejects(
+    reactToComment(guest.id, outsider, undefined, {
+      emoji: "👍",
+      active: true,
+    }),
+    { status: 404 },
+  );
+  await assert.rejects(
+    reactToComment(guest.id, owner, undefined, {
+      emoji: "unknown",
+      active: true,
+    }),
+    { status: 400 },
+  );
   assert.equal(
     (await draftComments(draft, undefined, guestHash)).find(
       (c) => c.id === guest.id,
@@ -276,6 +345,15 @@ test("discussions preserve nested anchors, session ownership and revoked access"
   assert.equal(tombstone.name, "");
   assert.equal(tombstone.body, "");
   assert.equal(tombstone.can_manage, false);
+  assert.deepEqual(
+    tombstone.reactions,
+    [],
+    "deletion removes reactions, including on a retained placeholder",
+  );
+  await assert.rejects(
+    reactToComment(guest.id, owner, undefined, { emoji: "👍", active: true }),
+    { status: 404 },
+  );
   await changeComment(grandchild.id, undefined, guestHash, {
     token: shared.token,
     version: 1,
@@ -296,7 +374,52 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     false,
     "removing the last descendant prunes its empty tombstone",
   );
+  assert.equal((await sharedDraft(shared.token)).posted_url, null);
+  await db.query("UPDATE drafts SET posted_at=now() WHERE id=$1", [draft]);
+  await db.query(
+    "INSERT INTO posted_x_links(draft_id,edit_version,status,url) VALUES($1,3,'candidate','https://x.com/writer/status/123456')",
+    [draft],
+  );
+  assert.equal(
+    (await sharedDraft(shared.token)).posted_url,
+    null,
+    "unconfirmed candidates never show View on X",
+  );
+  await db.query(
+    "UPDATE posted_x_links SET status='linked' WHERE draft_id=$1",
+    [draft],
+  );
+  assert.equal(
+    (await sharedDraft(shared.token)).posted_url,
+    "https://x.com/writer/status/123456",
+  );
+  await db.query(
+    "INSERT INTO x_publications(draft_id,edit_version,x_id,text,status,post_id) VALUES($1,3,'writer','unused','unknown','654321')",
+    [draft],
+  );
+  assert.equal(
+    (await sharedDraft(shared.token)).posted_url,
+    "https://x.com/writer/status/123456",
+    "unknown publication state cannot replace a confirmed manual link",
+  );
+  await db.query(
+    "UPDATE x_publications SET status='posted' WHERE draft_id=$1",
+    [draft],
+  );
+  assert.equal(
+    (await sharedDraft(shared.token)).posted_url,
+    "https://x.com/i/web/status/654321",
+    "confirmed native publication takes priority",
+  );
   await db.query("UPDATE drafts SET share_token=NULL WHERE id=$1", [draft]);
+  await assert.rejects(
+    reactToComment(reply.id, reviewer, undefined, {
+      token: shared.token,
+      emoji: "👍",
+      active: true,
+    }),
+    { status: 404 },
+  );
   await assert.rejects(discussionDestination(reviewer, follow.id), {
     status: 404,
   });
@@ -341,5 +464,37 @@ test("discussions preserve nested anchors, session ownership and revoked access"
     saveDraft(other, outsider, existingReply, 2),
     { status: 409 },
     "published drafts cannot switch their source, but unchanged relationships remain editable",
+  );
+  const friendship = randomUUID();
+  await db.query(
+    "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+    [friendship, owner, reviewer],
+  );
+  const privateReview = await shareWithFriend(draft, owner, 3, reviewer);
+  await reactToComment(reply.id, reviewer, undefined, {
+    token: privateReview.token,
+    emoji: "👍",
+    active: true,
+  });
+  await assert.rejects(
+    reactToComment(reply.id, outsider, undefined, {
+      token: privateReview.token,
+      emoji: "👍",
+      active: true,
+    }),
+    { status: 404 },
+  );
+  await db.query(
+    "DELETE FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
+    [draft, reviewer],
+  );
+  await assert.rejects(
+    reactToComment(reply.id, reviewer, undefined, {
+      token: privateReview.token,
+      emoji: "👍",
+      active: false,
+    }),
+    { status: 404 },
+    "revoking a grant also revokes reaction writes",
   );
 });

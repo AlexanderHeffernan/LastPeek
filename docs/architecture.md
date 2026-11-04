@@ -23,6 +23,13 @@ remain for rolling compatibility, but new browsers no longer write read receipts
 fields and tools remain compatible. Authors can hide resolved roots in the browser; a new reply
 reopens the root in the same transaction as its comment write.
 
+Migration 040 adds per-message emoji reactions, unique per account or guest-session hash and emoji.
+Reaction writes reuse message access and draft/grant locks, never expose guest hashes, and cannot
+target deleted messages. A separate reaction version changes the existing presence activity stamp
+without invalidating optimistic message edits. Reactions create no notifications. Message pointer
+or keyboard interaction marks only the current account's matching inbox events read through the
+existing origin-checked notification endpoint; unrelated events and other recipients stay unread.
+
 Migration 037 stores short-lived per-draft viewer presence. Visible review pages heartbeat every
 five seconds; rows expire from display after twenty seconds and maintenance prunes them after a
 minute. Each page instance is identified by a hash of an HTTP-only random browser cookie plus a
@@ -65,6 +72,11 @@ Migration 019 adds one unordered friendship per account pair, with an explicit r
 Friend-only reviews use a separate `friend_token`, mutually exclusive with `share_token`, plus per-draft recipient grants tied to the accepted friendship. The old application image cannot resolve these tokens as bearer links. The review resolver checks the current session against the owner or selected recipient before loading content; media and avatars use that same resolver. Preview images deliberately use the unauthenticated resolver, so private reviews never generate crawler cards. Comment writes recheck the token and lock recipient grants/friendship against concurrent revocation. Draft saves continue advancing immutable shared snapshots in either mode. Deleting a friendship cascades its review grants in both directions, and re-friending creates no grants. Public-link creation clears all private grants and rotates away from the private token. Shared-draft notifications resolve the current recipient grant, not a stored bearer capability. No SMTP, websocket service or true online-presence claim is introduced.
 
 Review queues derive completion from an account-linked comment on `drafts.shared_revision`, regardless of resolution. “Looks good!” is an ordinary comment anchored to the revision displayed when submitted; neither it nor a late written response can silently approve a newer snapshot. No completion write is needed: unchanged saves preserve the queue and new shared snapshots reopen it. The unused `friend_reviews.completed_at` column from migration 022 remains for rolling compatibility with the preceding image, not as an approval source of truth.
+
+The draft's actual `posted_at` independently closes outstanding friend assignments, including those
+without feedback. Keep review-completion and publication timestamps separate in queue data and use
+Posted/Reviewed labels accordingly. Shared reads expose only confirmed publication/manual URLs,
+with native publication taking priority; current capability checks still govern posted reviews.
 
 ## Mention lookups
 

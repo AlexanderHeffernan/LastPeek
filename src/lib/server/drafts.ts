@@ -45,8 +45,15 @@ export async function sharedDraft(shareToken: string, userId?: string) {
     error(404, "This review link is unavailable. It may have been revoked.");
   const row = (
     await db.query(
-      `SELECT d.id,d.owner_id,d.shared_revision,r.content,d.friend_token IS NOT NULL AS private FROM drafts d
+      `SELECT d.id,d.owner_id,d.shared_revision,r.content,d.friend_token IS NOT NULL AS private,d.posted_at,
+       CASE WHEN d.posted_at IS NOT NULL THEN COALESCE(
+         'https://x.com/' || COALESCE(NULLIF(x.profile->>'username',''),'i/web') || '/status/' || p.post_id,
+         l.url) END AS posted_url
+       FROM drafts d
        JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
+       LEFT JOIN x_publications p ON p.draft_id=d.id AND p.status='posted'
+       LEFT JOIN posted_x_links l ON l.draft_id=d.id AND l.status='linked'
+       LEFT JOIN x_accounts x ON x.user_id=d.owner_id
        WHERE d.share_token=$1 OR (d.friend_token=$1 AND
          (d.owner_id=$2 OR EXISTS (SELECT 1 FROM friend_reviews fr
           JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
@@ -61,6 +68,8 @@ export async function sharedDraft(shareToken: string, userId?: string) {
     owner_id: row.owner_id as string,
     private: row.private as boolean,
     shared_revision: row.shared_revision as number,
+    posted_at: row.posted_at as Date | null,
+    posted_url: row.posted_url as string | null,
     content: contentSchema.parse(row.content),
   };
 }
@@ -295,6 +304,11 @@ export async function draftComments(
        u.avatar_id,COALESCE(x.profile->>'username','') AS handle,c.body,c.suggestion,c.quote,c.resolved,c.created_at,
        c.deleted_at,c.edited_at,c.edit_version,
        (c.deleted_at IS NULL AND (c.user_id=$2 OR (c.user_id IS NULL AND c.guest_hash=$3))) IS TRUE AS can_manage,
+       EXISTS(SELECT 1 FROM notifications n WHERE n.comment_id=c.id AND n.user_id=$2 AND n.read_at IS NULL) AS unread_notification,
+       COALESCE((SELECT jsonb_agg(reaction ORDER BY reaction.emoji) FROM (
+         SELECT cr.emoji,count(*)::int AS count,bool_or(cr.user_id=$2 OR ($2::uuid IS NULL AND cr.user_id IS NULL AND cr.guest_hash=$3)) IS TRUE AS mine
+         FROM comment_reactions cr WHERE cr.comment_id=c.id GROUP BY cr.emoji
+       ) reaction),'[]'::jsonb) AS reactions,
        (SELECT p FROM jsonb_array_elements(r.content->'posts') p WHERE p->>'id'=c.post_id::text) AS original_post,
        r.content->'source' AS original_source
        FROM comments c LEFT JOIN users u ON u.id=c.user_id

@@ -43,12 +43,14 @@
   import Palette from "phosphor-svelte/lib/Palette";
   import UserCircleDashed from "phosphor-svelte/lib/UserCircleDashed";
   import PaperPlaneRight from "phosphor-svelte/lib/PaperPlaneRight";
+  import Smiley from "phosphor-svelte/lib/Smiley";
   let {
     name,
     size = 20,
     weight = "regular",
   }: { name: string; size?: number; weight?: "regular" | "fill" } = $props();
   const icons = {
+    react: Smiley,
     send: PaperPlaneRight,
     guest: UserCircleDashed,
     expand: ArrowsOut,

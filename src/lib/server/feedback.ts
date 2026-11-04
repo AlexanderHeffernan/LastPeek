@@ -1,4 +1,5 @@
 import { error, type Cookies } from "@sveltejs/kit";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import { transaction } from "./db";
 import { token, hash } from "./auth";
@@ -256,27 +257,7 @@ export async function changeComment(
     error(400, "Write a message of up to 2,000 characters.");
   const body = parsed.success ? parsed.data : "";
   return transaction(async (client) => {
-    const found = (
-      await client.query("SELECT draft_id FROM comments WHERE id=$1", [id])
-    ).rows[0];
-    if (!found) error(404, "Message unavailable.");
-    const draft = (
-      await client.query("SELECT * FROM drafts WHERE id=$1 FOR UPDATE", [
-        found.draft_id,
-      ])
-    ).rows[0];
-    if (!draft) error(404, "Message unavailable.");
-    if (draft.owner_id !== userId) {
-      const shared = await sharedDraft(input.token ?? "", userId);
-      if (shared.id !== draft.id) error(404, "Message unavailable.");
-      if (input.token === draft.friend_token) {
-        const grant = await client.query(
-          `SELECT fr.draft_id FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL WHERE fr.draft_id=$1 AND fr.recipient_id=$2 FOR SHARE OF fr,f`,
-          [draft.id, userId ?? null],
-        );
-        if (!grant.rowCount) error(404, "Message unavailable.");
-      }
-    }
+    await commentAccess(client, id, userId, input.token);
     const comment = (
       await client.query("SELECT * FROM comments WHERE id=$1 FOR UPDATE", [id])
     ).rows[0];
@@ -303,6 +284,10 @@ export async function changeComment(
       );
       if (children.rowCount) {
         await client.query(
+          "DELETE FROM comment_reactions WHERE comment_id=$1",
+          [id],
+        );
+        await client.query(
           "UPDATE comments SET deleted_at=now(),edit_version=edit_version+1,name='',body='',user_id=NULL,guest_hash=NULL,agent_name=NULL,quote=NULL,suggestion=NULL,post_id=NULL,media_id=NULL,media_time=NULL WHERE id=$1",
           [id],
         );
@@ -318,6 +303,80 @@ export async function changeComment(
         }
       }
     }
+    return { ok: true };
+  });
+}
+
+async function commentAccess(
+  client: PoolClient,
+  id: string,
+  userId?: string,
+  reviewToken?: string,
+) {
+  const found = (
+    await client.query("SELECT draft_id FROM comments WHERE id=$1", [id])
+  ).rows[0];
+  if (!found) error(404, "Message unavailable.");
+  const draft = (
+    await client.query("SELECT * FROM drafts WHERE id=$1 FOR UPDATE", [
+      found.draft_id,
+    ])
+  ).rows[0];
+  if (!draft) error(404, "Message unavailable.");
+  if (draft.owner_id === userId) return;
+  const shared = await sharedDraft(reviewToken ?? "", userId);
+  if (shared.id !== draft.id) error(404, "Message unavailable.");
+  if (reviewToken === draft.friend_token) {
+    const grant = await client.query(
+      `SELECT fr.draft_id FROM friend_reviews fr JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL WHERE fr.draft_id=$1 AND fr.recipient_id=$2 FOR SHARE OF fr,f`,
+      [draft.id, userId ?? null],
+    );
+    if (!grant.rowCount) error(404, "Message unavailable.");
+  }
+}
+
+export async function reactToComment(
+  id: string,
+  userId: string | undefined,
+  guestHash: string | undefined,
+  input: { token?: string; emoji: string; active: boolean },
+) {
+  if (
+    !z.uuid().safeParse(id).success ||
+    !["👍", "❤️", "🎉"].includes(input.emoji) ||
+    typeof input.active !== "boolean"
+  )
+    error(400, "Choose a supported reaction.");
+  if (!userId && !guestHash) error(403, "Open the review to react.");
+  return transaction(async (client) => {
+    await commentAccess(client, id, userId, input.token);
+    const comment = (
+      await client.query(
+        "SELECT deleted_at FROM comments WHERE id=$1 FOR UPDATE",
+        [id],
+      )
+    ).rows[0];
+    if (!comment || comment.deleted_at) error(404, "Message unavailable.");
+    const identity = [
+      id,
+      userId ?? null,
+      userId ? null : guestHash,
+      input.emoji,
+    ];
+    const changed = input.active
+      ? await client.query(
+          "INSERT INTO comment_reactions(comment_id,user_id,guest_hash,emoji) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+          identity,
+        )
+      : await client.query(
+          "DELETE FROM comment_reactions WHERE comment_id=$1 AND ((user_id=$2) OR (user_id IS NULL AND guest_hash=$3)) AND emoji=$4",
+          identity,
+        );
+    if (changed.rowCount)
+      await client.query(
+        "UPDATE comments SET reactions_version=reactions_version+1 WHERE id=$1",
+        [id],
+      );
     return { ok: true };
   });
 }

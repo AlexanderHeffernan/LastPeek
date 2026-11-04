@@ -51,6 +51,7 @@
   } = $props();
   const roots = $derived(comments.filter((c) => !c.parent_id));
   let focusPath = $state<string[]>([]);
+  let replyLimits = $state<Record<string, number>>({});
   const focusedThread = $derived(
     comments.find((c) => c.id === focusPath.at(-1)),
   );
@@ -65,9 +66,21 @@
     const target = comments.find((c) => hash === `#feedback-${c.id}`);
     if (!target) return;
     openedHash = hash;
-    const group = target.thread_parent_id ?? target.parent_id;
-    const anchor = comments.find((c) => c.id === group);
-    focusPath = anchor?.parent_id ? [anchor.id] : [];
+    const ancestors: Feedback[] = [];
+    let child = target;
+    while (child.thread_parent_id ?? child.parent_id) {
+      const anchor = comments.find(
+        (c) => c.id === (child.thread_parent_id ?? child.parent_id),
+      );
+      if (!anchor) break;
+      replyLimits[anchor.id] = Math.max(
+        replyLimits[anchor.id] ?? 5,
+        childrenOf(anchor.id).findIndex((c) => c.id === child.id) + 1,
+      );
+      ancestors.unshift(anchor);
+      child = anchor;
+    }
+    focusPath = ancestors.length > 2 ? [ancestors.at(-2)!.id] : [];
     void tick().then(() =>
       document
         .getElementById(`feedback-${target.id}`)
@@ -99,9 +112,14 @@
     trigger?.focus({ preventScroll: true });
     trigger?.scrollIntoView({ block: "nearest" });
   }
-  async function reply(comment: Feedback, container: Feedback) {
+  async function reply(comment: Feedback, container: Feedback, depth: number) {
     const group = replyThread(comments, comment);
-    if (group !== container.id) {
+    // Reveal the destination and leave room for the reply that will follow it.
+    replyLimits[group] = Math.max(
+      replyLimits[group] ?? 5,
+      childrenOf(group).length + 1,
+    );
+    if (group !== container.id && depth >= 2) {
       const anchor = comments.find((c) => c.id === group);
       if (anchor) await openThread(anchor);
     }
@@ -120,6 +138,56 @@
   let messageError = $state("");
   let messageErrorId = $state("");
   let menu = $state<string | null>(null);
+  let reactionMenu = $state<string | null>(null);
+  let reacting = $state<string | null>(null);
+  const reactions = [
+    { emoji: "👍", label: "Thumbs up" },
+    { emoji: "❤️", label: "Heart" },
+    { emoji: "🎉", label: "Celebrate" },
+  ];
+  const reading = new Set<string>();
+  async function markRead(comment: Feedback) {
+    if (!comment.unread_notification || reading.has(comment.id)) return;
+    reading.add(comment.id);
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId: comment.id }),
+      });
+      if (!response.ok) throw new Error("Unread notification unchanged");
+      await invalidateAll();
+    } catch {
+      reading.delete(comment.id);
+    }
+  }
+  async function react(comment: Feedback, emoji: string) {
+    if (reacting) return;
+    reacting = comment.id;
+    reactionMenu = null;
+    messageError = "";
+    messageErrorId = comment.id;
+    void markRead(comment);
+    try {
+      const response = await fetch(`/api/comments/${comment.id}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          emoji,
+          active: !comment.reactions?.find((r) => r.emoji === emoji)?.mine,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message ?? "Couldn’t update your reaction.");
+      await invalidateAll();
+    } catch (cause) {
+      messageError = (cause as Error).message;
+    } finally {
+      reacting = null;
+    }
+  }
   let confirmation: ConfirmDialog;
   async function resolve(comment: Feedback) {
     resolving = comment.id;
@@ -240,10 +308,11 @@
   {/each}
 {/if}
 
-{#snippet branch(comment: Feedback)}
-  {@render entry(comment, comment)}
+{#snippet branch(comment: Feedback, depth = 0, container: Feedback = comment)}
+  {@render entry(comment, container, depth)}
   {@const children = childrenOf(comment.id)}
-  {#if children.length || (composer && replyGroup === comment.id)}<div
+  {@const limit = replyLimits[comment.id] ?? 5}
+  {#if depth < 2 && (children.length || (composer && replyGroup === comment.id))}<div
       class="discussion-replies"
       role="group"
       aria-label={comment.deleted_at
@@ -251,31 +320,46 @@
         : `Replies to ${comment.name}`}
     >
       <div class="reply-entries">
-        {#each children as child (child.id)}<div transition:conversation>
-            {@render entry(child, comment)}
-            {#if childrenOf(child.id).length}
-              <Button
-                id={`view-replies-${child.id}`}
-                variant="ghost"
-                size="sm"
-                class="view-replies"
-                aria-label={`View replies to ${child.deleted_at ? "deleted message" : child.name}`}
-                onclick={() => openThread(child)}
-                >View replies<Icon name="arrow" size={14} /></Button
-              >
-            {/if}
+        {#each children.slice(0, limit) as child (child.id)}<div
+            transition:conversation
+          >
+            {@render branch(child, depth + 1, comment)}
           </div>{/each}
+        {#if children.length > limit}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="view-replies justify-self-start"
+            onclick={() => (replyLimits[comment.id] = limit + 5)}
+            >Show {Math.min(5, children.length - limit)} more {children.length -
+              limit ===
+            1
+              ? "reply"
+              : "replies"}</Button
+          >
+        {/if}
         {#if composer && replyGroup === comment.id}<div
             class="thread-composer"
-            transition:conversation
+            in:conversation
           >
             {@render composer()}
           </div>{/if}
       </div>
-    </div>{/if}
+    </div>
+  {:else if children.length}
+    <Button
+      id={`view-replies-${comment.id}`}
+      variant="ghost"
+      size="sm"
+      class="view-replies"
+      aria-label={`View replies to ${comment.deleted_at ? "deleted message" : comment.name}`}
+      onclick={() => openThread(comment)}
+      >View replies<Icon name="arrow" size={14} /></Button
+    >
+  {/if}
 {/snippet}
 
-{#snippet entry(comment: Feedback, container: Feedback)}
+{#snippet entry(comment: Feedback, container: Feedback, depth: number)}
   {@const change = contextChange(comment, content)}
   {@const post = content.posts.find((p) => p.id === comment.post_id)}
   {@const file = media.find((m) => m.id === comment.media_id)}
@@ -284,6 +368,8 @@
     tabindex="-1"
     class="feedback-card"
     class:targeted={page.url.hash === `#feedback-${comment.id}`}
+    onpointerdown={() => void markRead(comment)}
+    onfocusin={() => void markRead(comment)}
     aria-label={comment.deleted_at
       ? "Deleted message"
       : `Feedback from ${comment.name}`}
@@ -397,10 +483,69 @@
         {#if comment.suggestion}<blockquote class="feedback-quote">
             {comment.suggestion}
           </blockquote>{/if}
+        {#if comment.reactions?.length}<div
+            class="message-reactions"
+            role="group"
+            aria-label="Message reactions"
+          >
+            {#each comment.reactions as reaction (reaction.emoji)}
+              <Button
+                variant={reaction.mine ? "secondary" : "ghost"}
+                size="sm"
+                aria-label={`${reactions.find((r) => r.emoji === reaction.emoji)?.label ?? reaction.emoji}, ${reaction.count} ${reaction.count === 1 ? "reaction" : "reactions"}`}
+                aria-pressed={reaction.mine}
+                disabled={reacting === comment.id}
+                onclick={() => react(comment, reaction.emoji)}
+              >
+                <span aria-hidden="true">{reaction.emoji}</span><span
+                  >{reaction.count}</span
+                >
+              </Button>
+            {/each}
+          </div>{/if}
         <div class="comment-actions">
+          {#if draftId || token}<Popover.Root
+              bind:open={
+                () => reactionMenu === comment.id,
+                (open) => (reactionMenu = open ? comment.id : null)
+              }
+            >
+              <Popover.Trigger
+                >{#snippet child({ props })}
+                  <Button
+                    {...props}
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="React to message"
+                    title="React to message"
+                    disabled={reacting === comment.id}
+                    ><Icon name="react" size={18} /></Button
+                  >
+                {/snippet}</Popover.Trigger
+              >
+              <Popover.Content
+                class="reaction-picker"
+                sideOffset={4}
+                align="start"
+                aria-label="Choose a reaction"
+              >
+                {#each reactions as reaction}
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    aria-label={reaction.label}
+                    aria-pressed={!!comment.reactions?.find(
+                      (r) => r.emoji === reaction.emoji,
+                    )?.mine}
+                    onclick={() => react(comment, reaction.emoji)}
+                    ><span aria-hidden="true">{reaction.emoji}</span></Button
+                  >
+                {/each}
+              </Popover.Content>
+            </Popover.Root>{/if}
           {#if onreply}<Button
               variant="ghost"
-              onclick={() => reply(comment, container)}>Reply</Button
+              onclick={() => reply(comment, container, depth)}>Reply</Button
             >{/if}
           {#if onresolve && !comment.parent_id}<Button
               variant="ghost"
@@ -507,7 +652,7 @@
       {#if messageError}<p role="alert" class="action-error">
           {messageError}
         </p>{/if}
-      <Dialog.Footer
+      <Dialog.Footer class="mt-4"
         ><Button
           variant="ghost"
           onclick={() => (editing = null)}
@@ -584,6 +729,9 @@
   .resolved-divider span {
     flex: 1;
     border-top: 1px solid var(--border);
+  }
+  .resolved-divider[aria-expanded="false"] {
+    margin-bottom: 56px;
   }
   .resolved-divider:disabled {
     opacity: 0.45;
@@ -715,6 +863,39 @@
     flex-wrap: wrap;
     margin-top: 2px;
   }
+  .message-reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .message-reactions :global([data-slot="button"]) {
+    min-height: 36px;
+    gap: 5px;
+    padding-inline: 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .message-reactions :global([aria-pressed="true"]) {
+    border-color: var(--border);
+  }
+  :global(.reaction-picker) {
+    display: flex;
+    padding: 5px;
+    gap: 4px;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 8px 30px var(--shadow);
+    z-index: 50;
+  }
+  :global(.reaction-picker [data-slot="button"]) {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 999px;
+    font-size: 20px;
+  }
   .comment-actions :global([data-slot="button"]) {
     padding: 0;
     min-height: 32px;
@@ -750,6 +931,9 @@
     border-radius: 6px;
   }
   @media (pointer: coarse) {
+    .message-reactions :global([data-slot="button"]) {
+      min-height: 44px;
+    }
     .comment-actions :global([data-slot="button"]) {
       min-height: 44px;
     }

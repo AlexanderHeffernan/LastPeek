@@ -4344,12 +4344,293 @@ test("guests / welcome, account prompts and sign-in preserve feedback", async (t
   assert.deepEqual(errors, []);
 });
 
+test("discussions / message interactions read notifications and toggle reactions", async (t) => {
+  const browser = await engine.launch();
+  const owner = randomUUID(),
+    reviewer = randomUUID(),
+    id = randomUUID(),
+    session = token(),
+    reviewToken = token();
+  const messages = [randomUUID(), randomUUID()];
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM drafts WHERE id=$1", [id]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, reviewer],
+    ]);
+  });
+  for (const [user, name] of [
+    [owner, "Writer"],
+    [reviewer, "Reader"],
+  ])
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'unused')",
+      [user, `${user}@example.test`, name],
+    );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [tokenHash(session), owner],
+  );
+  const content = blankContent("Writer");
+  content.posts[0].text = "A quick second opinion.";
+  await db.query(
+    "INSERT INTO drafts(id,owner_id,content,share_token,shared_revision) VALUES($1,$2,$3,$4,1)",
+    [id, owner, content, reviewToken],
+  );
+  await db.query(
+    "INSERT INTO revisions(draft_id,number,content) VALUES($1,1,$2)",
+    [id, content],
+  );
+  for (const [index, comment] of messages.entries()) {
+    await db.query(
+      "INSERT INTO comments(id,draft_id,revision,user_id,name,body) VALUES($1,$2,1,$3,'Reader',$4)",
+      [
+        comment,
+        id,
+        reviewer,
+        ["Is this the final wording?", "The opening is much clearer."][index],
+      ],
+    );
+    await db.query(
+      "INSERT INTO notifications(id,user_id,kind,actor_id,draft_id,comment_id) VALUES($1,$2,'feedback',$3,$4,$5)",
+      [randomUUID(), owner, reviewer, id, comment],
+    );
+  }
+  await db.query(
+    "INSERT INTO notifications(id,user_id,kind,draft_id,comment_id) VALUES($1,$2,'feedback',$3,$4)",
+    [randomUUID(), reviewer, id, messages[0]],
+  );
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
+  await context.addCookies([
+    { name: "lastpeek_session", value: session, url: origin },
+  ]);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const ready = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/review-presence") &&
+      r.request().method() === "POST",
+  );
+  await page.goto(`${origin}/drafts/${id}`);
+  await ready;
+  await page.getByLabel("2 unread notifications", { exact: true }).waitFor();
+  const message = (body: string) =>
+    page
+      .getByRole("article")
+      .filter({ has: page.getByText(body, { exact: true }) });
+  const question = message("Is this the final wording?");
+  const read = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/notifications") && r.request().method() === "POST",
+  );
+  await question.getByRole("button", { name: "Reply", exact: true }).focus();
+  assert.equal((await read).status(), 200);
+  await page.getByLabel("1 unread notifications", { exact: true }).waitFor();
+  assert.equal(
+    (
+      await db.query(
+        "SELECT read_at FROM notifications WHERE user_id=$1 AND comment_id=$2",
+        [owner, messages[1]],
+      )
+    ).rows[0].read_at,
+    null,
+    "unrelated feedback stays unread",
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT read_at FROM notifications WHERE user_id=$1 AND comment_id=$2",
+        [reviewer, messages[0]],
+      )
+    ).rows[0].read_at,
+    null,
+    "another recipient's event stays unread",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  const praise = message("The opening is much clearer.");
+  await praise
+    .getByRole("button", { name: "React to message", exact: true })
+    .tap();
+  await page.getByRole("button", { name: "Heart", exact: true }).tap();
+  const heart = praise.getByRole("button", {
+    name: "Heart, 1 reaction",
+    exact: true,
+  });
+  await heart.waitFor();
+  assert.equal(await heart.getAttribute("aria-pressed"), "true");
+  await page
+    .getByRole("button", { name: "React to message" })
+    .first()
+    .waitFor();
+  await page.reload();
+  await heart.waitFor();
+  assert.equal(
+    await page.getByLabel(/unread notifications/).count(),
+    0,
+    "interacting clears the matching badge without creating a reaction notification",
+  );
+  assert.equal(
+    await heart.getAttribute("aria-pressed"),
+    "true",
+    "reaction survives reload",
+  );
+  const failure = "Couldn’t update your reaction.";
+  await page.route("**/reactions", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ message: failure }),
+    }),
+  );
+  await heart.tap();
+  await praise.getByRole("alert").getByText(failure, { exact: true }).waitFor();
+  assert.equal(
+    await heart.getAttribute("aria-pressed"),
+    "true",
+    "a failed removal retains the saved reaction",
+  );
+  await page.unroute("**/reactions");
+  await heart.tap();
+  await heart.waitFor({ state: "detached" });
+  await page.reload();
+  assert.equal(
+    await praise.getByRole("group", { name: "Message reactions" }).count(),
+    0,
+  );
+  assert.deepEqual(errors, []);
+});
+
+test("reviews / posted assignments leave the queue and expose confirmed X links", async (t) => {
+  const browser = await engine.launch();
+  const owner = randomUUID(),
+    reviewer = randomUUID(),
+    friendship = randomUUID(),
+    session = token();
+  const drafts = Array.from({ length: 3 }, () => ({
+    id: randomUUID(),
+    token: token(),
+  }));
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM drafts WHERE id=ANY($1::uuid[])", [
+      drafts.map((d) => d.id),
+    ]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, reviewer],
+    ]);
+  });
+  for (const [id, name] of [
+    [owner, "Author"],
+    [reviewer, "Reviewer"],
+  ])
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'unused')",
+      [id, `${id}@example.test`, name],
+    );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [tokenHash(session), reviewer],
+  );
+  await db.query(
+    "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+    [friendship, owner, reviewer],
+  );
+  for (const [index, draft] of drafts.entries()) {
+    const content = blankContent("Author");
+    content.posts[0].text = [
+      "Needs review",
+      "Already reviewed",
+      "Posted without my feedback",
+    ][index];
+    await db.query(
+      "INSERT INTO drafts(id,owner_id,content,friend_token,shared_revision,posted_at) VALUES($1,$2,$3,$4,1,$5)",
+      [draft.id, owner, content, draft.token, index === 2 ? new Date() : null],
+    );
+    await db.query(
+      "INSERT INTO revisions(draft_id,number,content) VALUES($1,1,$2)",
+      [draft.id, content],
+    );
+    await db.query(
+      "INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)",
+      [draft.id, reviewer, friendship],
+    );
+  }
+  await db.query(
+    "INSERT INTO comments(id,draft_id,revision,user_id,name,body) VALUES($1,$2,1,$3,'Reviewer','Looks good!')",
+    [randomUUID(), drafts[1].id, reviewer],
+  );
+  const context = await browser.newContext({
+    serviceWorkers: "block",
+    viewport: { width: 1280, height: 900 },
+  });
+  await context.addCookies([
+    { name: "lastpeek_session", value: session, url: origin },
+  ]);
+  const page = await context.newPage();
+  const hydrated = page.waitForResponse(
+    (r) => r.url().endsWith("/api/presence") && r.request().method() === "POST",
+  );
+  await page.goto(`${origin}/?tab=review`);
+  await hydrated;
+  await page
+    .getByRole("link", { name: "Review post: Needs review", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: /^Review post:/ }).count(),
+    1,
+  );
+  await page.getByRole("tab", { name: "Done", exact: true }).click();
+  const posted = page.getByRole("article").filter({
+    has: page.getByText("Posted without my feedback", { exact: true }),
+  });
+  const reviewed = page
+    .getByRole("article")
+    .filter({ has: page.getByText("Already reviewed", { exact: true }) });
+  await posted.getByText("Posted", { exact: true }).waitFor();
+  await reviewed.getByText("Reviewed", { exact: true }).waitFor();
+  await posted.getByRole("link", { name: /^Review post:/ }).click();
+  await page.waitForURL(`${origin}/r/${drafts[2].token}`);
+  await page.getByRole("heading", { name: "Post", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "View on X", exact: true }).count(),
+    0,
+    "posted without a confirmed URL has no invented link",
+  );
+  assert.equal(
+    await page.getByText("Friends only", { exact: true }).count(),
+    0,
+  );
+  await db.query(
+    "INSERT INTO posted_x_links(draft_id,edit_version,status,url) VALUES($1,1,'linked','https://x.com/author/status/987654')",
+    [drafts[2].id],
+  );
+  await page.reload();
+  assert.equal(
+    await page
+      .getByRole("link", { name: "View on X", exact: true })
+      .getAttribute("href"),
+    "https://x.com/author/status/987654",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("link", { name: "View on X", exact: true }).waitFor();
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+});
+
 test("discussions / touch suggestions and flat conversations with focused branches", async (t) => {
   const browser = await engine.launch();
   const owner = randomUUID(),
     id = randomUUID(),
     session = token();
-  const ids = Array.from({ length: 6 }, () => randomUUID());
+  const ids = Array.from({ length: 30 }, () => randomUUID());
   t.after(async () => {
     await browser.close();
     await db.query("DELETE FROM drafts WHERE id=$1", [id]);
@@ -4381,9 +4662,38 @@ test("discussions / touch suggestions and flat conversations with focused branch
     "Earlier-message branch",
     "Latest branch answer",
     "Deeper detail",
+    "Another detail",
+    "Deepest detail",
+    ...Array.from({ length: 10 }, (_, i) => `Root reply ${i + 3}`),
+    ...Array.from({ length: 6 }, (_, i) => `Branch reply ${i + 3}`),
+    ...Array.from({ length: 6 }, (_, i) => `Other opening ${i + 1}`),
   ];
-  const parents = [null, ids[0], ids[1], ids[1], ids[3], ids[3]];
-  const groups = [null, ids[0], ids[0], ids[1], ids[1], ids[3]];
+  const parents = [
+    null,
+    ids[0],
+    ids[1],
+    ids[1],
+    ids[3],
+    ids[3],
+    ids[5],
+    ids[6],
+    ...Array(10).fill(ids[0]),
+    ...Array(6).fill(ids[1]),
+    ...Array(6).fill(null),
+  ];
+  const groups = [
+    null,
+    ids[0],
+    ids[0],
+    ids[1],
+    ids[1],
+    ids[3],
+    ids[5],
+    ids[6],
+    ...Array(10).fill(ids[0]),
+    ...Array(6).fill(ids[1]),
+    ...Array(6).fill(null),
+  ];
   for (let i = 0; i < ids.length; i++)
     await db.query(
       "INSERT INTO comments(id,draft_id,revision,name,body,user_id,parent_id,thread_parent_id,created_at) VALUES($1,$2,1,'Branch author',$3,$4,$5,$6,now()-interval '1 minute'+$7*interval '1 second')",
@@ -4445,6 +4755,52 @@ test("discussions / touch suggestions and flat conversations with focused branch
     page
       .getByRole("article")
       .filter({ has: page.getByText(text, { exact: true }) });
+  await message("Other opening 6").waitFor();
+  await message("Opening question").waitFor();
+  await message("Root reply 5").waitFor();
+  await message("Branch reply 5").waitFor();
+  assert.equal(await message("Root reply 6").count(), 0);
+  assert.equal(await message("Branch reply 6").count(), 0);
+  assert.equal(await message("Deeper detail").count(), 0);
+  const rootX = (await message("Opening question").boundingBox())!.x;
+  const secondX = (await message("First answer").boundingBox())!.x;
+  const thirdX = (await message("Earlier-message branch").boundingBox())!.x;
+  assert.ok(
+    rootX < secondX && secondX < thirdX,
+    "three visible message layers",
+  );
+  const groupsInView = page.getByRole("group", {
+    name: "Replies to Branch author",
+    exact: true,
+  });
+  await groupsInView
+    .first()
+    .getByRole("button", { name: "Show 5 more replies", exact: true })
+    .tap();
+  await message("Root reply 10").waitFor();
+  assert.equal(await message("Root reply 11").count(), 0);
+  assert.equal(
+    await message("Branch reply 6").count(),
+    0,
+    "each layer expands independently",
+  );
+  await groupsInView
+    .first()
+    .getByRole("button", { name: "Show 2 more replies", exact: true })
+    .tap();
+  await message("Root reply 12").waitFor();
+  await groupsInView
+    .nth(1)
+    .getByRole("button", { name: "Show 3 more replies", exact: true })
+    .tap();
+  await message("Branch reply 8").waitFor();
+  assert.equal(
+    await page
+      .getByRole("region", { name: "Focused conversation", exact: true })
+      .count(),
+    0,
+    "showing more replies never opens a focused thread",
+  );
   const reply = page.getByLabel("Your reply", { exact: true });
   await message("Opening question")
     .getByRole("button", { name: "Reply", exact: true })
@@ -4481,11 +4837,12 @@ test("discussions / touch suggestions and flat conversations with focused branch
   await message("First answer")
     .getByRole("button", { name: "Reply", exact: true })
     .tap();
-  await page
-    .getByRole("region", { name: "Focused conversation", exact: true })
-    .waitFor();
   await message("Latest branch answer").waitFor();
-  assert.equal(await message("Opening question").count(), 0);
+  assert.equal(
+    await message("Opening question").count(),
+    1,
+    "replying in the second layer stays inline",
+  );
   assert.equal(
     await message("Latest branch answer").evaluate(
       (node, input) =>
@@ -4519,9 +4876,13 @@ test("discussions / touch suggestions and flat conversations with focused branch
     "focusing a branch never leaves a duplicate outgoing copy beneath its new root",
   );
   await page
+    .getByRole("button", { name: "View replies to Branch author", exact: true })
+    .tap();
+  await message("Deepest detail").waitFor();
+  await page
     .getByRole("button", { name: "Back to previous thread", exact: true })
     .tap();
-  await message("First answer").waitFor();
+  await message("Earlier-message branch").waitFor();
   await page
     .getByRole("button", { name: "Back to discussion", exact: true })
     .tap();
@@ -4531,10 +4892,19 @@ test("discussions / touch suggestions and flat conversations with focused branch
   await page
     .getByRole("button", { name: "View replies to Branch author", exact: true })
     .tap();
-  await message("Latest branch answer").waitFor();
-  await general.fill("");
-  await page.goto(`${origin}/drafts/${id}#feedback-${ids[5]}`);
   await message("Deeper detail").waitFor();
+  await general.fill("");
+  await page.goto(`${origin}/drafts/${id}#feedback-${ids[17]}`);
+  await message("Root reply 12").waitFor();
+  assert.equal(
+    await page
+      .getByRole("region", { name: "Focused conversation", exact: true })
+      .count(),
+    0,
+    "a paginated reply link expands its existing layer",
+  );
+  await page.goto(`${origin}/drafts/${id}#feedback-${ids[7]}`);
+  await message("Deepest detail").waitFor();
   assert.equal(
     await page
       .getByRole("region", { name: "Focused conversation", exact: true })
@@ -5020,6 +5390,42 @@ test(
         ?.width,
       584,
     );
+    await split.press("Home");
+    await page
+      .getByRole("button", { name: "Mark as posted", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Delete draft", exact: true })
+      .waitFor();
+    await split.press("End");
+    await page
+      .getByRole("button", { name: "Mark as posted", exact: true })
+      .waitFor({ state: "detached" });
+    await page
+      .getByRole("button", { name: "More draft actions", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Mark as posted", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Delete draft", exact: true })
+      .waitFor();
+    const copyBox = (await page
+      .getByRole("button", { name: "Copy link", exact: true })
+      .boundingBox())!;
+    const moreBox = (await page
+      .getByRole("button", { name: "More draft actions", exact: true })
+      .boundingBox())!;
+    assert.ok(
+      copyBox.x + copyBox.width < moreBox.x,
+      "narrow-column actions do not overlap the share button",
+    );
+    await page.keyboard.press("Escape");
+    await split.press("Home");
+    await page
+      .getByRole("button", { name: "Mark as posted", exact: true })
+      .waitFor();
+    await split.press("End");
     await page.goto(origin);
     assert.equal(
       await page.evaluate(
@@ -5660,6 +6066,12 @@ for (const scenario of [
             ],
           );
         }
+        await db.query(
+          `INSERT INTO comments(id,draft_id,revision,name,body,user_id,created_at)
+           SELECT $1,id,shared_revision,'Reader','My own question',$3,now()+interval '10 seconds'
+           FROM drafts WHERE id=$2`,
+          [randomUUID(), feedIds[1], userId],
+        );
         await page.reload();
         await page.waitForLoadState("networkidle");
         const feedbackLinks = page.getByRole("link", {
@@ -5669,6 +6081,14 @@ for (const scenario of [
           await feedbackLinks.count(),
           5,
           "five recent comments, including legacy resolved feedback",
+        );
+        assert.equal(
+          await page
+            .getByRole("complementary", { name: "Recent feedback" })
+            .getByText("My own question", { exact: true })
+            .count(),
+          0,
+          "recent feedback excludes my messages without excluding guest feedback",
         );
         assert.ok(
           (await feedbackLinks.first().getAttribute("href"))?.endsWith(
@@ -5746,6 +6166,9 @@ for (const scenario of [
         );
         await page
           .getByRole("link", { name: /^Open draft: Feed example 1/ })
+          .click();
+        await page
+          .getByRole("button", { name: "More draft actions", exact: true })
           .click();
         await page
           .getByRole("button", { name: "Mark as posted", exact: true })
@@ -7979,6 +8402,9 @@ for (const scenario of [
           );
           await page.goto(`${baseURL}/drafts/${id}`);
           await page.getByText("All changes saved", { exact: true }).waitFor();
+          await page
+            .getByRole("button", { name: "More draft actions", exact: true })
+            .click();
           await page
             .getByRole("button", { name: "Delete draft", exact: true })
             .click();

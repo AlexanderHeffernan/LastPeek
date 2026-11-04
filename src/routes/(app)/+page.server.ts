@@ -36,10 +36,11 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     updated_at: Date;
     created_at: Date;
     completed_at: Date | null;
+    posted_at: Date | null;
     token: string;
     feedback: number;
   }>(
-    `SELECT d.id,r.content,d.updated_at,fr.created_at,d.friend_token AS token,
+    `SELECT d.id,r.content,d.updated_at,fr.created_at,d.posted_at,d.friend_token AS token,
       (SELECT max(c.created_at) FROM comments c
        WHERE c.draft_id=d.id AND c.user_id=fr.recipient_id AND c.revision=d.shared_revision) AS completed_at,
       (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND c.deleted_at IS NULL) AS feedback
@@ -69,7 +70,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
      FROM comments c JOIN drafts d ON d.id=c.draft_id
      LEFT JOIN users u ON u.id=c.user_id
      LEFT JOIN x_accounts x ON x.user_id=u.id
-     WHERE d.owner_id=$1 AND c.deleted_at IS NULL AND d.id=ANY($2::uuid[]) ORDER BY c.created_at DESC,c.id DESC`,
+     WHERE d.owner_id=$1 AND c.user_id IS DISTINCT FROM $1 AND c.deleted_at IS NULL AND d.id=ANY($2::uuid[]) ORDER BY c.created_at DESC,c.id DESC`,
     [user.id, drafts.rows.map((draft) => draft.id)],
   );
   const openingMedia = [...drafts.rows, ...reviews.rows].flatMap(
@@ -89,7 +90,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     reviews: reviews.rows.map((r) => ({
       ...r,
       shared: true,
-      posted_at: r.completed_at?.toISOString() ?? null,
+      posted_at: r.posted_at?.toISOString() ?? null,
       updated_at: r.updated_at.toISOString(),
       created_at: r.created_at.toISOString(),
       completed_at: r.completed_at?.toISOString() ?? null,
@@ -97,6 +98,7 @@ export const load = async ({ locals }: PageServerLoadEvent) => {
     drafts: drafts.rows.map((d) => ({
       ...d,
       token: null,
+      completed_at: null,
       posted_at: d.posted_at?.toISOString() ?? null,
       content: {
         ...d.content,

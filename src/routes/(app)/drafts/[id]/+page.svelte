@@ -82,6 +82,32 @@
   let changingType = $state(false);
   let shareError = $state("");
   let moreOpen = $state(false);
+  let actionStrip = $state<HTMLDivElement>();
+  let compactActions = $state(false);
+  $effect(() => {
+    const element = actionStrip;
+    const posted = !!data.draft.posted_at;
+    const requiredWidth = posted
+      ? 252
+      : shareToken
+        ? 340
+        : data.recipients.length
+          ? 322
+          : 296;
+    if (!element) return;
+    const mobile = matchMedia("(max-width: 600px)");
+    const measure = () => {
+      compactActions = mobile.matches || element.clientWidth < requiredWidth;
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    mobile.addEventListener("change", measure);
+    measure();
+    return () => {
+      observer.disconnect();
+      mobile.removeEventListener("change", measure);
+    };
+  });
   let finishOpen = $state(false);
   let finishCopiedText = $state<string | null>(null);
   let finishError = $state("");
@@ -663,7 +689,7 @@
       </div>{/each}
   </section>
   <aside class="draft-sidebar" aria-label="Feedback and sharing">
-    <div class="draft-actions">
+    <div class="draft-actions" bind:this={actionStrip}>
       <div class="share-actions">
         <Button
           variant={shareToken ? "secondary" : "default"}
@@ -719,85 +745,83 @@
           </Popover.Root>{/if}
       </div>
       <div class="secondary-actions">
-        <div class="desktop-draft-actions">
-          {#if !data.draft.posted_at}<Button
-              variant="secondary"
-              class="icon-button"
-              title="Mark as posted"
-              aria-label="Mark as posted"
-              disabled={busy || saving || uploading || deleting}
-              onclick={() => completeDraft()}
-              ><Icon name="done" size={20} /></Button
-            >{/if}
-          <Button
-            variant="destructive"
-            class="icon-button danger"
-            title="Delete draft"
-            aria-label="Delete draft"
-            disabled={uploading || saving || busy || deleting}
-            onclick={() => removeDraft()}
-            ><Icon name="trash" size={20} /></Button
-          >
-        </div>
-        <div
-          class:mobile-draft-actions={!!data.draft.posted_at ||
-            !!data.xPublishing.publication}
-        >
-          <Popover.Root bind:open={moreOpen}>
-            <Popover.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="outline"
-                  class="icon-button"
-                  aria-label="More draft actions"
-                  title="More draft actions"
-                  ><Icon name="more" size={22} /></Button
-                >
-              {/snippet}
-            </Popover.Trigger>
-            <Popover.Content
-              class="share-menu"
-              sideOffset={8}
-              align="end"
-              aria-label="More draft actions"
+        {#if !compactActions}<div class="desktop-draft-actions">
+            {#if !data.draft.posted_at}<Button
+                variant="secondary"
+                class="icon-button"
+                title="Mark as posted"
+                aria-label="Mark as posted"
+                disabled={busy || saving || uploading || deleting}
+                onclick={() => completeDraft()}
+                ><Icon name="done" size={20} /></Button
+              >{/if}
+            <Button
+              variant="destructive"
+              class="icon-button danger"
+              title="Delete draft"
+              aria-label="Delete draft"
+              disabled={uploading || saving || busy || deleting}
+              onclick={() => removeDraft()}
+              ><Icon name="trash" size={20} /></Button
             >
-              {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
-                  variant="ghost"
-                  onclick={() => {
-                    moreOpen = false;
-                    nextType = content.source?.kind ?? "post";
-                    sourceURL = content.source?.url ?? "";
-                    typeError = "";
-                    typeOpen = true;
-                  }}><Icon name="edit" size={16} />Change draft type</Button
-                >{/if}
-              <div class="mobile-draft-actions">
-                {#if !data.draft.posted_at}
+          </div>{/if}
+        {#if compactActions || (!data.draft.posted_at && !data.xPublishing.publication)}<div
+          >
+            <Popover.Root bind:open={moreOpen}>
+              <Popover.Trigger>
+                {#snippet child({ props })}
                   <Button
+                    {...props}
+                    variant="outline"
+                    class="icon-button"
+                    aria-label="More draft actions"
+                    title="More draft actions"
+                    ><Icon name="more" size={22} /></Button
+                  >
+                {/snippet}
+              </Popover.Trigger>
+              <Popover.Content
+                class="share-menu"
+                sideOffset={8}
+                align="end"
+                aria-label="More draft actions"
+              >
+                {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
                     variant="ghost"
-                    disabled={busy || saving || uploading || deleting}
                     onclick={() => {
                       moreOpen = false;
-                      void completeDraft();
-                    }}
-                  >
-                    <Icon name="done" size={16} />Mark as posted
-                  </Button>
-                {/if}
-                <Button
-                  variant="ghost"
-                  class="danger"
-                  disabled={uploading || saving || busy || deleting}
-                  onclick={() => {
-                    moreOpen = false;
-                    void removeDraft();
-                  }}><Icon name="trash" size={16} />Delete draft</Button
-                >
-              </div>
-            </Popover.Content>
-          </Popover.Root>
-        </div>
+                      nextType = content.source?.kind ?? "post";
+                      sourceURL = content.source?.url ?? "";
+                      typeError = "";
+                      typeOpen = true;
+                    }}><Icon name="edit" size={16} />Change draft type</Button
+                  >{/if}
+                {#if compactActions}<div>
+                    {#if !data.draft.posted_at}
+                      <Button
+                        variant="ghost"
+                        disabled={busy || saving || uploading || deleting}
+                        onclick={() => {
+                          moreOpen = false;
+                          void completeDraft();
+                        }}
+                      >
+                        <Icon name="done" size={16} />Mark as posted
+                      </Button>
+                    {/if}
+                    <Button
+                      variant="ghost"
+                      class="danger"
+                      disabled={uploading || saving || busy || deleting}
+                      onclick={() => {
+                        moreOpen = false;
+                        void removeDraft();
+                      }}><Icon name="trash" size={16} />Delete draft</Button
+                    >
+                  </div>{/if}
+              </Popover.Content>
+            </Popover.Root>
+          </div>{/if}
       </div>
       <span class="sr-only" role="status">{status}</span>
       {#if error}<div class="action-error" role="alert">

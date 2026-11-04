@@ -73,6 +73,8 @@ export type Media = {
 export type Feedback = {
   id: string;
   can_manage?: boolean;
+  unread_notification?: boolean;
+  reactions?: { emoji: string; count: number; mine: boolean }[];
   deleted_at?: string | null;
   edited_at?: string | null;
   edit_version?: number;

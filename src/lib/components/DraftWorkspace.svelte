@@ -113,16 +113,20 @@
   ];
   const counts = $derived({
     drafts: data.drafts.filter((d) => !d.posted_at).length,
-    review: data.reviews.filter((r) => !r.completed_at).length,
+    review: data.reviews.filter((r) => !r.completed_at && !r.posted_at).length,
   });
   const visible = $derived(
     (filter === "review"
-      ? data.reviews.filter((r) => !r.completed_at)
+      ? data.reviews.filter((r) => !r.completed_at && !r.posted_at)
       : filter === "done"
         ? [
             ...data.drafts.filter((d) => d.posted_at),
-            ...data.reviews.filter((r) => r.completed_at),
-          ].sort((a, b) => b.posted_at!.localeCompare(a.posted_at!))
+            ...data.reviews.filter((r) => r.completed_at || r.posted_at),
+          ].sort((a, b) =>
+            (b.posted_at ?? b.completed_at!).localeCompare(
+              a.posted_at ?? a.completed_at!,
+            ),
+          )
         : data.drafts.filter((d) => !d.posted_at)
     ).filter((draft) =>
       draft.content.posts.some((post) =>
@@ -436,10 +440,11 @@
                       >{draft.shared ? "Shared" : "Only you"}</span
                     >
                   </Button>
-                  {#if draft.posted_at}<span class="queue-status"
-                      ><Icon name="done" size={16} />{draft.token
-                        ? "Reviewed"
-                        : "Posted"}</span
+                  {#if draft.posted_at || draft.completed_at}<span
+                      class="queue-status"
+                      ><Icon name="done" size={16} />{draft.posted_at
+                        ? "Posted"
+                        : "Reviewed"}</span
                     >{/if}
                 </div>
               </article>
@@ -687,6 +692,7 @@
   .recent-feedback {
     grid-area: feedback;
     align-self: start;
+    margin-bottom: 32px;
     border: 1px solid var(--border);
     border-radius: 16px;
     overflow: hidden;

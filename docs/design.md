@@ -19,8 +19,11 @@ native post presentation, shared controls and responsive shell.
 - One Discussion beside the draft on desktop and after it in mobile page flow. Authors can ask
   before sharing and reply in the same space as reviewers. Replies attach to the exact selected
   message at any depth. Normal back-and-forth continues flat within its tier; replying to an earlier
-  message branches. View replies opens deeper branches with Back navigation and only one visible
-  indent, preserving reading width on mobile. Compose after existing replies, where the new message
+  message branches. Show three message layers (two indents); View replies opens deeper branches
+  with Back navigation. Each reply layer initially shows five messages; Show more reveals up to
+  five more in place without a collapse control. Root comments remain uncapped. Deep links reveal
+  their target, and replying reveals its destination so the composer follows existing replies.
+  Leave scrollable space below the collapsed Resolved divider. Compose where the new message
   will appear. Name and Author/Guest
   pills occupy the first line beside the 40px avatar; handle, time and compact Edited marker occupy the second.
   Comment content uses the full width below that identity header. Replies retain an indented connector.
@@ -29,6 +32,11 @@ native post presentation, shared controls and responsive shell.
   retain an anonymous Message deleted placeholder; leaf messages and empty placeholders disappear.
   Reply composition stays inside its conversation with an inset send icon, no cancel cross. The general
   composer remains in place and retains its text. Guests provide a name only when sending.
+- Message actions include a compact smile picker for thumbs up, heart and celebration. Existing
+  reactions appear as count pills below the message, with your choices pressed; click again to remove.
+  Use 44px touch targets. Guests own reactions through the same browser-session credential as messages.
+  Reactions refresh for other viewers without creating inbox or push notifications. Interacting with
+  a feedback message by touch, pointer or keyboard clears only your notification for that message.
 - Draft and All Drafts share the same 1000px desktop application frame, including the 68px rail.
   The home feed retains its 600px main column. Post pages default to a 600px post and 24px gap;
   only their inner split is adjustable with a pointer or arrow keys (460–628px post width), saved on that device. The page has
@@ -50,6 +58,10 @@ native post presentation, shared controls and responsive shell.
   reopens them. Discussion counts exclude resolved conversations and their replies.
 - Discussion belongs to its draft, not a separate navigation destination. Recent feedback and
   notifications link directly to the draft/comment; old `/feedback` bookmarks return to Drafts.
+  Recent feedback excludes the current user's own messages, while retaining feedback from guests.
+- Posted friend assignments leave To review even without recipient feedback and appear in Done as
+  Posted, not Reviewed. Reviewers see View on X only for a confirmed native or manually linked URL;
+  unconfirmed matches stay private to the author's reconciliation controls.
 - Other viewers appear as a compact avatar stack beside the Post heading, with hover names and
   explicit guest identities and online dots. Hover or tap expands a name beside its avatar; mobile taps collapse again after a short delay. Entering/leaving viewers animate quietly. Mobile draft/review pages
   omit the separate account/mascot header; keep the post heading and bottom navigation.
@@ -60,7 +72,10 @@ native post presentation, shared controls and responsive shell.
   No automatic edits or public AI comments. Changed drafts disable stale actions.
 - More draft actions contains Change draft type, using shared Select, with a source field for Reply/Quote.
   Errors stay inside the change dialog; writing, media and discussion remain intact.
-- Desktop exposes Mark as posted and Delete beside sharing; mobile keeps them in More. No duplicate
+- Desktop exposes Mark as posted and Delete beside sharing when room permits; mobile keeps them
+  in More. When the actual column is too narrow, move them into More as the
+  splitter moves, and restore them when room returns. Posted drafts need less room because Mark
+  as posted is absent. Never let the review-link split button overlap adjacent actions. No duplicate
   AI action above its tab. Images open a shared large Dialog; video enlargement sits below playback
   controls. Downloads live in the viewer, not repeated under posts. Image removal uses circular
   controls; video removal never overlays sound controls.

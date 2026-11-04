@@ -10,7 +10,6 @@
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import Icon from "$lib/components/Icon.svelte";
-  import FriendControl from "$lib/components/FriendControl.svelte";
   import type { Feedback } from "$lib/contracts";
   import { unresolvedCount } from "$lib/discussions";
   let { data, form } = $props();
@@ -137,14 +136,19 @@
     >
     <h1>{postKind}</h1>
     <ReviewPresence token={data.token} />
-    {#if data.private}<span class="small muted"
-        ><Icon name="lock" size={16} />Friends only</span
-      >{/if}
-    <FriendControl
-      userId={data.ownerId}
-      name={data.content.author.name}
-      token={data.token}
-    />
+    {#if data.postedURL}
+      <Button
+        variant="secondary"
+        href={data.postedURL}
+        aria-label="View on X"
+        target="_blank"
+        onclick={(event) => {
+          if (matchMedia("(pointer: coarse)").matches)
+            event.currentTarget.setAttribute("target", "_self");
+        }}
+        rel="noopener noreferrer">View on <Icon name="x" size={16} /></Button
+      >
+    {/if}
   </header>
   <section class="editor-posts" aria-label="Post for review">
     <PostPreview
