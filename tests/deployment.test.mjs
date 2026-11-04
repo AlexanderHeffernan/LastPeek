@@ -167,7 +167,9 @@ setTimeout(() => http.createServer(async (req, res) => {
     return res.end(revision);
   }
   if(req.url === '/writes') return res.end(fs.existsSync('/app/data/media/writes') ? fs.readFileSync('/app/data/media/writes') : '');
-  res.writeHead(200, {'Content-Type':'text/html'}); res.end('<html>'+revision+'</html>');
+  // A realistic landing body exceeds fetch's unread-body buffer. The updater
+  // must consume it before nginx closes the response connection.
+  res.writeHead(200, {'Content-Type':'text/html'}); res.end('<html>'+revision+'x'.repeat(128 * 1024)+'</html>');
 }).listen(3000, '0.0.0.0'), 600);
 `,
     );
@@ -421,6 +423,20 @@ print(json.dumps(module.dispatch(json.loads(sys.argv[1]), 'read')))
         GREEN_IMAGE: "not-a-release",
       });
       assert.equal(await health(), revisions[1]);
+      // A running slot must remain recoverable after its local digest mapping
+      // disappears. Restore that exact registry image, without replacing it.
+      await docker(
+        "image",
+        "rm",
+        "--force",
+        `${image}:${revisions[1]}`,
+        `${image}:latest`,
+      );
+      await assert.rejects(docker("image", "inspect", digests[1]));
+      assert.equal(await health(), revisions[1]);
+      await update();
+      assert.equal(await health(), revisions[1]);
+      await docker("image", "inspect", digests[1]);
       await docker("tag", `${image}:${revisions[2]}`, `${image}:latest`);
       await docker("push", `${image}:latest`);
       await assert.rejects(update({ FAIL_MIGRATION: "1" }));

@@ -57,8 +57,10 @@ def probe(service, revision, runner=None):
     script = """
 const health = await fetch('http://HOST:3000/health', {signal: AbortSignal.timeout(5000)});
 if (!health.ok || health.headers.get('x-lastpeek-revision') !== 'REVISION') process.exit(1);
+await health.arrayBuffer();
 const page = await fetch('http://HOST:3000/', {signal: AbortSignal.timeout(5000)});
 if (!page.ok || !(page.headers.get('content-type') || '').includes('text/html')) process.exit(1);
+await page.arrayBuffer();
 """.replace("HOST", host).replace("REVISION", revision)
     # nginx has no Node runtime; use the new app to probe the proxy.
     compose("exec", "-T", runner or service,
@@ -77,7 +79,16 @@ def wait_for_proxy(slot, revision):
 
 
 def image_metadata(image):
-    metadata = json.loads(run("docker", "image", "inspect", image, capture=True))[0]
+    try:
+        raw = run("docker", "image", "inspect", image, capture=True)
+    except subprocess.CalledProcessError:
+        if "@sha256:" not in image:
+            raise
+        # A running slot can outlive its local repository-digest reference.
+        # Restore only its exact immutable pin, never a mutable replacement.
+        run("docker", "pull", image)
+        raw = run("docker", "image", "inspect", image, capture=True)
+    metadata = json.loads(raw)[0]
     revision = metadata["Config"]["Labels"]["org.opencontainers.image.revision"]
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise RuntimeError("Image has no valid source revision")
