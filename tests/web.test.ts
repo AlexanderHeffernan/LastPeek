@@ -833,10 +833,6 @@ test("user identities / compact feedback friend actions and friends-only presenc
       );
     }
     await page.setViewportSize({ width: 1280, height: 900 });
-    // Capture hover-prefetch as well as click navigation.
-    const draftData = page.waitForResponse((r) =>
-      r.url().includes(`/drafts/${draft}/__data.json`),
-    );
     await page.goto(baseURL);
     await page.getByText("Guest reviewer", { exact: true }).waitFor();
     const newReviewer = page.getByRole("article", {
@@ -926,9 +922,11 @@ test("user identities / compact feedback friend actions and friends-only presenc
     await page.waitForURL(
       (url) => url.pathname === `/drafts/${draft}` && !!url.hash,
     );
-    // Kit can render streamed navigation data before its transport has closed.
-    // Finish that response before the later reload, which otherwise aborts it in WebKit.
-    assert.equal(await (await draftData).finished(), null);
+    // An earlier hover-prefetch can be superseded. Wait for the destination,
+    // not the lifetime of that obsolete transport.
+    await page
+      .getByRole("region", { name: "Edit draft", exact: true })
+      .waitFor();
     // The layout can reuse activity for the same friends across navigation.
     // Verify the visible identity, not an incidental new polling request.
     await page
