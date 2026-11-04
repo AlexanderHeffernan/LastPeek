@@ -833,6 +833,14 @@ test("user identities / compact feedback friend actions and friends-only presenc
       );
     }
     await page.setViewportSize({ width: 1280, height: 900 });
+    // WebKit reports an aborted data fetch as a page error on the later reload.
+    // Keep its transport workaround out of Chromium's navigation readiness check.
+    const draftData =
+      engine === webkit
+        ? page.waitForResponse((r) =>
+            r.url().includes(`/drafts/${draft}/__data.json`),
+          )
+        : null;
     await page.goto(baseURL);
     await page.getByText("Guest reviewer", { exact: true }).waitFor();
     const newReviewer = page.getByRole("article", {
@@ -922,11 +930,10 @@ test("user identities / compact feedback friend actions and friends-only presenc
     await page.waitForURL(
       (url) => url.pathname === `/drafts/${draft}` && !!url.hash,
     );
-    // An earlier hover-prefetch can be superseded. Wait for the destination,
-    // not the lifetime of that obsolete transport.
     await page
       .getByRole("region", { name: "Edit draft", exact: true })
       .waitFor();
+    if (draftData) assert.equal(await (await draftData).finished(), null);
     // The layout can reuse activity for the same friends across navigation.
     // Verify the visible identity, not an incidental new polling request.
     await page
