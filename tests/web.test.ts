@@ -1342,11 +1342,8 @@ test("settings / appearance follows the device unless explicitly chosen and pers
     "rgb(255, 246, 237)",
   );
   await otherPage.getByRole("button", { name: "Dark", exact: true }).click();
-  assert.equal(
-    await otherPage
-      .locator("body")
-      .evaluate((body) => getComputedStyle(body).backgroundColor),
-    "rgb(11, 11, 12)",
+  await otherPage.waitForFunction(
+    () => getComputedStyle(document.body).backgroundColor === "rgb(11, 11, 12)",
   );
   await second.close();
   await page.reload();
