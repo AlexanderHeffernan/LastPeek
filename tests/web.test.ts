@@ -8511,7 +8511,15 @@ for (const scenario of [
           assert.equal(renewed.revision, latestRevision);
 
           // Account identity updates existing working drafts, never immutable shared versions.
+          // Live presence separately permits the current avatar; finish leaving first.
+          const ownerLeft = page.waitForResponse(
+            (response) =>
+              response.url().endsWith("/api/review-presence") &&
+              response.request().postDataJSON()?.leave === true &&
+              response.request().postDataJSON()?.draftId === id,
+          );
           await page.getByRole("link", { name: "Account settings" }).click();
+          assert.equal((await ownerLeft).status(), 200);
           await page
             .getByLabel("Display name", { exact: true })
             .fill("Alex Updated");
@@ -8541,6 +8549,7 @@ for (const scenario of [
           const replacementId = (
             await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId])
           ).rows[0].avatar_id;
+          assert.notEqual(replacementId, avatarId);
           assert.equal(
             (
               await guest.request.get(
