@@ -58,7 +58,9 @@
       { rootMargin: "150% 0px" },
     );
     const visible = new IntersectionObserver(
-      ([entry]) => {
+      (entries) => {
+        // One delivery can contain both entering and leaving the viewport.
+        const entry = entries.at(-1)!;
         if (!entry.isIntersecting) return element.pause();
         if (watching || held) return;
         void element.play().catch(() => {});

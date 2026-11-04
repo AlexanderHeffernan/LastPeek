@@ -136,6 +136,25 @@ test("landing / film stays muted through rewind before sound starts", async (t) 
   const browser = await engine.launch();
   t.after(() => browser.close());
   const context = await browser.newContext({ serviceWorkers: "block" });
+  // Browsers may queue several visibility transitions before delivering a batch.
+  await context.addInitScript(() => {
+    window.IntersectionObserver = class extends IntersectionObserver {
+      constructor(
+        callback: IntersectionObserverCallback,
+        options?: IntersectionObserverInit,
+      ) {
+        let previous: IntersectionObserverEntry | undefined;
+        super((entries, observer) => {
+          const batch =
+            previous?.isIntersecting && !entries.at(-1)?.isIntersecting
+              ? [previous, ...entries]
+              : entries;
+          callback(batch, observer);
+          previous = entries.at(-1);
+        }, options);
+      }
+    };
+  });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
