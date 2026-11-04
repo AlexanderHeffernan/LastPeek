@@ -871,13 +871,21 @@ test("user identities / compact feedback friend actions and friends-only presenc
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     // WebKit reports an aborted data fetch as a page error on the later reload.
-    // Keep its transport workaround out of Chromium's navigation readiness check.
-    const draftData =
-      engine === webkit
-        ? page.waitForResponse((r) =>
-            r.url().includes(`/drafts/${draft}/__data.json`),
-          )
-        : null;
+    // Track refreshes too, not just the first hover-prefetch response.
+    const draftData: Promise<Error | null>[] = [];
+    if (engine === webkit)
+      page.on("request", (request) => {
+        if (request.url().includes(`/drafts/${draft}/__data.json`))
+          draftData.push(
+            request
+              .response()
+              .then((response) =>
+                response
+                  ? response.finished()
+                  : new Error("Draft data request did not receive a response"),
+              ),
+          );
+      });
     await page.goto(baseURL);
     await page.getByText("Guest reviewer", { exact: true }).waitFor();
     const newReviewer = page.getByRole("article", {
@@ -970,7 +978,7 @@ test("user identities / compact feedback friend actions and friends-only presenc
     await page
       .getByRole("region", { name: "Edit draft", exact: true })
       .waitFor();
-    if (draftData) assert.equal(await (await draftData).finished(), null);
+    for (const transfer of draftData) assert.equal(await transfer, null);
     // The layout can reuse activity for the same friends across navigation.
     // Verify the visible identity, not an incidental new polling request.
     await page
@@ -1015,6 +1023,7 @@ test("user identities / compact feedback friend actions and friends-only presenc
       "DELETE FROM friendships WHERE requester_id=$1 AND recipient_id=$2",
       [reviewerId, owner],
     );
+    for (const transfer of draftData) assert.equal(await transfer, null);
     await page.reload();
     const revoked = page.getByRole("article", {
       name: "Feedback from Rae Rivers",
@@ -1029,6 +1038,7 @@ test("user identities / compact feedback friend actions and friends-only presenc
       "removing friendship hides the dot even on an owned draft",
     );
     await db.query("UPDATE users SET last_seen_at=now() WHERE id=$1", [friend]);
+    for (const transfer of draftData) assert.equal(await transfer, null);
     await page.goto(`${baseURL}/friends`);
     await page.getByText("Active now", { exact: true }).waitFor();
     // Failed polling must not keep claiming someone is currently active.
