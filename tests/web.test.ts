@@ -207,7 +207,25 @@ test("landing / film stays muted through rewind before sound starts", async (t) 
         exact: true,
       })
       .scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => document.querySelector("video")?.paused);
+    await page
+      .waitForFunction(() => document.querySelector("video")?.paused)
+      .catch(async (cause) => {
+        const state = await video.evaluate((element) => {
+          const film = element as HTMLVideoElement;
+          const bounds = film.getBoundingClientRect();
+          return {
+            top: bounds.top,
+            bottom: bounds.bottom,
+            viewport: innerHeight,
+            paused: film.paused,
+            time: film.currentTime,
+            error: film.error?.message,
+          };
+        });
+        throw new Error(`Film did not pause: ${JSON.stringify(state)}`, {
+          cause,
+        });
+      });
   }
   // A slow connection may not have supplied metadata when sound is requested.
   // No seeked event fires in that case: playback readiness must release the mute.
@@ -8438,7 +8456,16 @@ for (const scenario of [
             "Keep my unsaved text in this tab",
           );
           await screenshot(stale, "author-edit-conflict");
-          await stale.close();
+          const staleLeft = stale.waitForResponse(
+            (response) =>
+              response.url().endsWith("/api/review-presence") &&
+              response.request().postDataJSON()?.leave === true &&
+              response.request().postDataJSON()?.draftId === id,
+          );
+          stale.once("dialog", (dialog) => dialog.accept());
+          await stale.getByRole("link", { name: "Account settings" }).click();
+          await stale.waitForURL(`${baseURL}/settings`);
+          assert.equal((await staleLeft).status(), 200);
           // Republishing unchanged content is idempotent.
           const latestVersion = (
             await db.query("SELECT edit_version FROM drafts WHERE id=$1", [id])
@@ -8560,6 +8587,7 @@ for (const scenario of [
             ).status(),
             404,
           );
+          await stale.close();
           await reviewer.goto(`${baseURL}/r/${renewed.token}`);
           assert.equal(
             (
