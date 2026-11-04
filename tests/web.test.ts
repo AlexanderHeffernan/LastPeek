@@ -6975,7 +6975,12 @@ for (const scenario of [
           .getByRole("button", { name: "Write your first post", exact: true })
           .click();
         await page.getByLabel("Post 1 text", { exact: true }).waitFor();
-        await page.waitForLoadState("networkidle");
+        // Confirm hydrated editor handlers without waiting on background media.
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        await page
+          .getByLabel("Post 1 text", { exact: true })
+          .and(page.locator(":focus"))
+          .waitFor();
         const id = new URL(page.url()).pathname;
         assert.ok(new URL(page.url()).searchParams.has("new"));
         await page.getByRole("link", { name: "LastPeek home" }).click();
