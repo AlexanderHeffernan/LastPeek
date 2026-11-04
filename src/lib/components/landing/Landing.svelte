@@ -413,7 +413,7 @@
         <h2 id="details-title">Small app. Obsessive details.</h2>
       </div>
       <ul class="bento" use:reveal>
-        <li class="wide">
+        <li class="preview">
           <div class="art art-preview" aria-hidden="true">
             <div class="mini-thread">
               <div class="post">
@@ -480,7 +480,7 @@
           <h3>One link, always live</h3>
           <p>Keep editing. Friends always see the latest version.</p>
         </li>
-        <li class="wide agent">
+        <li class="agent">
           <figure class="art art-agent">
             <blockquote>
               Just hooked LastPeek up to my agents… Asked mine to draft this
@@ -1239,8 +1239,25 @@
     border-radius: var(--r-lg);
     background: var(--surface);
   }
-  .bento > li.wide {
+  .bento > li.preview {
     grid-column: span 2;
+    grid-row: span 2;
+  }
+  .bento > li.agent {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    column-gap: 24px;
+  }
+  .agent > .art {
+    grid-row: span 2;
+    margin-bottom: 0;
+  }
+  .agent > h3 {
+    align-self: end;
+  }
+  .agent > p {
+    align-self: start;
   }
   .bento h3,
   .bento p {
@@ -1255,8 +1272,9 @@
   .art {
     position: relative;
     display: grid;
+    flex: 1;
     place-items: center;
-    height: 168px;
+    min-height: 168px;
     margin-bottom: 22px;
     overflow: hidden;
     border-radius: var(--r-md);
@@ -1628,6 +1646,9 @@
     .bento {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .bento > li.preview {
+      grid-row: auto;
+    }
   }
   @media (max-width: 760px) {
     .nav nav {
@@ -1689,9 +1710,19 @@
     .bento {
       grid-template-columns: 1fr;
     }
-    .bento > li.wide,
-    .bento > li:last-child {
+    .bento > li.preview,
+    .bento > li.agent {
       grid-column: auto;
+    }
+    .bento > li.agent {
+      display: flex;
+    }
+    .agent > .art {
+      margin-bottom: 22px;
+    }
+    .agent > h3,
+    .agent > p {
+      align-self: auto;
     }
     .oops {
       rotate: none;
