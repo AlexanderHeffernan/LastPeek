@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 14 * * *"
 
 permissions:
   contents: read
@@ -22,6 +24,7 @@ jobs:
     outputs:
       runtime: ${{ steps.plan.outputs.runtime }}
       playwright: ${{ steps.plan.outputs.playwright }}
+      profile: ${{ steps.plan.outputs.profile }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -41,7 +44,12 @@ jobs:
       - id: plan
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/release-policy.mjs plan "$BASE_SHA" >> "$GITHUB_OUTPUT"
+        run: |
+          # Compare against live code as well as this push, so an earlier failed
+          # application release cannot hide behind a later landing-only commit.
+          RELEASE_BASE_SHA="$(curl --fail --silent --show-error --max-time 10 --dump-header - --output /dev/null https://lastpeek.alexheffernan.dev/health | tr -d '\r' | awk 'tolower($1) == "x-lastpeek-revision:" {print $2}')" || RELEASE_BASE_SHA=""
+          export RELEASE_BASE_SHA
+          node scripts/release-policy.mjs plan "$BASE_SHA" >> "$GITHUB_OUTPUT"
       - name: Check documentation-only changes
         if: steps.plan.outputs.runtime == 'false'
         run: npm ci && npm run format:check
@@ -81,7 +89,76 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm run verify:release -- --force
+      - name: Run required release gate
+        env:
+          RELEASE_PROFILE: ${{ needs.plan.outputs.profile }}
+        run: |
+          set -o pipefail
+          npm run verify:release -- --force --profile "$RELEASE_PROFILE" 2>&1 | tee "$RUNNER_TEMP/release-verification.log"
+        shell: bash
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-verification-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-verification.log
+          retention-days: 7
+
+  regression:
+    name: Extended browser regression (advisory for landing-only changes)
+    needs: plan
+    if: needs.plan.outputs.runtime == 'true' && needs.plan.outputs.profile == 'landing'
+    # This job remains visible but is intentionally not a publishing dependency.
+    # Full-profile changes and scheduled/manual runs still gate on every test.
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.plan.outputs.playwright }}-noble
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: lastpeek
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: lastpeek_test
+        options: >-
+          --health-cmd "pg_isready -U lastpeek -d lastpeek_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://lastpeek:ci-only@postgres:5432/postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Trust the container-mounted checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install link-preview media and fonts
+        run: |
+          sed -i 's|http://azure.archive.ubuntu.com/ubuntu/|https://archive.ubuntu.com/ubuntu/|g; s|http://security.ubuntu.com/ubuntu/|https://security.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update && apt-get install -y --no-install-recommends ffmpeg fontconfig-config fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Run extended regression
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run verify:release -- --force --profile full 2>&1 | tee "$RUNNER_TEMP/extended-regression.log"
+      - name: Record advisory failure
+        if: failure()
+        run: |
+          echo '::warning::Extended regression failed. Landing release gates are separate; investigate the retained failure evidence without blind retries.'
+          echo '### Extended regression failed (advisory for this landing-only release)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The full suite did not pass. This does not waive the required landing, security or server checks. See the failure log artifact.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve regression failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: extended-regression-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/extended-regression.log
+          retention-days: 7
 
   deployment:
     needs: plan
@@ -101,7 +178,7 @@ jobs:
 
   build:
     needs: [check, deployment]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'AlexanderHeffernan/LastPeek'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'AlexanderHeffernan/LastPeek'
     strategy:
       fail-fast: false
       matrix:

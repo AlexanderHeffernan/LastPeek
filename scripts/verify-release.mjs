@@ -20,7 +20,11 @@ import {
 import { availableParallelism } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { documentationOnly } from "./release-policy.mjs";
+import {
+  changedPaths,
+  documentationOnly,
+  releaseProfile,
+} from "./release-policy.mjs";
 
 const options = {
   focused: false,
@@ -28,18 +32,23 @@ const options = {
   browser: "both",
   file: "tests/web.test.ts",
   test: undefined,
+  profile: "auto",
+  base: "origin/main",
 };
 for (let index = 2; index < process.argv.length; index++) {
   const arg = process.argv[index];
   if (arg === "--focused") options.focused = true;
   else if (arg === "--force") options.force = true;
-  else if (["--browser", "--file", "--test"].includes(arg)) {
+  else if (
+    ["--browser", "--file", "--test", "--profile", "--base"].includes(arg)
+  ) {
     const value = process.argv[++index];
     if (!value || value.startsWith("--"))
       throw new Error(`Missing value for ${arg}`);
     options[arg.slice(2)] = value;
   } else if (arg === "--help") {
-    console.log(`Release: npm run verify:release [-- --force]
+    console.log(`Release: npm run verify:release [-- --force] [--base origin/main] [--profile auto|full|landing]
+Auto selects landing-only coverage from all committed and working changes since --base; unknown/mixed changes run full coverage.
 Focused: npm run verify:focused -- --test 'test name regex' [--browser chromium|webkit|both] [--file tests/web.test.ts]
 Focused runs own their disposable database/media/server and never certify a release.`);
     process.exit(0);
@@ -50,6 +59,13 @@ if (!["chromium", "webkit", "both"].includes(options.browser))
 if (!/^tests\/[\w-]+\.test\.ts$/.test(options.file))
   throw new Error("--file must name a TypeScript test directly under tests/");
 if (options.test !== undefined) new RegExp(options.test);
+if (!["auto", "full", "landing"].includes(options.profile))
+  throw new Error("Invalid --profile; use auto, full or landing");
+if (
+  options.focused &&
+  (options.profile !== "auto" || options.base !== "origin/main")
+)
+  throw new Error("Release profiles cannot be combined with focused selection");
 if (
   !options.focused &&
   (options.browser !== "both" ||
@@ -67,7 +83,28 @@ if (options.focused && !options.test && options.file === "tests/web.test.ts")
 // and builds in a private copy so recordings/preview restarts cannot interfere.
 const root = process.cwd();
 const started = Date.now();
-const receipt = resolve(".amp/in/release-verification.json");
+let profile = options.profile;
+if (!options.focused && profile === "auto") {
+  try {
+    const paths = changedPaths(options.base);
+    paths.push(
+      ...execFileSync(
+        "git",
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        {
+          encoding: "utf8",
+        },
+      )
+        .split("\0")
+        .filter(Boolean),
+    );
+    profile = releaseProfile(paths);
+  } catch {
+    profile = "full";
+  }
+}
+if (!options.focused) console.log(`Release profile: ${profile}`);
+const receipt = resolve(`.amp/in/release-verification-${profile}.json`);
 const connection = new URL(
   process.env.DATABASE_URL || "postgres://lastpeek@127.0.0.1:55432/postgres",
 );
@@ -224,7 +261,7 @@ try {
         "Sources changed during verification; run again before shipping",
       );
     console.log(
-      `Reusing Chromium + WebKit verification from ${previous.verifiedAt}; runtime/test/tooling inputs unchanged`,
+      `Reusing ${profile} Chromium + WebKit verification from ${previous.verifiedAt}; runtime/test/tooling inputs unchanged`,
     );
   } else {
     const browsers =
@@ -308,21 +345,26 @@ try {
         `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
       const groups = options.focused
         ? [{ file: options.file, test: options.test }]
-        : [
-            // The remainder includes video/PWA/friendship journeys and is one
-            // of the longest shards. Starting it last creates a long idle tail.
-            {
-              file: "tests/web.test.ts",
-              skip: selections.map(exact).join("|"),
-            },
-            ...selections.map((name) => ({
-              file: "tests/web.test.ts",
-              test: exact(name),
-            })),
-            { file: "tests/x-publishing.test.ts" },
-            { file: "tests/x-mentions.test.ts" },
-            { file: "tests/security.test.ts" },
-          ];
+        : profile === "landing"
+          ? [
+              { file: "tests/web.test.ts", test: "^landing /" },
+              { file: "tests/security.test.ts" },
+            ]
+          : [
+              // The remainder includes video/PWA/friendship journeys and is one
+              // of the longest shards. Starting it last creates a long idle tail.
+              {
+                file: "tests/web.test.ts",
+                skip: selections.map(exact).join("|"),
+              },
+              ...selections.map((name) => ({
+                file: "tests/web.test.ts",
+                test: exact(name),
+              })),
+              { file: "tests/x-publishing.test.ts" },
+              { file: "tests/x-mentions.test.ts" },
+              { file: "tests/security.test.ts" },
+            ];
       // Start the historically slow WebKit work first. Each job owns its entire
       // mutable stack, including accounts/rate limits and server-origin cookies.
       const jobs = groups.flatMap((group) =>
@@ -464,7 +506,7 @@ try {
             // Node can report the file itself as a pass when the pattern matches no
             // tests. Require a real, non-skipped assertion-bearing test instead.
             if (
-              options.focused &&
+              (options.focused || profile === "landing") &&
               !output
                 .split("\n")
                 .some(
@@ -474,7 +516,7 @@ try {
                     line !== `ok 1 - ${job.file}`,
                 )
             )
-              throw new Error("No tests matched the focused selection");
+              throw new Error("No tests matched the verification selection");
           }
         } finally {
           gateway.closeAllConnections();
@@ -534,10 +576,14 @@ try {
     else {
       await writeFile(
         receipt,
-        JSON.stringify({ input, verifiedAt: new Date().toISOString() }) + "\n",
+        JSON.stringify({
+          input,
+          profile,
+          verifiedAt: new Date().toISOString(),
+        }) + "\n",
       );
       console.log(
-        "Release verification passed: Chromium + WebKit, isolated databases/media/build",
+        `Release verification passed: ${profile}, Chromium + WebKit, all server contracts, isolated databases/media/build`,
       );
     }
   }

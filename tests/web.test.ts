@@ -132,6 +132,51 @@ test("landing / waitlist purpose, cancelled holds, failures and keyboard signup"
   assert.deepEqual(errors, []);
 });
 
+test("landing / sign-in reaches the private workspace with and without JavaScript", async (t) => {
+  const id = randomUUID();
+  const email = `landing-signin-${id}@example.test`;
+  const password = randomUUID();
+  const browser = await engine.launch();
+  t.after(async () => {
+    await browser.close();
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Landing author',$3)",
+    [id, email, await passwordHash(password)],
+  );
+  for (const javaScriptEnabled of [true, false]) {
+    const context = await browser.newContext({
+      javaScriptEnabled,
+      viewport: { width: 390, height: 844 },
+    });
+    try {
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.goto(`${baseURL}/login`);
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Email", { exact: true }).fill(email);
+      await dialog.getByLabel("Password", { exact: true }).fill(password);
+      const submitted = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/login") &&
+          response.request().method() === "POST",
+      );
+      await dialog
+        .getByRole("button", { name: "Sign in", exact: true })
+        .click();
+      assert.ok([200, 303].includes((await submitted).status()));
+      await page.getByRole("main", { name: "Drafts", exact: true }).waitFor();
+      assert.equal(new URL(page.url()).pathname, "/");
+      assert.equal(await page.getByRole("dialog").count(), 0);
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 test("landing / film stays muted through rewind before sound starts", async (t) => {
   const browser = await engine.launch();
   t.after(() => browser.close());
