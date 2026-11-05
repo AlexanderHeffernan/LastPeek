@@ -58,9 +58,7 @@
       { rootMargin: "150% 0px" },
     );
     const visible = new IntersectionObserver(
-      (entries) => {
-        // One delivery can contain both entering and leaving the viewport.
-        const entry = entries.at(-1)!;
+      ([entry]) => {
         if (!entry.isIntersecting) return element.pause();
         if (watching || held) return;
         void element.play().catch(() => {});
@@ -170,12 +168,6 @@
     }}
     onseeked={finishSoundRestart}
     onvolumechange={() => video && (muted = video.muted)}
-    ontimeupdate={(event) => {
-      // Playback must not depend on a delayed visibility notification.
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (bounds.bottom <= 0 || bounds.top >= innerHeight)
-        event.currentTarget.pause();
-    }}
     onended={() => {
       if (!video) return;
       if (watching) {

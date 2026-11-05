@@ -21,9 +21,6 @@ test("verification rejects partial release gates and unsafe focused selections b
     ["--focused", "--file", "../tests/web.test.ts"],
     ["--focused", "--test", "["],
     ["--focused", "--test"],
-    ["--profile", "unknown"],
-    ["--focused", "--test", "landing", "--profile", "landing"],
-    ["--focused", "--test", "landing", "--base", "HEAD~1"],
   ]) {
     const result = invoke(args);
     assert.notEqual(result.status, 0, args.join(" "));
@@ -40,7 +37,6 @@ test("verification help documents the isolated focused command without starting 
   const result = invoke(["--help"]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /verify:focused/);
-  assert.match(result.stdout, /auto\|full\|landing/);
   assert.match(result.stdout, /never certify a release/);
   assert.doesNotMatch(result.stdout, /> npm|\[timing\]/);
 });

@@ -198,26 +198,7 @@ test("guest account requests are same-origin, private and never grant access", a
       `${origin}/siteadmin/snapshot?view=invitations`,
       { headers: { Cookie: `lastpeek_session=${session}` } },
     );
-    assert.equal(
-      response.status(),
-      200,
-      response.status() === 200
-        ? undefined
-        : JSON.stringify({
-            url: response.url(),
-            body: await response.text(),
-            fixtureSessions: (
-              await db.query(
-                `SELECT u.id=$2 AS owner,u.is_admin,s.expires_at>now() AS valid
-                 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=$1`,
-                [hash(session), owner],
-              )
-            ).rows,
-            cookieNames: (await client.storageState()).cookies.map(
-              (cookie) => cookie.name,
-            ),
-          }),
-    );
+    assert.equal(response.status(), 200);
     return (await response.json()).accountRequests;
   };
   assert.deepEqual(

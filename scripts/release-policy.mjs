@@ -8,31 +8,10 @@ export function documentationOnly(paths) {
   return paths.every((path) => /^(?:[^/]+\.md|docs\/.*\.md)$/.test(path));
 }
 
-// Only isolated public-page inputs qualify. Shared CSS/layouts, routes, server
-// code, tests, dependencies and tooling deliberately fall back to the full gate.
-export function releaseProfile(paths) {
-  const application = paths.filter((path) => !documentationOnly([path]));
-  return application.length > 0 &&
-    application.every((path) =>
-      /^(?:src\/lib\/components\/landing\/[^/]+\.(?:svelte|ts)|static\/landing\/.+)$/.test(
-        path,
-      ),
-    )
-    ? "landing"
-    : "full";
-}
-
-export function changedPaths(base, head) {
+function changedPaths(base, head) {
   return execFileSync(
     "git",
-    [
-      "diff",
-      "--no-renames",
-      "--name-only",
-      "-z",
-      base,
-      ...(head ? [head] : []),
-    ],
+    ["diff", "--no-renames", "--name-only", "-z", base, head],
     {
       encoding: "utf8",
     },
@@ -47,30 +26,15 @@ if (
 ) {
   if (process.argv[2] === "plan") {
     const base = process.argv[3];
-    const paths =
-      base && !/^0+$/.test(base) ? changedPaths(base, "HEAD") : null;
-    const runtime = paths === null || !documentationOnly(paths);
-    // The newest push may sit on earlier failed/unpublished application work.
-    // Only narrow the gate when the live baseline is known and an ancestor.
-    let profile = "full";
-    const deployed = process.env.RELEASE_BASE_SHA;
-    if (runtime && paths && /^[a-f0-9]{40}$/.test(deployed || "")) {
-      try {
-        execFileSync("git", ["merge-base", "--is-ancestor", deployed, "HEAD"]);
-        profile = releaseProfile([...paths, ...changedPaths(deployed, "HEAD")]);
-      } catch {
-        console.error(
-          "Unknown deployed baseline; requiring the full release gate",
-        );
-      }
-    }
+    const runtime =
+      !base ||
+      /^0+$/.test(base) ||
+      !documentationOnly(changedPaths(base, "HEAD"));
     const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
     const version = lock.packages["node_modules/playwright"].version;
     if (!/^\d+\.\d+\.\d+$/.test(version))
       throw new Error("Playwright must have a stable, locked image version");
-    console.log(
-      `runtime=${runtime}\nplaywright=${version}\nprofile=${profile}`,
-    );
+    console.log(`runtime=${runtime}\nplaywright=${version}`);
   } else if (process.argv[2] === "promote") {
     const candidate = process.argv[3];
     execFileSync("git", [
