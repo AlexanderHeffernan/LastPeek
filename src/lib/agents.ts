@@ -30,13 +30,13 @@ export const agentPermissions = [
     scope: "sharing:links",
     label: "Manage review links",
     description:
-      "Create or remove links anyone can use to review a draft. Creating a link replaces private sharing.",
+      "Create or remove links anyone can use to review a draft, without changing invited reviewers’ access.",
   },
   {
     scope: "sharing:people",
     label: "Share with people",
     description:
-      "See accepted friends and manage their access to drafts. Switching to private sharing removes any review link.",
+      "See accepted friends and manage their access to drafts, without changing review links.",
   },
   {
     scope: "account:read",

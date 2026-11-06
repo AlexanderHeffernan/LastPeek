@@ -454,7 +454,7 @@ export function agentServer(
   );
   tool(
     "share_draft",
-    "Share an owned draft. audience=link creates an unlisted bearer link and removes private grants. audience=friend requires friendId and revokes any bearer link. Only do this on user instruction; a new audience changes who can read it.",
+    "Share an owned draft. audience=link creates an unlisted bearer link; audience=friend requires friendId and invites an accepted friend. Each preserves the other audience’s access. Only do this on user instruction.",
     ["sharing:links", "sharing:people"],
     {
       id,
@@ -594,20 +594,25 @@ export function agentServer(
     { id },
     async (userId, { id }, auth) => {
       const draft = await ownedDraft(id, userId);
-      const token = draft.share_token
-        ? auth.scopes.includes("sharing:links")
-          ? draft.share_token
-          : null
-        : auth.scopes.includes("sharing:people")
-          ? draft.friend_token
-          : null;
+      const linkToken = auth.scopes.includes("sharing:links")
+        ? draft.share_token
+        : null;
+      const friendToken = auth.scopes.includes("sharing:people")
+        ? draft.friend_token
+        : null;
+      const token = linkToken ?? friendToken;
       return {
-        audience: draft.share_token
-          ? "link"
-          : draft.friend_token
-            ? "friends"
-            : "none",
+        audience:
+          draft.share_token && draft.friend_token
+            ? "both"
+            : draft.share_token
+              ? "link"
+              : draft.friend_token
+                ? "friends"
+                : "none",
         url: token ? `${origin}/r/${token}` : null,
+        linkUrl: linkToken ? `${origin}/r/${linkToken}` : null,
+        friendUrl: friendToken ? `${origin}/r/${friendToken}` : null,
         revision: draft.shared_revision,
         recipients: auth.scopes.includes("sharing:people")
           ? (

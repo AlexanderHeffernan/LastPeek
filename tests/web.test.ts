@@ -3729,13 +3729,9 @@ test(
       await page
         .getByRole("button", { name: "Send to Jules", exact: true })
         .click();
-      await page
-        .getByRole("alertdialog", { name: "Switch to friends only?" })
-        .getByRole("button", { name: "Switch to friends only", exact: true })
-        .click();
       const privateReview = await (await sharing).json();
       await page
-        .getByRole("button", { name: "Remove Jules’s review access" })
+        .getByRole("button", { name: "Remove Jules’s review invitation" })
         .waitFor();
       const reviewURL = `${baseURL}/r/${privateReview.token}`;
       const sharedNotification = (
@@ -3754,6 +3750,31 @@ test(
       );
       const mediaURL = `${baseURL}/media/${media.id}?key=${privateReview.token}`;
       const avatarURL = `${baseURL}/avatars/${avatar}?key=${privateReview.token}`;
+      assert.equal(
+        (
+          await guest.request.get(`${baseURL}/r/${publicReview.token}`)
+        ).status(),
+        200,
+        "inviting a friend preserves the existing bearer link",
+      );
+      assert.equal(
+        (
+          await guest.request.post(
+            `${baseURL}/r/${publicReview.token}?/comment`,
+            {
+              headers,
+              form: {
+                name: "Guest",
+                body: "Both access routes work.",
+                revision: privateReview.revision,
+              },
+            },
+          )
+        ).status(),
+        200,
+        "public feedback remains available while private invitations exist",
+      );
+      await action(author.request, draftId, { action: "revoke" });
       assert.equal(
         (
           await guest.request.get(`${baseURL}/r/${publicReview.token}`)
@@ -3819,6 +3840,34 @@ test(
         .getByRole("tab", { name: "To review 1", exact: true })
         .waitFor();
       await reviewer.getByRole("link", { name: /^Review post:/ }).waitFor();
+      const alongside = await action(author.request, draftId, {
+        action: "publish",
+        version: saved.version,
+      });
+      assert.equal(
+        (await friend.request.get(reviewURL)).status(),
+        200,
+        "creating a bearer link preserves the invited review URL",
+      );
+      assert.equal(
+        (await guest.request.get(`${baseURL}/r/${alongside.token}`)).status(),
+        200,
+      );
+      assert.equal(
+        (
+          await guest.request.get(`${baseURL}/r/${alongside.token}/preview.png`)
+        ).status(),
+        200,
+      );
+      assert.equal(
+        (await friend.request.get(`${reviewURL}/preview.png`)).status(),
+        404,
+      );
+      await reviewer.reload();
+      await reviewer
+        .getByRole("tab", { name: "To review 1", exact: true })
+        .waitFor();
+      await action(author.request, draftId, { action: "revoke" });
       await reviewer.goto(`${baseURL}/notifications`);
       await reviewer
         .getByRole("button", { name: /Mina.*A friend shared a draft/ })
@@ -8878,6 +8927,9 @@ for (const scenario of [
           .click();
         const focusShared = await (await focusPublish).json();
         const focusLink = `${baseURL}/r/${focusShared.token}`;
+        await page
+          .getByRole("dialog", { name: "Share draft", exact: true })
+          .waitFor({ state: "hidden" });
         await page
           .getByRole("button", { name: "Copy link", exact: true })
           .waitFor();

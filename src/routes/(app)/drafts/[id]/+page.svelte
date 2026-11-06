@@ -257,17 +257,6 @@
     }
   }
   async function publish() {
-    if (
-      data.recipients.length &&
-      !(await confirmation.ask({
-        title: "Create a review link?",
-        description:
-          "Anyone with the new link will be able to read and comment. Friend-only sharing will end.",
-        confirmLabel: "Create review link",
-        destructive: false,
-      }))
-    )
-      return;
     busy = true;
     shareError = "";
     try {
@@ -289,18 +278,6 @@
     }
   }
   async function sendToFriend(userId: string, remove = false) {
-    if (
-      !remove &&
-      shareToken &&
-      !(await confirmation.ask({
-        title: "Switch to friends only?",
-        description:
-          "The existing review link will stop working. Only the friends you select will have access.",
-        confirmLabel: "Switch to friends only",
-        destructive: false,
-      }))
-    )
-      return;
     busy = true;
     shareError = "";
     try {
@@ -318,7 +295,6 @@
         version,
       });
       if (!remove) {
-        shareToken = null;
         sharedRevision = result.revision;
       }
       await invalidateAll();
@@ -333,7 +309,7 @@
       !(await confirmation.ask({
         title: "Revoke this link?",
         description:
-          "Anyone with it will lose access, including to attachments. Feedback will stay.",
+          "This link will stop working, including for attachments. Invited reviewers keep their access. Feedback will stay.",
         confirmLabel: "Revoke link",
         cancelLabel: "Keep link",
       }))
@@ -712,7 +688,7 @@
                 ? "Copied!"
                 : "Copy link"
               : data.recipients.length
-                ? "Friends only"
+                ? "Shared with friends"
                 : "Share draft"}</Button
         >
         {#if shareToken}<Popover.Root bind:open={shareOpen}>
@@ -1056,9 +1032,10 @@
         ><Icon name="close" size={20} /></Button
       >
     </div>
-    <h3 class="small">Friends only</h3>
+    <h3 class="small">Invited reviewers</h3>
     <Dialog.Description class="small muted">
-      Only selected friends can open this review while signed in.
+      Selected friends can review while signed in, independently of the review
+      link.
     </Dialog.Description>
     <div class="share-friends">
       {#each data.connections.filter((c) => c.accepted) as friend (friend.id)}
@@ -1074,10 +1051,10 @@
             variant={sent ? "ghost" : "secondary"}
             disabled={busy || saving || uploading}
             aria-label={sent
-              ? `Remove ${friend.name}’s review access`
+              ? `Remove ${friend.name}’s review invitation`
               : `Send to ${friend.name}`}
             onclick={() => sendToFriend(friend.user_id, sent)}
-            >{sent ? "Remove access" : "Send"}</Button
+            >{sent ? "Remove invitation" : "Send"}</Button
           >
         </div>
       {:else}<Button variant="outline" href="/friends"
@@ -1092,10 +1069,14 @@
       <Button
         variant="outline"
         disabled={busy || saving || uploading}
-        onclick={publish}
-        ><Icon name="link" size={16} />{busy
+        onclick={() => (shareToken ? void copyLink() : void publish())}
+        ><Icon name={shareToken ? "copy" : "link"} size={16} />{busy
           ? "Preparing…"
-          : "Create review link"}</Button
+          : shareToken
+            ? copied
+              ? "Copied!"
+              : "Copy link"
+            : "Create review link"}</Button
       >
     </div>
     {#if shareError}<p class="action-error" role="alert">{shareError}</p>{/if}
@@ -1113,9 +1094,16 @@
   }
   .share-friend {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 10px 0;
+  }
+  .share-friend :global(.user-identity) {
+    flex-basis: 140px;
+  }
+  .share-friend :global(button) {
+    margin-left: auto;
   }
   .share-link-option {
     margin-top: 24px;

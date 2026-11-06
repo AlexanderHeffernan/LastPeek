@@ -111,8 +111,12 @@ test("agent sharing separates review links from people and preserves legacy gran
     audience: "friend",
     friendId: friend,
   };
-  read(await call("share_draft", shareLink));
-  read(await call("share_draft", shareFriend));
+  const link = read(await call("share_draft", shareLink));
+  const invitation = read(await call("share_draft", shareFriend));
+  const both = read(await call("get_sharing", { id: draft }));
+  assert.equal(both.audience, "both");
+  assert.equal(both.linkUrl, `${origin}/r/${link.token}`);
+  assert.equal(both.friendUrl, `${origin}/r/${invitation.token}`);
   assert.equal(
     read(await call("get_sharing", { id: draft })).recipients[0].id,
     friend,
@@ -168,7 +172,8 @@ test("agent sharing separates review links from people and preserves legacy gran
     false,
   );
   const privateState = read(await call("get_sharing", { id: draft }));
-  assert.equal(privateState.url, null);
+  assert.equal(privateState.url, both.linkUrl);
+  assert.equal(privateState.friendUrl, null);
   assert.deepEqual(privateState.recipients, []);
   denied(await call("share_draft", shareFriend));
   denied(await call("revoke_sharing", { id: draft }));
@@ -182,15 +187,17 @@ test("agent sharing separates review links from people and preserves legacy gran
   assert.ok(read(await call("get_sharing", { id: draft })).url);
   assert.equal(
     read(await call("revoke_sharing", { id: draft, audience: "link" })).shared,
-    false,
+    true,
   );
   read(await call("share_draft", shareLink));
 
   await select("sharing:people");
   assert.equal(read(await call("list_friends", {}))[0].id, friend);
-  assert.equal(read(await call("get_sharing", { id: draft })).url, null);
+  const peopleState = read(await call("get_sharing", { id: draft }));
+  assert.equal(peopleState.url, both.friendUrl);
+  assert.equal(peopleState.linkUrl, null);
   denied(await call("revoke_sharing", { id: draft, audience: "link" }));
-  assert.equal(read(await call("get_sharing", { id: draft })).audience, "link");
+  assert.equal(read(await call("get_sharing", { id: draft })).audience, "both");
   denied(await call("share_draft", shareLink));
   read(await call("share_draft", shareFriend));
   denied(await call("revoke_sharing", { id: draft, audience: "link" }));
@@ -202,7 +209,7 @@ test("agent sharing separates review links from people and preserves legacy gran
   assert.equal(
     read(await call("revoke_sharing", { id: draft, audience: "friends" }))
       .shared,
-    false,
+    true,
   );
 
   const renewed = await http.post(`${origin}/oauth/token`, {
@@ -1367,6 +1374,16 @@ test("agent workflows transfer private media, preserve context and attribute rev
       peer,
     ),
   ).transfer;
+  read(
+    await call("share_draft", { id: created.id, version: 2, audience: "link" }),
+  );
+  assert.equal(
+    (
+      await http.get(privateGrant.url, { headers: privateGrant.headers })
+    ).status(),
+    200,
+    "creating a bearer link preserves an existing private media transfer",
+  );
   const feedbackInput = {
     token: shared.token,
     revision: shared.revision,

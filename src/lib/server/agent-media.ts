@@ -132,9 +132,10 @@ export async function agentTransfer(
       )
     ).rows[0];
     if (!draft) error(404, "Attachment unavailable.");
-    const current = draft.share_token ?? draft.friend_token;
-    if (!current || hash(current) !== row.review_hash)
-      error(404, "Attachment unavailable.");
+    const current = [draft.share_token, draft.friend_token].find(
+      (token) => token && hash(token) === row.review_hash,
+    );
+    if (!current) error(404, "Attachment unavailable.");
     const review = await sharedDraft(current, row.user_id);
     if (!mediaIds(review.content).includes(row.media_id))
       error(404, "Attachment unavailable.");

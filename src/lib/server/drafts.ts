@@ -45,7 +45,7 @@ export async function sharedDraft(shareToken: string, userId?: string) {
     error(404, "This review link is unavailable. It may have been revoked.");
   const row = (
     await db.query(
-      `SELECT d.id,d.owner_id,d.shared_revision,r.content,d.friend_token IS NOT NULL AS private,d.posted_at,
+      `SELECT d.id,d.owner_id,d.shared_revision,r.content,(d.friend_token=$1) IS TRUE AS private,d.posted_at,
        CASE WHEN d.posted_at IS NOT NULL THEN COALESCE(
          'https://x.com/' || COALESCE(NULLIF(x.profile->>'username',''),'i/web') || '/status/' || p.post_id,
          l.url) END AS posted_url
@@ -236,10 +236,9 @@ export async function publishDraft(
     const number = await snapshotDraft(client, draft);
     const shareToken = draft.share_token ?? token();
     await client.query(
-      "UPDATE drafts SET share_token=$1,shared_revision=$2,friend_token=NULL WHERE id=$3",
+      "UPDATE drafts SET share_token=$1,shared_revision=$2 WHERE id=$3",
       [shareToken, number, id],
     );
-    await client.query("DELETE FROM friend_reviews WHERE draft_id=$1", [id]);
     return { token: shareToken, revision: number };
   });
 }
@@ -267,7 +266,7 @@ export async function shareWithFriend(
     const revision = await snapshotDraft(client, draft);
     const key = draft.friend_token ?? token();
     await client.query(
-      "UPDATE drafts SET share_token=NULL,friend_token=$1,shared_revision=$2 WHERE id=$3",
+      "UPDATE drafts SET friend_token=$1,shared_revision=$2 WHERE id=$3",
       [key, revision, id],
     );
     const added = await client.query(

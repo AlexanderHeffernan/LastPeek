@@ -121,7 +121,11 @@ async function writeComment(
         error(409, "The draft changed. Save your edits before commenting.");
       revision = await snapshotDraft(client, draft);
     }
-    if (draft.friend_token && draft.owner_id !== userId) {
+    if (
+      !ownerWrite &&
+      access.token === draft.friend_token &&
+      draft.owner_id !== userId
+    ) {
       const access = await client.query(
         `SELECT fr.draft_id FROM friend_reviews fr
         JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL

@@ -57,9 +57,11 @@ There are no draft titles or per-thread-item external reply targets.
    require review permission. Context uses the author's source-post eligibility/cache/allowance,
    just like the review page; unavailable context is null, not invented text.
 4. Use `get_sharing` to inspect existing access, not `share_draft`. Sharing changes who can read;
-   creating a link ends private grants and switching to friends revokes the bearer link.
+   invitations and bearer links coexist, and creating either preserves the other.
    Review links and sharing with people require separate permissions. `get_sharing` returns URLs
-   and recipient details only for the permitted audience. `revoke_sharing` accepts `audience: "link"`
+   and recipient details only for the permitted audience. It reports `audience: "both"` when both
+   routes exist, with permission-filtered `linkUrl` and `friendUrl`; `url` prefers the permitted
+   bearer link, falling back to the permitted invitation URL. `revoke_sharing` accepts `audience: "link"`
    or `"friends"`; its default `"all"` requires both permissions. Older combined sharing grants
    already authorize both audiences and can be narrowed in Settings without reconnecting.
 5. Read the exact shared revision before `send_feedback`. For an owned, already-shared draft,
