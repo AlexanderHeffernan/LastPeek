@@ -40,15 +40,17 @@ for (let index = 2; index < process.argv.length; index++) {
     options[arg.slice(2)] = value;
   } else if (arg === "--help") {
     console.log(`Release: npm run verify:release [-- --force]
-Focused: npm run verify:focused -- --test 'test name regex' [--browser chromium|webkit|both] [--file tests/web.test.ts]
+Focused: npm run verify:focused -- --test 'test name regex' [--browser chromium|webkit|both|none] [--file tests/web.test.ts]
 Focused runs own their disposable database/media/server and never certify a release.`);
     process.exit(0);
   } else throw new Error(`Unknown option: ${arg}`);
 }
-if (!["chromium", "webkit", "both"].includes(options.browser))
-  throw new Error("Invalid --browser; use chromium, webkit or both");
+if (!["chromium", "webkit", "both", "none"].includes(options.browser))
+  throw new Error("Invalid --browser; use chromium, webkit, both or none");
 if (!/^tests\/[\w-]+\.test\.ts$/.test(options.file))
   throw new Error("--file must name a TypeScript test directly under tests/");
+if (options.browser === "none" && options.file === "tests/web.test.ts")
+  throw new Error("The core browser workflows require a browser engine");
 if (options.test !== undefined) new RegExp(options.test);
 if (
   !options.focused &&
@@ -68,6 +70,7 @@ if (options.focused && !options.test && options.file === "tests/web.test.ts")
 const root = process.cwd();
 const started = Date.now();
 const receipt = resolve(".amp/in/release-verification.json");
+const failureDirectory = resolve(".amp/in/verification-failures", randomUUID());
 const connection = new URL(
   process.env.DATABASE_URL || "postgres://lastpeek@127.0.0.1:55432/postgres",
 );
@@ -228,8 +231,13 @@ try {
     );
   } else {
     const browsers =
-      options.browser === "both" ? ["chromium", "webkit"] : [options.browser];
-    await run("npx", ["playwright", "install", ...browsers], workspace);
+      options.browser === "both"
+        ? ["chromium", "webkit"]
+        : options.browser === "none"
+          ? []
+          : [options.browser];
+    if (browsers.length)
+      await run("npx", ["playwright", "install", ...browsers], workspace);
     const require = createRequire(join(workspace, "package.json"));
     const pg = require("pg");
     admin = new pg.Pool({ connectionString: connection.href });
@@ -259,7 +267,6 @@ try {
       X_CLIENT_SECRET: "test-only-client-secret",
       X_API_BEARER_TOKEN: "test-only-not-a-real-key",
       OPENAI_API_KEY: "",
-      SCREENSHOTS: "0",
     };
     // Check and build generate Kit files. Separate writable copies prevent
     // those tools racing, while independent CPU work overlaps the same gate.
@@ -289,45 +296,12 @@ try {
       await run("npm", ["run", "db:migrate"], workspace, migrationEnv);
       if (!options.focused)
         await run("npm", ["run", "db:migrate"], workspace, migrationEnv);
-      // Explicitly isolated long scenarios; the remainder shard excludes only
-      // these exact selections, so newly added/renamed tests still always run.
-      const selections = [
-        "site admin permissions, shared operator data and owner-managed team",
-        ...[
-          "source creation and clipboard",
-          "live review and revocation",
-          "profile and X import",
-          "composer and media",
-          "draft feed and queue",
-          "authentication and navigation",
-          "focused feedback and identity",
-          "invitation and password recovery",
-        ].map((name) => `author / ${name}`),
-      ];
-      const exact = (name) =>
-        `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
-      const groups = options.focused
-        ? [{ file: options.file, test: options.test }]
-        : [
-            // The remainder includes video/PWA/friendship journeys and is one
-            // of the longest shards. Starting it last creates a long idle tail.
-            {
-              file: "tests/web.test.ts",
-              skip: selections.map(exact).join("|"),
-            },
-            ...selections.map((name) => ({
-              file: "tests/web.test.ts",
-              test: exact(name),
-            })),
-            { file: "tests/x-publishing.test.ts" },
-            { file: "tests/x-mentions.test.ts" },
-            { file: "tests/security.test.ts" },
-          ];
-      // Start the historically slow WebKit work first. Each job owns its entire
-      // mutable stack, including accounts/rate limits and server-origin cookies.
-      const jobs = groups.flatMap((group) =>
-        browsers.toReversed().map((browser) => ({ browser, ...group })),
-      );
+      // One small suite per engine, not one server/database per feature.
+      // Server contracts run once. Focused HTTP checks use --browser none.
+      const group = { file: options.file, test: options.test };
+      const jobs = browsers.length
+        ? browsers.toReversed().map((browser) => ({ browser, ...group }))
+        : [group];
       if (!options.focused) jobs.push({ integration: true });
       const failures = [];
       const concurrency = Math.min(
@@ -336,9 +310,8 @@ try {
         jobs.length,
       );
       console.log(
-        `Running ${jobs.length} isolated validation shards with ${concurrency} workers, one active scenario per browser engine`,
+        `Running ${jobs.length} isolated validation jobs with ${concurrency} workers`,
       );
-      const activeBrowsers = new Set();
       async function execute(job) {
         const jobStarted = Date.now();
         const { browser } = job;
@@ -396,6 +369,7 @@ try {
           DATABASE_URL: databaseConnection.href,
           MEDIA_DIR: join(workspace, "media", database),
           TEST_BROWSER: browser,
+          TEST_ARTIFACTS_DIR: join(failureDirectory, browser || "server"),
         };
         let server;
         let exited;
@@ -450,10 +424,9 @@ try {
           else {
             const args = ["--import", "tsx", "--test", "--test-reporter=tap"];
             if (job.test) args.push(`--test-name-pattern=${job.test}`);
-            if (job.skip) args.push(`--test-skip-pattern=${job.skip}`);
             args.push(job.file);
             console.log(
-              `[shard] ${browser}: ${job.test || job.file}${job.skip ? " (remainder)" : ""}`,
+              `[job] ${browser || "server"}: ${job.test || job.file}`,
             );
             const output = await run(
               process.execPath,
@@ -492,34 +465,28 @@ try {
           }
           await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);
           console.log(
-            `[timing] Shard ${browser || "server"} ${job.test || job.file || "contracts"} including fixtures: ${((Date.now() - jobStarted) / 1000).toFixed(1)}s`,
+            `[timing] Job ${browser || "server"} ${job.test || job.file || "contracts"} including fixtures: ${((Date.now() - jobStarted) / 1000).toFixed(1)}s`,
           );
         }
       }
       await Promise.all(
         Array.from({ length: concurrency }, async () => {
           while (jobs.length && failures.length === 0) {
-            // Parallel WebKit processes made unrelated bootstrap, focus and media
-            // scenarios intermittent under CI load. Engines still overlap, but
-            // each engine advances its own scenarios serially.
-            const index = jobs.findIndex(
-              (job) => !job.browser || !activeBrowsers.has(job.browser),
-            );
-            if (index < 0) return;
-            const [job] = jobs.splice(index, 1);
-            if (job.browser) activeBrowsers.add(job.browser);
+            const job = jobs.shift();
             try {
               await execute(job);
             } catch (error) {
               failures.push(error);
-            } finally {
-              activeBrowsers.delete(job.browser);
             }
           }
         }),
       );
-      if (failures.length)
-        throw new AggregateError(failures, "Validation shards failed");
+      if (failures.length) {
+        console.error(
+          `Browser failure evidence, when available: ${failureDirectory}`,
+        );
+        throw new AggregateError(failures, "Validation jobs failed");
+      }
     } finally {
       await admin.query(`DROP DATABASE ${template} WITH (FORCE)`);
     }
@@ -529,7 +496,7 @@ try {
       );
     if (options.focused)
       console.log(
-        `Focused verification passed: ${browsers.join(" + ")}; no release receipt written`,
+        `Focused verification passed: ${browsers.join(" + ") || "server"}; no release receipt written`,
       );
     else {
       await writeFile(

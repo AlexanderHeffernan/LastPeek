@@ -18,6 +18,7 @@ test("verification rejects partial release gates and unsafe focused selections b
     ["--test", "friends"],
     ["--focused"],
     ["--focused", "--test", "friends", "--browser", "safari"],
+    ["--focused", "--test", "core", "--browser", "none"],
     ["--focused", "--file", "../tests/web.test.ts"],
     ["--focused", "--test", "["],
     ["--focused", "--test"],

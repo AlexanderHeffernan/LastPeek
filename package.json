@@ -26,8 +26,8 @@
     "test": "node --env-file-if-exists=.env --import tsx --test tests/contracts.test.ts tests/ai.test.ts tests/release-policy.test.mjs tests/verification.test.mjs",
     "test:deployment": "node --test tests/deployment.test.mjs",
     "test:integration": "node --env-file-if-exists=.env --import tsx --test tests/x-post.test.ts tests/api-usage.test.ts tests/x-auth.test.ts tests/plans.test.ts tests/notifications.test.ts tests/x-publishing-server.test.ts tests/x-mentions-server.test.ts tests/browser-sessions.test.ts tests/discussions-server.test.ts tests/ai-review-server.test.ts",
-    "test:http": "node --env-file-if-exists=.env --import tsx --test tests/review-card.test.ts tests/agents-http.test.ts tests/settings-http.test.ts tests/presence.test.ts",
-    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts && node --env-file-if-exists=.env --import tsx --test tests/x-publishing.test.ts tests/x-mentions.test.ts tests/security.test.ts"
+    "test:http": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=1 tests/review-card.test.ts tests/agents-http.test.ts tests/settings-http.test.ts tests/presence.test.ts tests/drafts-http.test.ts tests/auth-http.test.ts",
+    "test:e2e": "node --env-file-if-exists=.env --import tsx --test tests/web.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
