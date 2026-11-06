@@ -21,18 +21,28 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
   const share = token(),
     ownerSession = token(),
     reviewerSession = token();
-  const ownerClient = await request.newContext({
-    extraHTTPHeaders: {
-      Origin: origin,
-      Cookie: `lastpeek_session=${ownerSession}`,
-    },
-  });
-  const reviewerClient = await request.newContext({
-    extraHTTPHeaders: {
-      Origin: origin,
-      Cookie: `lastpeek_session=${reviewerSession}`,
-    },
-  });
+  const [ownerClient, reviewerClient] = await Promise.all(
+    [ownerSession, reviewerSession].map((session) =>
+      request.newContext({
+        extraHTTPHeaders: { Origin: origin },
+        storageState: {
+          cookies: [
+            {
+              name: "lastpeek_session",
+              value: session,
+              domain: new URL(origin).hostname,
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: new URL(origin).protocol === "https:",
+              sameSite: "Lax",
+            },
+          ],
+          origins: [],
+        },
+      }),
+    ),
+  );
   const guest = await request.newContext({
     extraHTTPHeaders: { Origin: origin },
   });
@@ -40,7 +50,9 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
     reviewerConnection = randomUUID(),
     secondConnection = randomUUID(),
     guestConnection = randomUUID();
-  let avatar: string | undefined;
+  let avatar: string | undefined,
+    originalAvatar: string | undefined,
+    replacementAvatar: string | undefined;
   t.after(async () => {
     await Promise.all([
       ownerClient.dispose(),
@@ -53,7 +65,8 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
     await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
       [owner, reviewer],
     ]);
-    if (avatar) await rm(avatarPath(avatar), { force: true });
+    for (const id of [avatar, originalAvatar, replacementAvatar])
+      if (id) await rm(avatarPath(id), { force: true });
   });
   for (const [id, name, session] of [
     [owner, "Writer", ownerSession],
@@ -68,7 +81,22 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
       [hash(session), id],
     );
   }
+  const photo = await sharp({
+    create: { width: 40, height: 40, channels: 3, background: "#705080" },
+  })
+    .png()
+    .toBuffer();
+  const originalUpload = await ownerClient.post(
+    `${baseURL}/api/profile/avatar`,
+    {
+      data: photo,
+      headers: { "Content-Type": "image/png" },
+    },
+  );
+  assert.equal(originalUpload.status(), 201);
+  originalAvatar = (await originalUpload.json()).avatar;
   const content = blankContent("Writer");
+  content.author.avatar = originalAvatar;
   await db.query(
     "INSERT INTO drafts(id,owner_id,content,share_token,shared_revision) VALUES($1,$2,$3,$4,1),($5,$2,$3,NULL,NULL)",
     [draft, owner, content, share, other],
@@ -77,11 +105,6 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
     "INSERT INTO revisions(draft_id,number,content) VALUES($1,1,$2)",
     [draft, content],
   );
-  const photo = await sharp({
-    create: { width: 40, height: 40, channels: 3, background: "#705080" },
-  })
-    .png()
-    .toBuffer();
   const upload = await reviewerClient.post(`${baseURL}/api/profile/avatar`, {
     data: photo,
     headers: { "Content-Type": "image/png" },
@@ -125,6 +148,39 @@ test("review viewers are draft-scoped, expire, leave independently and lose revo
   );
   const initial = await watch(ownerClient, ownerInput);
   assert.deepEqual(initial.viewers, []);
+  const replacementUpload = await ownerClient.post(
+    `${baseURL}/api/profile/avatar`,
+    {
+      data: photo,
+      headers: { "Content-Type": "image/png" },
+    },
+  );
+  assert.equal(replacementUpload.status(), 201);
+  replacementAvatar = (await replacementUpload.json()).avatar;
+  assert.notEqual(replacementAvatar, originalAvatar);
+  assert.equal(
+    (
+      await guest.get(`${baseURL}/avatars/${replacementAvatar}?key=${share}`)
+    ).status(),
+    200,
+    "live presence permits the owner's current avatar independently of the snapshot",
+  );
+  await watch(ownerClient, { ...ownerInput, leave: true });
+  assert.equal(
+    (
+      await guest.get(`${baseURL}/avatars/${replacementAvatar}?key=${share}`)
+    ).status(),
+    404,
+    "without live presence, an unpublished replacement avatar is not shared",
+  );
+  assert.equal(
+    (
+      await guest.get(`${baseURL}/avatars/${originalAvatar}?key=${share}`)
+    ).status(),
+    200,
+    "the immutable snapshot retains access to its original avatar",
+  );
+  await watch(ownerClient, ownerInput);
   await watch(reviewerClient, reviewInput);
   await watch(reviewerClient, { ...reviewInput, connection: secondConnection });
   const visible = await watch(ownerClient, ownerInput);

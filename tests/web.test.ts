@@ -8238,6 +8238,7 @@ for (const scenario of [
           await welcome
             .getByRole("button", { name: "Continue as guest", exact: true })
             .click();
+          await welcome.waitFor({ state: "hidden" });
           await reviewer
             .getByRole("heading", { name: "Post", exact: true })
             .waitFor();
@@ -8601,14 +8602,8 @@ for (const scenario of [
             await db.query("SELECT avatar_id FROM users WHERE id=$1", [userId])
           ).rows[0].avatar_id;
           assert.notEqual(replacementId, avatarId);
-          assert.equal(
-            (
-              await guest.request.get(
-                `${baseURL}/avatars/${replacementId}?key=${renewed.token}`,
-              )
-            ).status(),
-            404,
-          );
+          // Snapshot-only avatar access is checked in presence.test.ts, without
+          // other tabs or in-flight heartbeats granting live-viewer avatar access.
           await reviewer.goto(`${baseURL}/r/${renewed.token}`);
           assert.equal(
             (
