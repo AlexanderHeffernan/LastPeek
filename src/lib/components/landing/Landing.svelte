@@ -120,7 +120,7 @@
           "A friend catches the typo and suggests a photo before the post goes out. See LastPeek in under a minute.",
         thumbnailUrl: `${origin}/landing/film-poster.jpg`,
         contentUrl: `${origin}/landing/lastpeek-film.mp4`,
-        uploadDate: "2026-11-04",
+        uploadDate: "2026-11-05T00:00:00+13:00",
         duration: "PT47S",
       },
       {
