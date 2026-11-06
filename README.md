@@ -1,180 +1,102 @@
+[![LastPeek: take one last peek before you post.](static/landing/og.png)](https://lastpeek.alexheffernan.dev)
+
 # LastPeek
 
-A second pair of eyes before you post. Write a post or thread, attach original media, and send a private review link to a friend. They can comment or suggest wording without an account. You decide what changes and when a new version is shared.
+**Better posts, with a little help from your friends.**
 
-**Open source, early-stage and invite-only.** Website-first; the optional browser extension comes later. No social API, scheduling, automatic publishing, email provider, hosted auth, cloud storage, analytics or remote fonts are required. The complete runtime is Node, PostgreSQL and a private media directory on one host.
+LastPeek is a place to draft your X posts and get a second opinion before they go out. Write a post or thread, add your photos or video, and send friends one link. They can highlight words and leave feedback without creating an account. Make a few tweaks, then post when you’re ready.
 
-The official hosted service is [lastpeek.alexheffernan.dev](https://lastpeek.alexheffernan.dev). See [deployment and automatic updates](docs/deployment.md), [security and limitations](SECURITY.md), and [contributing](CONTRIBUTING.md). Self-hosting does not require the official service, GitHub Actions or Cloudflare.
+**[Join the waitlist](https://lastpeek.alexheffernan.dev/#waitlist)** · [Watch the walkthrough](https://lastpeek.alexheffernan.dev/#how) · [Sign in](https://lastpeek.alexheffernan.dev/login) · [Self-host](docs/development.md)
 
-Compatible agents can connect through OAuth at `/mcp` when the Agents trial is enabled for their
-account. See [agent tools and media transfers](docs/agents.md) for permissions, workflows and retry
-rules. An agent can prepare and review work without receiving permission to publish or delete it.
+The hosted app is currently invite-only. Joining the waitlist requests an invitation; it doesn’t create an account. You can also run your own instance.
+
+## Catch the typo before the replies do
+
+I often send friends a post for a second opinion before it goes out. Usually that meant copying text or taking screenshots, which got messy once photos were involved, and their replies got buried in the group chat.
+
+So I built LastPeek. The post, its media and the conversation stay together, with one link that keeps up as you edit.
+
+Made by [Alex Heffernan](https://x.com/AlexH2035).
+
+## Write it. Share it. Fix it. Post it.
+
+1. **Write it.** Compose directly in an X-style post layout, with threads, photos, GIFs and video. See the text, media and character counts together as you write. Your edits save automatically.
+2. **Share it.** Drop a review link in the group chat. Friends open it and comment with just a name. For a more private review, invite specific friends with LastPeek accounts instead.
+3. **Fix it.** Talk through their notes beside the draft. Keep editing without sending another link. Feedback stays attached to what they actually reviewed, even when you change the wording or remove an attachment.
+4. **Post it.** Copy individual posts and download your media to finish in X, or use Pro to publish directly. Your draft and its discussion stay in LastPeek afterwards.
+
+[See it in under a minute →](https://lastpeek.alexheffernan.dev/#how)
+
+## A second opinion, without the screenshot shuffle
+
+### Feedback that points to something
+
+“This bit feels off” is more useful when you can see which bit. Reviewers can comment on selected words, a whole post, an image or a moment in a video. Reply in the same discussion, react to a helpful note, and resolve conversations when you’re done. If the draft changes, you can compare the original context with the current version.
+
+### One link that keeps up
+
+Your review link stays the same as you revise. Friends opening it see the latest saved version, while earlier feedback keeps its original context. Remove the link when you no longer want it to work, without removing access for separately invited reviewers.
+
+### A post, not a document
+
+Write in the layout your friends will review: profile, text, thread connectors and media together. There’s no separate preview mode to switch into. Threads support up to 25 posts, with X’s weighted character counts for links and Unicode.
+
+### Your turn, their turn, done
+
+Keep your own work in **Drafts**, friends’ requests in **To review**, and finished work in **Done**. Feedback on the current version clears a review from the queue; a new shared edit brings it back for another look. In-app notifications take you straight to the conversation.
+
+### Made for your phone too
+
+Write, upload, share and review on mobile as well as desktop. Add LastPeek to your Home Screen for an app-like window and opt into feedback notifications on supported devices. Choose Light, Dark or Auto appearance. You’ll still need an internet connection; drafts aren’t cached for offline use.
+
+## A little more help, if you want it
+
+The complete human-feedback workflow is available on Free. You don’t need a connected X account, an AI provider or an agent to use it.
+
+**Pro adds X tools.** Publish posts and threads directly, prepare replies and quotes with the original post in view, and look up @mentions while writing. Direct publishing requires a connected X account and your confirmation. These tools depend on the instance’s X configuration and your available usage allowance.
+
+**Pro also adds private AI review.** Choose Quick review, Proofread, Clarity, Tighten, Tone or Thread flow. Results stay private to you, separate from your friends’ discussion. Suggestions never change your words automatically. AI review is optional and sends post text to OpenAI only when requested, not your media or discussion.
+
+**Already work with an agent?** When the Agents trial is enabled for your account, connect a compatible remote MCP client to prepare drafts, work with media and exchange feedback in LastPeek. You choose its permissions and can revoke them at any time. Agents can’t publish to X or delete your drafts. See the [connection guide](docs/agents.md).
+
+### Free and Pro
+
+|                                   | Free   | Pro                                    |
+| --------------------------------- | ------ | -------------------------------------- |
+| Saved drafts                      | 10     | 100                                    |
+| Media storage                     | 250 MB | 2,048 MB                               |
+| Posts, threads and media          | Yes    | Yes                                    |
+| Guest reviews and invited friends | Yes    | Yes                                    |
+| Discussions and notifications     | Yes    | Yes                                    |
+| Copy posts and download media     | Yes    | Yes                                    |
+| Direct X publishing and X tools   | No     | Subject to configuration and allowance |
+| Private AI review                 | No     | Subject to configuration and allowance |
+
+These are the default allowances; instance owners can adjust them. Free has no time limit. Pro is currently an owner-managed trial, with no checkout or automatic charges. Your account’s Settings shows its actual limits and remaining usage.
+
+## Private until you share
+
+Drafts start visible only to you. When you’re ready, choose how to share:
+
+- **Review link:** anyone with the link can read and comment, without an account. It’s unlisted, not restricted to the people you send it to.
+- **Invited friends:** only the selected, signed-in friends can open that invitation. Forwarding its address doesn’t grant access.
+
+You can use both on the same draft and remove either independently. Removing an invitation doesn’t block someone who also has an active review link.
+
+Shared links can show a preview of your post and media in messaging apps. Revoking access stops future access through LastPeek, but can’t recall downloaded copies or previews another service has retained. See [security and privacy boundaries](SECURITY.md) for the details.
+
+## Open source. Yours to run.
+
+LastPeek runs as one SvelteKit application with PostgreSQL and a private media directory. No hosted authentication, email service, cloud storage, analytics or paid social API is required for drafting and human review. The official instance runs on a Raspberry Pi; Docker builds support AMD64 and ARM64.
+
+For your own domain, build from source with your own origin rather than repointing the official image.
+
+- **[Development and self-hosting](docs/development.md):** local setup, Docker, optional integrations and recovery.
+- **[Deployment guide](docs/deployment.md):** HTTPS, persistent storage, backups and the official service’s update process.
+- **[Agent connections](docs/agents.md):** permissions, tools and media workflows.
+- **[Contributing](CONTRIBUTING.md):** help improve LastPeek, or [open an issue](https://github.com/AlexanderHeffernan/LastPeek/issues) for a bug or idea. Please [report security issues privately](SECURITY.md).
+- **[Product scope](docs/product.md) · [Architecture](docs/architecture.md) · [Design](docs/design.md) · [Operations](docs/operations.md):** how the project fits together.
 
 ## Licence
 
-Copyright © 2026 Alexander Heffernan. LastPeek's original code is licensed under [GNU AGPL version 3 only](LICENSE), without warranty. You may self-host, modify and sell services subject to that licence, including its corresponding-source obligations for modified network services. Dependencies retain their own licences/notices. The LastPeek name and logo do not grant permission to imply an official service or endorsement. This project is not affiliated with X.
-
-## Try it in an orb
-
-An optional Amp orb setup is included for development. `.agents/setup` installs dependencies, prepares a private PostgreSQL development cluster, migrates and seeds once, and builds the app. It is safe to repeat and never resets an existing account. `.amp/services.yaml` supervises PostgreSQL, the website and hourly cleanup. Amp is not required to develop or host LastPeek.
-
-Run `amp orb services ensure --json` inside an orb and use its exact portal URL. Trial email is `alex@lastpeek.test`; its randomly generated password is in that orb's ignored `.env` (`SEED_PASSWORD`). Orbs and `npm run dev` also show **Dev sign in**, which signs in as `SEED_EMAIL` without a password, grants Pro and admin access, and makes that account the site owner for the running development process. It is enabled only by Vite's dev server or `DEV_SIGN_IN=1`; never set that variable on a deployed instance. The portal is private to the thread by default. This is a personal trial, not an externally accessible reviewer beta. Never put real/irreplaceable drafts in an ephemeral orb.
-
-## Local development
-
-Requires Node 22.17+, PostgreSQL 14+ and FFmpeg for video link-preview thumbnails. On Debian, install `ffmpeg fontconfig-config fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk` for the same preview rendering as the container. Create a **dedicated development database**, not a database used by another application.
-
-```sh
-npm ci
-cp .env.example .env
-# Set DATABASE_URL to the dedicated database, and set SEED_EMAIL / SEED_PASSWORD.
-npm run db:migrate
-npm run db:seed
-npm run dev
-```
-
-Open the address printed by Vite. Bootstrap creates an administrator and sample thread only when that email does not already exist. Passwords must be 12–256 characters. Existing accounts and passwords are never reset by seeding. Configure `LASTPEEK_OWNER_ID` for site admin. The owner invites an email address as Free or Pro from site admin Invitations and sends the single-use seven-day link manually. Signup is bound to that email, without mailbox verification or SMTP. Account settings no longer manage invitations.
-
-Authentication uses self-hosted Better Auth in the same server and database. Existing passwords, account IDs and active legacy sessions survive the migration. Public registration and generic auth API endpoints are disabled; invitation-only registration and local administrator recovery remain available. On the first authentication request, LastPeek creates an owner-readable `.auth-secret` in `MEDIA_DIR` for signing cookies. Keep the private media volume persistent and include hidden files in backups. Alternatively provide a random `BETTER_AUTH_SECRET` of at least 32 characters through your secret manager, and back it up separately. Losing or changing this key signs out Better Auth sessions; it does not delete accounts or drafts. No email service, social account or hosted auth subscription is required.
-
-### Optional X sign-up and account linking
-
-Enable OAuth 2.0 in the X Developer Console for a **Web App** (confidential client), with read permissions. Register the exact callback `https://your-host/auth/x/callback` (the hosted service uses `https://lastpeek.alexheffernan.dev/auth/x/callback`). Set server-only `X_CLIENT_ID` and `X_CLIENT_SECRET` and restart web; these are separate from `X_API_BEARER_TOKEN`. Never use `PUBLIC_` variables. Local testing needs its own exact callback URL. Buttons are hidden unless both credentials are configured.
-
-Invitations offer **Sign up with X** with an account email and no password; name, handle and photo are imported automatically. Email is user-supplied and unverified, never used to auto-link identities. Existing users choose **Link X account** under Account → Connections. A one-time **Connected to X** dialog previews the photo and offers independent photo, display name and handle choices. **Keep current profile**, the close button or Escape dismisses these choices without changing the profile; they do not remain in settings. Connections shows the linked handle/status and disconnect, with reconnect offered when the access token has expired without refresh credentials. Linked users can sign in with X. Reconnect refreshes consent and offers the profile choices again; it never silently overwrites the LastPeek profile. Shared snapshots keep their original identity.
-
-OAuth uses PKCE S256, short-lived single-use browser-bound state and only `tweet.read users.read offline.access` (no posting permissions). Access/refresh tokens, expiry and granted scopes are stored server-side; tokens use authenticated encryption with the private auth key. Back up that key: losing/rotating it makes stored X tokens unusable, requiring reconnection. Future user-specific API features must implement refresh-token rotation and request limits before using these credentials; no background API use or posting is enabled here. X identity reads may incur provider charges and are separate from the source-post budget. Set spending limits in X's console.
-
-X-only users can set a local password in Account. Disconnect requires a password so it cannot strand the account; it deletes locally stored X tokens, not the profile or drafts. Users can also revoke the application's grant in X. Administrator password recovery remains available if access to X is lost.
-
-```sh
-ORIGIN=http://localhost:3000 npm run build
-npm start
-```
-
-SvelteKit 3 uses `ORIGIN` at **build time** through `paths.origin`; changing it requires rebuilding. Production requires an exact public `ORIGIN`, HTTPS via your own reverse proxy, and persistent database/media volumes. Orbs intentionally build without a fixed origin: adapter-node derives HTTPS and the incoming portal Host. Configure trusted proxy/client-address handling for your actual proxy before beta; do not trust arbitrary forwarded headers. Keep database and media off public ports. `/health` checks database availability without exposing content.
-
-## Portable container stack
-
-`compose.yaml` defines PostgreSQL, the non-root Node server, and an hourly maintenance process. The Dockerfile supports AMD64 and ARM64. The official workflow publishes both architectures to `ghcr.io/alexanderheffernan/lastpeek`; those images bake in the official service's origin. **For your own domain, build from source with your own `ORIGIN`.** See [deployment](docs/deployment.md) for the Pi's image-based setup.
-
-Set `POSTGRES_PASSWORD` in `.env` to a random hex string (for example, generated with `openssl rand -hex 32`), and set `ORIGIN` for the address you will open. `APP_PORT` defaults to 3000. The web port binds only to loopback, ready for a local reverse proxy.
-
-```sh
-docker compose up --build -d
-docker compose exec -e SEED_EMAIL=you@example.com -e SEED_PASSWORD web npm run db:seed
-```
-
-Export `SEED_PASSWORD` in your shell before the bootstrap command, or supply it through your own secret-management workflow; do not put a real password in shell history. `docker compose exec -e SEED_PASSWORD` passes the exported value. Database migrations run before the web server starts. Keep volumes when restarting; **`docker compose down -v` destroys all data**.
-
-## What is supported
-
-- Ordered threads (up to 25 posts), display name/handle, multiline Unicode text and X weighted-character warnings. Standard 280-character warnings do not forbid Premium-length drafts.
-- Up to four JPEG/PNG/WebP/AVIF images, one GIF, or one MP4/WebM video per post. Original bytes, image grids, video controls/seeking, upload progress/retry, reordering, downloads. HEIC/MOV/SVG/HTML are rejected with an explanation. Browser codec support still matters; downloads remain available.
-- Private autosave with stale-edit conflict detection. **Share draft / Update shared version** publishes an immutable snapshot, not the evolving working copy. A shared link stays stable across version updates.
-- Account-free guest feedback tied to the reviewed version/post, optional replacement wording, explicit author acceptance, resolve/reopen, and historical previews. Guest names are unverified. Feedback is visible to everyone holding that review link.
-- Random 256-bit review links, revocation, renewal with a different token, and owner/capability checks on every attachment. Revocation prevents future server access; it cannot erase copies recipients already downloaded.
-- Copy individual posts/thread text and download attachments for manual posting. Copying cannot attach files in X.
-
-Previews approximate X, not pixel-perfect parity. Avatars currently use initials; identity is entered manually. No link-card scraping, polls, quotes, Premium rich text, transcoding, real-time co-editing or automatic X sync. The previous Safari/HTML prototype is preserved in the first Git commit, not maintained as a second app in the active tree.
-
-## Installed web app
-
-In iPhone/iPad Safari, use **Share → Add to Home Screen** (enable **Open as Web App** if offered). Desktop Chrome/Edge and Android Chrome offer installation from their browser menu. LastPeek opens in its own window with a dark launch screen, its own icon, and safe-area spacing. Apple launch images cover common full-screen phone/tablet sizes in both orientations; iPad multitasking and future screen sizes may use the OS fallback.
-
-Installed mobile/tablet apps are portrait-only. The manifest requests portrait; iOS does not enforce that setting, so rotating an installed touch-screen app shows a portrait prompt without losing the page or unsaved form state. Fullscreen media may rotate where the browser permits it, then returns to portrait (or the prompt) on exit. Normal browser windows and desktop layouts remain unrestricted. Landscape Apple launch images remain as a fallback for iOS launches before the portrait prompt appears.
-
-The app still needs a connection. A small service worker caches **only** a public offline retry page, never drafts, review links, accounts, or media. Failed edits retain the existing inline save errors; nothing is queued for background submission. Updates wait until existing app windows close rather than replacing an active composer. iOS controls when installed icons and launch screens refresh; an existing installation may need to be removed and added again to refresh its install assets (save any open edits first).
-
-`npm run pwa:generate` rebuilds the checked-in icons and Apple launch images from `static/favicon.svg`. Screen sizes and matching launch links share `src/lib/pwa.ts`.
-
-## Optional X source previews
-
-Quotes and replies require Pro; see [plan administration](docs/operations.md). The menu is
-hidden without access. Server checks use the draft owner, including for anonymous
-reviewers, before any cached read or paid lookup. Revoking access leaves existing
-drafts editable and replaces source previews with the unavailable status.
-
-Set `X_API_BEARER_TOKEN` in the server's secret environment to render public source posts as native cards for reply/quote drafts. No X user login or posting permissions are needed. Without a token, with unavailable/unsupported posts, or at the request budget, quote/reply creation returns “Quotes and replies aren’t available right now.” Existing drafts remain editable and show that status in place of the source card. There is no embed fallback. The token is never sent to browsers. X images/videos load directly from its fixed media hosts with no referrer; no draft text or review URL is sent to the API.
-
-`X_API_MONTHLY_BUDGET_USD` defaults to `5`; `0` disables API lookups. Each instance reserves **US$0.05 per lookup attempt** in PostgreSQL before making the request, including failures. The reservation is deliberately conservative, not actual billed spend: announced rates for one post, its author and four media objects total US$0.035. At the default budget this permits 100 attempts per UTC calendar month, including refreshes. It does not automatically purchase credits or change X billing settings. Instances/apps sharing X credits have separate counters; keep X's own account spending limit and auto-recharge settings in place, and review the reservation if provider pricing changes.
-
-Successful source cards cache for 15 minutes across drafts/reviewers; failures back off for five minutes, with no automatic HTTP retries. Page loads revalidate expired entries, never displaying expired content. Autosave makes no lookup. Maintenance removes expired source content; source cards are not stored in immutable draft revisions or review-preview images. Sensitive, edited, quoted/reposted sources and polls are unavailable until their required presentation is supported. The API is optional and does not publish to X. Apply SQL migrations before starting the new version. Configure the production secret separately from Amp's development project secrets.
-
-## Optional AI second look
-
-Set `OPENAI_API_KEY` in the server's secret environment and restart web. Pro accounts can use **AI second look** beside author feedback within their monetary allowance. With no key or on Free, the control is hidden and the complete human-review workflow remains available. See [plan administration and agent operations](docs/operations.md). Never put the key in a `PUBLIC_` variable or the browser. `OPENAI_MODEL` defaults to `gpt-6-luna`; unknown models fail closed until verified pricing and reservation bounds are added.
-
-Review is explicit, never triggered by autosave. Only the current ordered post IDs and text are sent to OpenAI, not the author's identity, title, attachments, comments or review token. Requests use `store: false` (not a guarantee of zero provider retention; OpenAI's applicable API data policies still apply). Six one-click presets save private newest-first review history with the draft, never as discussion comments. Owners can delete a saved review. Suggestions change draft text only through an explicit Apply action on unchanged reviewed text; editing/reordering disables stale edits.
-
-Requests are bounded to 20,000 characters and 4,000 output tokens (including reasoning), with a 45-second timeout and no automatic retries. Database-backed safety limits allow 20 attempts per author and 100 per instance per 24-hour window, including failed provider requests. In addition, each request reserves US$0.03 against the account's current AI allowance before HTTP. Known token costs reconcile afterward; unknown costs retain the reservation. Keep provider project-level spending controls: other apps sharing the key/project and pricing changes still affect spend. No web-search or other paid tools are enabled.
-
-The server-only `src/lib/server/openai.ts` owns credentials, model selection, transport, timeout, non-storage and validated structured responses. New features can reuse `generateStructured` with their own schema and instructions; routes still enforce owner/origin checks, input bounds and usage limits. Keep features opt-in rather than introducing a general chatbot or mandatory provider dependency.
-
-## Limits, maintenance and recovery
-
-Free defaults to 10 drafts and 250 MB; Pro to 100 drafts and 2,048 MB, plus US$0.50 AI and US$1.50 X per monthly period. Both allow 50 MB uploads. The owner controls allowances in site admin: Free changes immediately, Pro increases immediately and reductions at the next individual renewal. Above-limit accounts keep existing content. `MAX_STORAGE_MB` is superseded by plan settings. `MAX_UPLOAD_MB` remains a transport ceiling; `BODY_SIZE_LIMIT=55M` must exceed it plus multipart overhead. Uploaded files are MIME-inspected, images have a 40-megapixel decode bound, and files never live in `static/`. Video containers are detected, not transcoded or exhaustively decoded server-side. See [product policy](docs/product.md). Deploy only for trusted invitees until beta hardening and capacity checks are complete.
-
-Dependency audit currently reports a low-severity prototype-poisoning advisory in `deepmerge` 4.3.1, inherited through Svelte's build tooling. That is the latest upstream version at the time of this MVP; draft input is not passed to that build-time merge. Track an upstream fix before broader release rather than applying npm's incompatible forced downgrade.
-
-`npm run maintenance` expires sessions/rate buckets, removes uploads unused for 24 hours, and cleans stale orphan files. Compose/orbs run it hourly; other deployments need their own hourly timer. Published revisions retain their original media until draft deletion. Deleting a draft permanently removes its versions, comments and media. There is no automatic draft expiry.
-
-Password recovery is a **local administrator operation**, not an email dependency:
-
-```sh
-# Store a new password in a temporary owner-readable file without echoing it.
-umask 077
-read -rs NEW_PASSWORD; printf '\n'
-printf '%s\n' "$NEW_PASSWORD" > /tmp/lastpeek-password
-unset NEW_PASSWORD
-npm run account:reset -- author@example.com < /tmp/lastpeek-password
-rm /tmp/lastpeek-password
-```
-
-Resetting invalidates all existing sessions. For container use, pipe the password file into `docker compose exec -T web npm run account:reset -- author@example.com` instead.
-
-Rehearse **backup and restore**: stop web and maintenance writers, take `pg_dump` plus a matching copy of the private media volume, restart writers, and restore both into an isolated instance to verify logins, shared revisions and original attachment checksums. A database dump alone is not a complete backup. Local snapshots are not protection against losing the Pi or its disk; encrypted off-device storage and alerts remain an operator responsibility. See [the deployment runbook](docs/deployment.md) before storing irreplaceable drafts or expanding beyond trusted invitees.
-
-## Verification and code map
-
-```sh
-# One-time browser + system dependency setup (included in orb setup):
-npm run browsers:install
-# Local PostgreSQL must be running; DATABASE_URL supplies local admin access.
-npm run verify:release
-# Ignore the local verification receipt and rerun everything:
-npm run verify:release -- --force
-# Run a core workflow on both engines, with independently owned fixtures:
-npm run verify:focused -- --test 'core / create and edit'
-# Reproduce a WebKit failure without unrelated tests/checks:
-npm run verify:focused -- --browser webkit --test 'core / reviewer'
-# Run an HTTP/server file once without launching/downloading browsers:
-npm run verify:focused -- --browser none --file tests/drafts-http.test.ts
-# A temporary task-specific browser check uses the same isolated stack:
-npm run verify:focused -- --file tests/task-check.test.ts
-# Remove task-check.test.ts after recording its results; it is not a new gate.
-```
-
-### Small permanent gate, targeted feature verification
-
-Permanent browser coverage is **five broad workflows**: invited signup, sign in/out, create/edit with persistence, create/open a review link, and reviewer feedback reaching the author. One explicit privacy exception exercises service-worker caching/offline behavior. `tests/web.test.ts` runs these six independent tests in desktop Chromium and mobile-sized WebKit: twelve executions, not feature-by-feature regression coverage. Mobile WebKit is emulation, not proof of a real iPhone's codecs. There is no nightly copy of the removed journeys. New permanent browser exceptions require Alexander's approval.
-
-Feature agents run relevant static/unit checks and verify their changed behavior. UI verification uses temporary browser checks or agent-browser, including affected desktop/mobile and failure states; inspect screenshots/recordings and report the results, then remove temporary test code. A new feature does not automatically earn a permanent Playwright test. Keep durable security, ownership, concurrency, immutable-revision, media, billing and retry/idempotency contracts at unit, database or HTTP level instead. Intentional product changes can remove obsolete expectations without compatibility code. See [agent policy](AGENTS.md#test-cost-and-coverage).
-
-CI is the authoritative full gate. It checks formatting/types/unit tests and advisories, builds production, applies migrations twice, and runs the small browser suite plus all server integration/HTTP tests. Agents need not repeat this entire gate locally for every feature; use a local full gate for harness/cross-cutting changes, integration diagnosis or when CI is unavailable. Independent orbs can implement features, but one integration owner lands a batch sequentially and verifies the integrated tree. After an initial CI failure and one evidence-based repair, stop the push loop and diagnose the precise blocker with focused checks; do not waive failures or retry blindly.
-
-### Isolation and diagnostics
-
-The full verifier runs three isolated jobs: one per engine and one for server contracts, at most three workers and limited by CPU availability. Each owns a fresh database cloned from the migrated template, private media, server and loopback ports. Tests inside each browser job run sequentially with fresh account/context fixtures. HTTP files also run sequentially: admin-wide snapshots must not race another file's account cleanup. Concurrent-write contracts still exercise parallel requests inside their own test. Build and type checks use separate writable private copies and run concurrently. The production build is shared read-only between jobs.
-
-The verifier builds once using SvelteKit's supported proxy-derived origin mode. Each job has a loopback-only gateway that sets the trusted protocol header; browser Origin headers and CSRF checks remain unchanged. Production's fixed-origin configuration is unchanged. Synthetic OAuth credentials never call real providers. PostgreSQL credentials must allow creating/dropping databases; non-local hosts are rejected (CI also accepts its `postgres` service). Verification never touches preview data/media or rebuilds its portal. Fixtures are removed after success or failure. Dependencies are cached by package/lockfile and Node/platform version, then copied, never linked, into writable private workspaces. Delete `.amp/in/verification-deps-*` to discard these caches. Commands, jobs and total invocations report timings including setup/cleanup.
-
-`verify:focused` builds the real stack and selects a test file/name with owned fixtures; `--test` is a JavaScript regex, `--file` defaults to `tests/web.test.ts`, and engines default to both. Use `--browser none` for HTTP/integration files to run once without browser installation. Invalid selections and zero matched tests fail. Focused verification skips formatting/audit/types/unit checks and the second migration pass; it never writes or invalidates a release receipt. Do not overlap verifier invocations in one orb, borrow another run's fixtures/environment, or edit sources during a full gate. Use a separate preview for UI captures.
-
-A local receipt under `.amp/in/release-verification.json` reuses successful checks only while application, tests, lockfile, workflows, tooling and Node/platform are unchanged. Documentation and commit/rebase metadata do not invalidate it. Formatting/audit always rerun; CI always runs fresh. Fetch before integration and rerun verification on the integrated tree rather than treating a feature's old result as final certification.
-
-Browser failures retain a screenshot of each open fixture page plus a test/error summary under `.amp/in/verification-failures/<run>/<engine>/`, outside disposable cleanup. CI uploads these for seven days. Only synthetic fixtures belong there; never record real draft text or credentials. Prefix a focused run with `DEBUG=pw:api` for action timings. CI logs also retain server assertion failures. No automatic test retries.
-
-Low-level `test:integration` needs a migrated **disposable** database/media environment; `test:http` and `test:e2e` also need its matching production server. Prefer the managed verifier. Publication/provider contracts live in `tests/x-publishing-server.test.ts`, private media/concurrent-save HTTP contracts in `tests/drafts-http.test.ts`, auth boundaries/session invalidation in `tests/auth-http.test.ts`, and preview PNG contracts in `tests/review-card.test.ts`. These need no browser launch. Never run tests against production.
-
-`src/lib/contracts.ts` owns the draft contract. `src/lib/server/` owns auth, persistence and private media. Routes adapt those operations to HTTP; shared Svelte components render author/reviewer previews. `migrations/` contains ordered SQL migrations. Read [product scope](docs/product.md), [architecture/invariants](docs/architecture.md), and [agent guidance](AGENTS.md) before changing behaviour. GitHub Actions runs formatting, type checks, contract tests, dependency auditing and Chromium/WebKit E2E tests before publishing images on `main`. Pull requests cannot publish or deploy.
+Copyright © 2026 Alexander Heffernan. Licensed under [GNU AGPL version 3 only](LICENSE), without warranty. You may self-host, modify and offer services under its terms, including the corresponding-source obligations for modified network services. Dependencies retain their own licences and notices. The LastPeek name and logo don’t grant permission to imply an official service or endorsement. LastPeek is not affiliated with X.
