@@ -102,8 +102,18 @@ The initialization entry receives its snapshotted object price after a confirmed
 successful finalization. An abandoned/failed initialization remains unsettled:
 X has not documented when those objects are billed. Failed writes/timeouts also
 remain unsettled instead of assuming that a failed publication was free.
-Native quotes require Enterprise and retain an unsettled cost rather than
-borrowing a standard PPU rate for a negotiated contract.
+Successful native quotes use the same Post Create estimate: $0.015 without a URL
+in the submitted text, $0.200 with one. `quote_tweet_id` is not a URL in the text.
+The create-post reference claims Enterprise-only access, but X staff clarified
+that permitted conversations can use native quotes on self-serve; the owner also
+confirmed a successful self-quote on pay-per-use. Do not infer billing from that
+access restriction or turn the $0.20 safety reservation into a charge. This is a
+published-tariff estimate, not itemized invoice evidence. Existing unknown costs
+and audited exclusions are not rewritten.
+
+Quote accounting sources checked 6 November 2026:
+https://docs.x.com/x-api/getting-started/pricing and
+https://devcommunity.x.com/t/quote-tweet-via-url-in-text-field-charged-as-0-20-contentcreatewithurl/263884/7 .
 
 Source reads cost $0.005 per post; connection/sign-in profile reads cost $0.010
 per user. Profile reads are now recorded even for Free accounts; token exchange

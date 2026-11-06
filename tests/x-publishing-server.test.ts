@@ -402,6 +402,11 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
             id,
             draft,
           ]);
+          const beforeQuoteCost = (
+            await apiUsage({ userId, period: "all" })
+          ).operations.find(
+            (row) => row.operation === "post-create",
+          )!.estimated_usd;
           await finish();
           assert.equal(initialized.at(-1)?.mime, "video/mp4");
           assert.equal(initialized.at(-1)?.category, "tweet_video");
@@ -411,6 +416,35 @@ test("X publishing binds saved content and account, reserves costs, and blocks d
             media: { media_ids: ["8002"] },
             quote_tweet_id: "999123456789",
           });
+          assert.ok(
+            Math.abs(
+              (await apiUsage({ userId, period: "all" })).operations.find(
+                (row) => row.operation === "post-create",
+              )!.estimated_usd -
+                beforeQuoteCost -
+                0.015,
+            ) < 0.0000001,
+            "A successful native quote is priced, not unknown or the $0.20 reservation",
+          );
+          await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
+          draft.posts[0].text = "Quote with a link https://example.com/article";
+          draft.posts[0].media = [];
+          await db.query("UPDATE drafts SET content=$2 WHERE id=$1", [
+            id,
+            draft,
+          ]);
+          await finish();
+          assert.ok(
+            Math.abs(
+              (await apiUsage({ userId, period: "all" })).operations.find(
+                (row) => row.operation === "post-create",
+              )!.estimated_usd -
+                beforeQuoteCost -
+                0.015 -
+                0.2,
+            ) < 0.0000001,
+            "A URL in quote text still selects the $0.20 tariff",
+          );
           await db.query("DELETE FROM x_publications WHERE draft_id=$1", [id]);
           delete draft.source;
           const gif = await storeMedia(

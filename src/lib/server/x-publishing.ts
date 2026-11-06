@@ -241,14 +241,12 @@ export async function postToX(
           cents,
           period,
           cost,
-          // Native quotes require Enterprise; do not borrow standard PPU rates
-          // for a successful request on a potentially negotiated contract.
-          !upload && index === 0 && content.source?.kind === "quote"
-            ? null
-            : xWriteRate(
-                operation,
-                Boolean(twitter.extractUrls(content.posts[index].text).length),
-              ),
+          // A native quote ID is not a URL in the submitted text. Accepted
+          // quotes use PostCreate; only URLs in text select the URL tariff.
+          xWriteRate(
+            operation,
+            Boolean(twitter.extractUrls(content.posts[index].text).length),
+          ),
           xPricingBasis,
         ],
       );
@@ -447,9 +445,7 @@ export async function postToX(
         ? "Couldn’t upload or process an attachment on X. No text was sent without it. Check X permissions and credits, then continue."
         : uncertain
           ? "X may have received this post. Check X; retry is blocked to avoid a duplicate."
-          : claim.content.source?.kind === "quote" && status === 403
-            ? "X rejected the quote. Native quote posting requires Enterprise API access."
-            : "X rejected the post. Check your connection, account permissions and X credits before continuing.";
+          : "X rejected the post. Check your connection, account permissions and X credits before continuing.";
     claim.progress.message = failure;
     if (upload) {
       upload.stage = "prepare";
