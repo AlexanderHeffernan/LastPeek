@@ -3,6 +3,7 @@
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import Icon from "./Icon.svelte";
+  import PostCopyButton from "./PostCopyButton.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import XSourcePost from "./XSourcePost.svelte";
   import MentionEditor from "./MentionEditor.svelte";
@@ -43,7 +44,7 @@
     token?: string;
     onchange?: () => void;
     onupload?: (postId: string, files: File[]) => void;
-    oncopy?: (text: string) => void;
+    oncopy?: (text: string) => boolean | Promise<boolean>;
     onfocuspost?: (postId: string, quote: string) => void;
     onfocusmedia?: (
       postId: string,
@@ -402,14 +403,11 @@
                     }}
                   /></label
                 >{/if}
-              {#if oncopy}<Button
-                  variant="ghost"
-                  class="icon-button"
-                  aria-label={`Copy post ${index + 1} text`}
-                  title="Copy text"
-                  onclick={() => oncopy?.(post.text)}
-                  ><Icon name="copy" size={20} /></Button
-                >{/if}
+              {#if oncopy}<PostCopyButton
+                  text={post.text}
+                  {index}
+                  {oncopy}
+                />{/if}
             </div>
             {#if editing}
               <div class="post-count">
