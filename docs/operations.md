@@ -19,11 +19,13 @@ Migration 027 retires `x-publishing` and `x-mentions`, removes their grants and 
 ## Site administration
 
 Site admin → API usage controls the **Global X API cap**, in USD per UTC calendar
-month, shared by all accounts and all paid X operations. Only the owner can save
+month, shared by all accounts for source/mention lookups, posted-link matching,
+publishing and media calls. X sign-in identity reads remain outside this cap,
+as before; it is not a payer-wide invoice limit. Only the owner can save
 it; admins can read it. Changes are audited and apply to subsequent reservations
 without a restart. The saved cap overrides `X_API_MONTHLY_BUDGET_USD`; until the
 first save, that environment setting (default US$5) remains effective. Zero blocks
-new paid requests. Reducing below this month's reservations blocks further paid
+new budgeted requests. Reducing below this month's reservations blocks further budgeted
 calls but never resets usage or cancels calls already in flight. Cached reads and
 ordinary drafting/review remain available. The displayed reservation total is
 conservative safety accounting, not X's billed spend or credit balance. Per-account

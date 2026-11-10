@@ -74,9 +74,9 @@
     {#if error}<p class="error small" role="alert">{error}</p>{/if}
   </form>
   <p class="small muted">
-    Shared by all accounts. Safety reservations, not billed spend. Set 0 to stop
-    new paid requests; lowering the cap never resets reservations or cancels
-    calls already in flight.
+    Shared by all accounts. Safety reservations, not billed spend. Set 0 to
+    pause X lookups and posting. Lowering the cap never resets reservations or
+    cancels calls already in flight. X sign-in is separate.
   </p>
   <p class="small muted">
     Renews {new Date(budget.renewsAt).toLocaleDateString("en-NZ", {
