@@ -3,6 +3,7 @@ import { error, isHttpError } from "@sveltejs/kit";
 import { z } from "zod";
 import twitter from "twitter-text";
 import { db, transaction } from "./db";
+import { reserveXBudget } from "./x-budget";
 import { ownedDraft, validateContent } from "./drafts";
 import { isPro, reserveAPI } from "./plans";
 import { rateLimit } from "./auth";
@@ -215,18 +216,8 @@ export async function postToX(
     let usageId: string | null = null;
     if (cost) {
       await reserveAPI(client, userId, "x", cost);
-      const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
-      if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(budget))
-        error(503, "X posting budget isn’t configured.");
       const cents = Math.ceil(cost * 100);
-      const reserved = await client.query(
-        `INSERT INTO x_api_budgets(month,reserved_cents)
-      SELECT date_trunc('month',now() AT TIME ZONE 'UTC')::date,$1::int WHERE $1::int<=$2::int
-      ON CONFLICT(month) DO UPDATE SET reserved_cents=x_api_budgets.reserved_cents+$1
-      WHERE x_api_budgets.reserved_cents+$1<=$2 RETURNING month`,
-        [cents, Math.round(Number(budget) * 100)],
-      );
-      if (!reserved.rowCount)
+      if (!(await reserveXBudget(client, cents)))
         error(429, "The site’s X allowance is used. Try after it renews.");
       usageId = randomUUID();
       const operation = upload

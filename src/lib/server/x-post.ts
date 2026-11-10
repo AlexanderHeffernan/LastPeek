@@ -2,6 +2,7 @@ import { z } from "zod";
 import { xPostURLSchema } from "../contracts";
 import type { XSourcePost } from "../x-post";
 import { db, transaction } from "./db";
+import { reserveXBudget } from "./x-budget";
 import { isPro, reserveAPI } from "./plans";
 import { randomUUID } from "node:crypto";
 import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
@@ -142,10 +143,6 @@ export async function sourcePost(
   if (!key || !parsed.success) return null;
   // Gate cached reads and paid requests alike, using the author, never the reviewer.
   if (!(await isPro(ownerId))) return null;
-  const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
-  if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(budget)) return null;
-  const cents = Math.round(Number(budget) * 100);
-  if (cents < 5) return null;
   const id = new URL(parsed.data).pathname.split("/").at(-1)!;
   const lookup = await transaction(async (client) => {
     // Claim misses across processes; never hold database locks during HTTP requests.
@@ -175,15 +172,7 @@ export async function sourcePost(
     }
     // Reserve 5 cents before EVERY attempt: above the announced 3.5-cent maximum
     // for one post + author + four media. Never refund failures or assume deduplication.
-    const reserved = await client.query(
-      `
-      INSERT INTO x_api_budgets(month,reserved_cents)
-      SELECT date_trunc('month',now() AT TIME ZONE 'UTC')::date,5 WHERE $1::int>=5
-      ON CONFLICT(month) DO UPDATE SET reserved_cents=x_api_budgets.reserved_cents+5
-      WHERE x_api_budgets.reserved_cents+5<=$1 RETURNING month`,
-      [cents],
-    );
-    if (!reserved.rowCount) return { content: null };
+    if (!(await reserveXBudget(client, 5))) return { content: null };
     const usageId = randomUUID();
     await client.query(
       `INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd,x_unit_usd,x_pricing_basis,x_read_rates)

@@ -15,6 +15,13 @@ export const adminView = z.enum([
 ]);
 export type AdminView = z.infer<typeof adminView>;
 
+export const xBudgetSchema = z.number().int().min(0).max(9999999);
+export type XBudget = {
+  limitCents: number | null;
+  reservedCents: number;
+  renewsAt: string;
+};
+
 export const financialModelSchema = z
   .object({
     free: z.number().int().min(0).max(100000000).default(100),
@@ -119,6 +126,7 @@ export type AdminData = {
   history: AccessChange[];
   plans: Record<Plan, Allowances>;
   financialModel: FinancialModel;
+  xBudget: XBudget;
   accountRequests: { email: string; name: string | null; created_at: string }[];
   invitations: {
     id: string;

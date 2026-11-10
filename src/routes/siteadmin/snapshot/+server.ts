@@ -8,8 +8,9 @@ import {
   inviteAccount,
   revokeInvitation,
   saveFinancialModel,
+  saveXBudget,
 } from "$lib/server/admin";
-import { financialModelSchema } from "$lib/admin";
+import { financialModelSchema, xBudgetSchema } from "$lib/admin";
 import { requireUser, sameOrigin } from "$lib/server/auth";
 import { featureChangeSchema } from "$lib/features";
 import { allowanceSchema, planSchema } from "$lib/plans";
@@ -32,6 +33,12 @@ export const POST: RequestHandler = async (event) => {
     .discriminatedUnion("action", [
       usageResolutionSchema,
       creditCheckpointSchema,
+      z
+        .object({
+          action: z.literal("x-api-budget"),
+          limitCents: xBudgetSchema,
+        })
+        .strict(),
       z
         .object({
           action: z.literal("financial-model"),
@@ -97,6 +104,10 @@ export const POST: RequestHandler = async (event) => {
     );
   const actor = requireUser(event.locals);
   const command = parsed.data;
+  if (command.action === "x-api-budget") {
+    await saveXBudget(actor, command.limitCents);
+    return json({ ok: true });
+  }
   if (command.action === "reconcile-usage")
     return json(await reconcileUsage(command, actor.id));
   if (command.action === "reconcile-x-balance")

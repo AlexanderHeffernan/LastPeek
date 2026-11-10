@@ -8,6 +8,7 @@ import {
   type MentionResult,
 } from "../x-mentions";
 import { db, transaction } from "./db";
+import { reserveXBudget } from "./x-budget";
 import { isPro, reserveAPI } from "./plans";
 import { rateLimit } from "./auth";
 import { decryptXToken, refreshXAccess } from "./x-auth";
@@ -38,9 +39,6 @@ export async function lookupMentions(
   }
   await rateLimit(`x-mentions:${userId}`, 30, 900);
   await refreshXAccess(userId, account.x_id, ["users.read"]);
-  const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
-  if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(budget))
-    error(503, "Mention lookup isn’t configured.");
   const cents = kind === "search" ? 5 : 1;
   const claim = await transaction(async (client) => {
     await client.query(
@@ -62,14 +60,7 @@ export async function lookupMentions(
       )
     ).rows[0];
     if (!connected) error(409, "Reconnect X to look up mentions.");
-    const reserved = await client.query(
-      `INSERT INTO x_api_budgets(month,reserved_cents)
-      SELECT date_trunc('month',now() AT TIME ZONE 'UTC')::date,$1::int WHERE $1::int<=$2::int
-      ON CONFLICT(month) DO UPDATE SET reserved_cents=x_api_budgets.reserved_cents+$1
-      WHERE x_api_budgets.reserved_cents+$1<=$2 RETURNING month`,
-      [cents, Math.round(Number(budget) * 100)],
-    );
-    if (!reserved.rowCount)
+    if (!(await reserveXBudget(client, cents)))
       error(
         429,
         "X lookup budget is used. You can still type and post mentions.",

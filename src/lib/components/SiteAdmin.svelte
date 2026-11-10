@@ -13,6 +13,7 @@
   import PlanAdmin from "$lib/components/PlanAdmin.svelte";
   import AdminInvitations from "$lib/components/AdminInvitations.svelte";
   import UsageReconciliation from "$lib/components/UsageReconciliation.svelte";
+  import XBudgetAdmin from "$lib/components/XBudgetAdmin.svelte";
 
   let {
     initialData,
@@ -688,6 +689,11 @@
             </tbody>
           </table>
         {:else if data.view === "usage"}
+          <XBudgetAdmin
+            budget={data.xBudget}
+            isOwner={data.isOwner}
+            onsave={send}
+          />
           <div class="row between usage-filter">
             <strong class="account-filter"
               >{data.usage.account || "All accounts"}</strong

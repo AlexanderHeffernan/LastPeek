@@ -18,6 +18,17 @@ Migration 027 retires `x-publishing` and `x-mentions`, removes their grants and 
 
 ## Site administration
 
+Site admin → API usage controls the **Global X API cap**, in USD per UTC calendar
+month, shared by all accounts and all paid X operations. Only the owner can save
+it; admins can read it. Changes are audited and apply to subsequent reservations
+without a restart. The saved cap overrides `X_API_MONTHLY_BUDGET_USD`; until the
+first save, that environment setting (default US$5) remains effective. Zero blocks
+new paid requests. Reducing below this month's reservations blocks further paid
+calls but never resets usage or cancels calls already in flight. Cached reads and
+ordinary drafting/review remain available. The displayed reservation total is
+conservative safety accounting, not X's billed spend or credit balance. Per-account
+allowances remain independent.
+
 Set `LASTPEEK_OWNER_ID` to the existing owner's stable account UUID in the web
 container environment. Missing or invalid configuration disables `/siteadmin`
 and its operator reads; never infer ownership from an email address or the first

@@ -3,6 +3,7 @@ import { error } from "@sveltejs/kit";
 import { z } from "zod";
 import { xPostURLSchema } from "../contracts";
 import { db, transaction } from "./db";
+import { reserveXBudget } from "./x-budget";
 import { ownedDraft } from "./drafts";
 import { isPro, reserveAPI } from "./plans";
 import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
@@ -104,24 +105,10 @@ export async function markPosted(
         userId,
       ])
     ).rows[0];
-    const budget = process.env.X_API_MONTHLY_BUDGET_USD ?? "5";
-    if (
-      !key ||
-      !account ||
-      !(await isPro(userId)) ||
-      !/^\d{1,5}(?:\.\d{1,2})?$/.test(budget)
-    )
-      return;
+    if (!key || !account || !(await isPro(userId))) return;
     usageId = await transaction(async (client) => {
       const period = await reserveAPI(client, userId, "x", 0.1);
-      const reserved = await client.query(
-        `INSERT INTO x_api_budgets(month,reserved_cents)
-        SELECT date_trunc('month',now() AT TIME ZONE 'UTC')::date,10 WHERE $1::int>=10
-        ON CONFLICT(month) DO UPDATE SET reserved_cents=x_api_budgets.reserved_cents+10
-        WHERE x_api_budgets.reserved_cents+10<=$1 RETURNING month`,
-        [Math.round(Number(budget) * 100)],
-      );
-      if (!reserved.rowCount) return null;
+      if (!(await reserveXBudget(client, 10))) return null;
       const id = randomUUID();
       await client.query(
         "INSERT INTO api_usage(id,user_id,provider,model,reserved_cents,period_start,reserved_usd,x_unit_usd,x_pricing_basis,x_read_rates)VALUES($1,$2,'x','post-match',10,$3,0.10,0.005,$4,$5)",

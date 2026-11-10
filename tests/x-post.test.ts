@@ -33,6 +33,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     }
   });
   await db.query(await readFile("migrations/011_x_source_posts.sql", "utf8"));
+  await db.query(await readFile("migrations/043_x_api_limit.sql", "utf8"));
   await db.query("CREATE TABLE users(id uuid PRIMARY KEY)");
   await db.query(await readFile("migrations/013_api_usage.sql", "utf8"));
   await db.query(await readFile("migrations/004_feature_access.sql", "utf8"));
@@ -292,6 +293,27 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     reserved: spent + 5,
     unpriced_failures: 0,
   });
+
+  // A saved site cap overrides the environment immediately without resetting usage.
+  await db.query("UPDATE x_api_settings SET monthly_limit_cents=$1", [
+    spent + 10,
+  ]);
+  assert.ok(
+    await sourcePost(url(8)),
+    "raising the cap permits the next lookup",
+  );
+  await db.query("UPDATE x_api_settings SET monthly_limit_cents=0");
+  const callsBeforeZero = calls;
+  assert.equal(await sourcePost(url(9)), null);
+  assert.ok(await sourcePost(url(8)), "zero retains already-cached context");
+  assert.equal(calls, callsBeforeZero, "zero makes no new provider calls");
+  assert.equal(
+    (await db.query("SELECT reserved_cents FROM x_api_budgets")).rows[0]
+      .reserved_cents,
+    spent + 10,
+    "lowering the cap preserves prior reservations",
+  );
+  await db.query("UPDATE x_api_settings SET monthly_limit_cents=NULL");
 
   // Manual posting reconciliation has its own owner, fixtures and allowance.
   await db.query(`CREATE TABLE drafts(id uuid PRIMARY KEY,owner_id uuid REFERENCES users,content jsonb,edit_version int DEFAULT 1,posted_at timestamptz);

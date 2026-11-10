@@ -9,6 +9,7 @@ import {
   adminView,
   adminFlagsQuery,
   financialModelSchema,
+  xBudgetSchema,
   type FinancialModel,
   type AdminFlags,
   type AccessChange,
@@ -20,6 +21,7 @@ import { setFeatureAccess } from "./features";
 import { planAllowances, planUsage } from "./plans";
 import { hash, token } from "./auth";
 import type { Plan } from "../plans";
+import { xBudget } from "./x-budget";
 
 function ownerId() {
   const parsed = z.uuid().safeParse(process.env.LASTPEEK_OWNER_ID);
@@ -74,6 +76,7 @@ export async function adminData(
       history: [],
       plans: await planAllowances(),
       financialModel: await financialModel(),
+      xBudget: await adminXBudget(),
       invitations: [],
       accountRequests: [],
     };
@@ -97,6 +100,7 @@ export async function adminData(
     history,
     plans: await planAllowances(),
     financialModel: await financialModel(),
+    xBudget: await adminXBudget(),
     accountRequests: isOwner(user)
       ? (
           await db.query(
@@ -123,6 +127,38 @@ export async function adminData(
       revoked_at: row.revoked_at?.toISOString() ?? null,
     })),
   };
+}
+
+async function adminXBudget() {
+  const result = await db.query(
+    `SELECT COALESCE((SELECT reserved_cents FROM x_api_budgets
+      WHERE month=date_trunc('month',now() AT TIME ZONE 'UTC')::date),0) AS reserved,
+      (date_trunc('month',now() AT TIME ZONE 'UTC')+interval '1 month') AT TIME ZONE 'UTC' AS renews`,
+  );
+  return {
+    limitCents: await xBudget(),
+    reservedCents: Number(result.rows[0].reserved),
+    renewsAt: result.rows[0].renews.toISOString(),
+  };
+}
+
+export async function saveXBudget(actor: User, limitCents: number) {
+  requireOwner(actor);
+  const limit = xBudgetSchema.parse(limitCents);
+  await transaction(async (client) => {
+    await client.query(
+      "SELECT id FROM x_api_settings WHERE id=true FOR UPDATE",
+    );
+    const previous = await xBudget(client);
+    await client.query(
+      "UPDATE x_api_settings SET monthly_limit_cents=$1 WHERE id=true",
+      [limit],
+    );
+    await client.query(
+      "INSERT INTO plan_audit(actor_id,action,details) VALUES($1,'x-api-budget',$2)",
+      [actor.id, { previousLimitCents: previous, limitCents: limit }],
+    );
+  });
 }
 
 async function financialModel() {

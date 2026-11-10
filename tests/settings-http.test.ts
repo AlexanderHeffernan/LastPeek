@@ -9,6 +9,84 @@ import { blankContent } from "../src/lib/contracts";
 const origin = process.env.TEST_BASE_URL || "http://127.0.0.1:4173";
 after(() => db.end());
 
+test("global X cap is owner-only, validated, persistent and audited without resetting reservations", async (t) => {
+  const owner = process.env.LASTPEEK_OWNER_ID!,
+    admin = randomUUID();
+  const ownerSession = token(),
+    adminSession = token();
+  const client = await request.newContext();
+  const previous = (
+    await db.query("SELECT monthly_limit_cents FROM x_api_settings")
+  ).rows[0].monthly_limit_cents;
+  const reservations = (
+    await db.query("SELECT * FROM x_api_budgets ORDER BY month")
+  ).rows;
+  assert.equal(
+    (await db.query("SELECT 1 FROM users WHERE id=$1", [owner])).rowCount,
+    0,
+  );
+  t.after(async () => {
+    await client.dispose();
+    await db.query("UPDATE x_api_settings SET monthly_limit_cents=$1", [
+      previous,
+    ]);
+    await db.query("DELETE FROM plan_audit WHERE actor_id=$1", [owner]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [
+      [owner, admin],
+    ]);
+  });
+  for (const [id, session] of [
+    [owner, ownerSession],
+    [admin, adminSession],
+  ]) {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash,is_admin) VALUES($1,$2,'Budget admin','unused',true)",
+      [id, `${id}@example.test`],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [hash(session), id],
+    );
+  }
+  const endpoint = `${origin}/siteadmin/snapshot`;
+  const save = (limitCents: unknown, session = ownerSession, source = origin) =>
+    client.post(endpoint, {
+      headers: { Cookie: `lastpeek_session=${session}`, Origin: source },
+      data: { action: "x-api-budget", limitCents },
+    });
+  assert.equal((await save(1234, adminSession)).status(), 403);
+  assert.equal(
+    (await save(1234, ownerSession, "https://untrusted.example")).status(),
+    403,
+  );
+  assert.equal((await save(1234, "anonymous")).status(), 404);
+  for (const invalid of [-1, 1.5, 10000000, "50", null])
+    assert.equal((await save(invalid)).status(), 400);
+  for (const limitCents of [1234, 205, 0]) {
+    assert.equal((await save(limitCents)).status(), 200);
+    const snapshot = await client.get(`${endpoint}?view=usage`, {
+      headers: { Cookie: `lastpeek_session=${adminSession}` },
+    });
+    assert.equal(snapshot.status(), 200);
+    assert.equal((await snapshot.json()).xBudget.limitCents, limitCents);
+  }
+  assert.deepEqual(
+    (await db.query("SELECT * FROM x_api_budgets ORDER BY month")).rows,
+    reservations,
+  );
+  const audit = (
+    await db.query(
+      "SELECT details FROM plan_audit WHERE actor_id=$1 AND action='x-api-budget' ORDER BY id",
+      [owner],
+    )
+  ).rows;
+  assert.equal(audit.length, 3);
+  assert.deepEqual(audit[2].details, {
+    previousLimitCents: 205,
+    limitCents: 0,
+  });
+});
+
 test("personalisation belongs to the signed-in account and rejects invalid appearances", async (t) => {
   const owner = randomUUID(),
     other = randomUUID(),
