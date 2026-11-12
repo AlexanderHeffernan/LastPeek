@@ -9,6 +9,148 @@ import { hash, token, passwordHash } from "../src/lib/server/auth";
 const origin = process.env.TEST_BASE_URL!;
 after(() => db.end());
 
+test("LinkedIn trial gates UI, start, callback and disconnect for guests and ungranted accounts", async (t) => {
+  const id = randomUUID(),
+    session = token();
+  let client = await request.newContext({
+    extraHTTPHeaders: { Origin: origin, Accept: "text/html" },
+  });
+  t.after(async () => {
+    await client.dispose();
+    await db.query("DELETE FROM users WHERE id=$1", [id]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'LinkedIn trial','unused')",
+    [id, `${id}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [hash(session), id],
+  );
+  assert.doesNotMatch(
+    await (await client.get(`${origin}/login?linkedin=cancelled`)).text(),
+    /Sign in with LinkedIn|LinkedIn sign-in cancelled/,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/auth/linkedin/start`, {
+        form: {},
+        maxRedirects: 0,
+      })
+    ).status(),
+    404,
+  );
+  assert.equal(
+    (
+      await client.get(
+        `${origin}/auth/linkedin/callback?code=forged&state=forged`,
+        { maxRedirects: 0 },
+      )
+    ).status(),
+    404,
+  );
+  await client.dispose();
+  client = await request.newContext({
+    extraHTTPHeaders: {
+      Origin: origin,
+      Accept: "text/html",
+    },
+    storageState: {
+      cookies: [
+        {
+          name: "lastpeek_session",
+          value: session,
+          domain: new URL(origin).hostname,
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax",
+        },
+      ],
+      origins: [],
+    },
+  });
+  assert.doesNotMatch(
+    await (await client.get(`${origin}/settings?tab=security`)).text(),
+    /LinkedIn sign-in|Link LinkedIn account/,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/auth/linkedin/start`, {
+        form: {},
+        maxRedirects: 0,
+      })
+    ).status(),
+    404,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/settings?/disconnectLinkedIn`, { form: {} })
+    ).status(),
+    404,
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
+    [id],
+  );
+  assert.match(
+    await (await client.get(`${origin}/settings?tab=security`)).text(),
+    /Link LinkedIn account/,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/auth/linkedin/start`, {
+        headers: { Origin: "https://attacker.example" },
+        form: {},
+        maxRedirects: 0,
+      })
+    ).status(),
+    403,
+  );
+  const started = await client.post(`${origin}/auth/linkedin/start`, {
+    form: {},
+    maxRedirects: 0,
+  });
+  assert.equal(started.status(), 303);
+  const url = new URL(started.headers().location);
+  assert.equal(url.origin, "https://www.linkedin.com");
+  assert.equal(url.searchParams.get("scope"), "openid profile email");
+  const state = url.searchParams.get("state")!;
+  await db.query("DELETE FROM feature_grants WHERE user_id=$1", [id]);
+  assert.equal(
+    (
+      await client.get(
+        `${origin}/auth/linkedin/callback?state=${state}&error=access_denied`,
+        { maxRedirects: 0 },
+      )
+    ).status(),
+    404,
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
+    [id],
+  );
+  const cancelled = await client.get(
+    `${origin}/auth/linkedin/callback?state=${state}&error=access_denied`,
+    { maxRedirects: 0 },
+  );
+  assert.equal(cancelled.status(), 303);
+  assert.equal(
+    cancelled.headers().location,
+    "/settings?tab=security&linkedin=cancelled",
+  );
+  assert.equal(
+    (
+      await client.get(
+        `${origin}/auth/linkedin/callback?state=${state}&error=access_denied`,
+        { maxRedirects: 0 },
+      )
+    ).status(),
+    400,
+  );
+});
+
 test("native auth binds single-use invitations and closes alternate signup endpoints", async (t) => {
   const owner = randomUUID(),
     invite = token(),

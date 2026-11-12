@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
       "This invitation has expired, was revoked, or has already been used. Ask your friend for a new one.",
     );
   return {
-    ...landing(cookies),
+    ...(await landing(cookies)),
     invite: params.token,
     email: invitation.email as string,
     inviter: (invitation.inviter as string | null) ?? null,

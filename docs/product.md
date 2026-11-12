@@ -25,6 +25,16 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 - Settings → Personalisation offers Auto, Dark and Light. The preference belongs to the account; Auto follows the current device's appearance. Signed-out and offline pages retain the last browser choice. The composer and preview keep X-like typography, spacing, thread connectors, link treatment, weighted counts and media layouts in both appearances. Keep LastPeek's identity in the surrounding interface. Rendering can differ across devices; document limitations rather than adding blanket disclaimers to the preview. Link cards, polls, Premium formatting and automatic video transcoding are outside this MVP.
 - The entire application, accounts, database, media and maintenance run on one host. No required third-party application service. Portable container deployment; the official invite-only service runs on a Raspberry Pi, with optional Cloudflare Tunnel ingress.
 
+## LinkedIn authentication trial
+
+LinkedIn is behind the default-off `linkedin` account feature grant and requires optional
+server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
+Settings → Security without changing their LastPeek profile or granting posting access.
+A local password is required before unlinking. Guests have no grant, so LinkedIn sign-in
+and invitation sign-up are implemented but remain hidden and server-blocked until the
+experiment gate is removed. Sign-up continues to require an unused, email-bound invitation;
+matching provider emails never merge or claim existing accounts. X and local auth are unchanged.
+
 ## Guest review access
 
 Guest reviews share the application navigation shell without granting account access. The first

@@ -265,6 +265,8 @@ try {
       BETTER_AUTH_SECRET: randomUUID() + randomUUID(),
       X_CLIENT_ID: "test-only-client-id",
       X_CLIENT_SECRET: "test-only-client-secret",
+      LINKEDIN_CLIENT_ID: "test-only-linkedin-client-id",
+      LINKEDIN_CLIENT_SECRET: "test-only-linkedin-client-secret",
       X_API_BEARER_TOKEN: "test-only-not-a-real-key",
       OPENAI_API_KEY: "",
     };

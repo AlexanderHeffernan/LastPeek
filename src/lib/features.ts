@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Released capabilities belong to plans. Register future experiments here.
-export const featureSchema = z.enum(["agents"]);
+export const featureSchema = z.enum(["agents", "linkedin"]);
 export type Feature = z.infer<typeof featureSchema>;
 
 export const featureChangeSchema = z

@@ -15,12 +15,14 @@
   let {
     returning = false,
     xEnabled = false,
+    linkedinEnabled = false,
     devSignIn = false,
     auth,
     form,
   }: {
     returning?: boolean;
     xEnabled?: boolean;
+    linkedinEnabled?: boolean;
     devSignIn?: boolean;
     auth?: Auth;
     form?: { message?: string; email?: string } | null;
@@ -584,6 +586,7 @@
     auth={authView}
     bind:open={authOpen}
     {xEnabled}
+    {linkedinEnabled}
     message={form?.message}
     email={form?.email}
     onclose={closeAuth}

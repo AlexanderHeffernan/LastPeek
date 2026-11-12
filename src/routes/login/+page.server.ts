@@ -4,12 +4,14 @@ import { signIn, rateLimit } from "$lib/server/auth";
 import { landing } from "$lib/server/landing";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals, url, cookies }) => {
+export const load: PageServerLoad = async ({ locals, url, cookies }) => {
   if (locals.user) redirect(303, "/");
   return {
-    ...landing(cookies),
+    ...(await landing(cookies)),
     xCancelled: url.searchParams.get("x") === "cancelled",
     xUnlinked: url.searchParams.get("x") === "unlinked",
+    linkedinCancelled: url.searchParams.get("linkedin") === "cancelled",
+    linkedinUnlinked: url.searchParams.get("linkedin") === "unlinked",
   };
 };
 export const actions: Actions = {

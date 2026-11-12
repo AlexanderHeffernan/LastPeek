@@ -57,6 +57,31 @@ Invited users can sign up with X; existing users can link X in Settings → Conn
 
 Sign-in uses PKCE and read/offline scopes. Publishing requests additional posting and media permissions through an explicit account action; connecting never posts automatically. Pro publishing supports ordered threads, replies and quotes, with photos, a GIF or video, subject to X’s restrictions. Partial publication resumes only after confirmation, and uncertain post-creation responses block retries rather than risking duplicate posts. See [product behaviour](product.md#x-publishing) and [operations](operations.md) for allowances and accounting.
 
+### LinkedIn sign-in trial
+
+Enable **Sign in with LinkedIn using OpenID Connect** in the LinkedIn developer app,
+register the exact `https://your-host/auth/linkedin/callback` URL, and configure the
+server-only `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`. Each origin needs its
+own registered callback. Compose passes these optional credentials to the application.
+
+The `linkedin` account experiment defaults off. Grant it through the existing feature
+access controls to show LinkedIn in Settings → Security. Guests have no feature grants:
+both authentication routes reject them, and the landing/sign-in/invitation pages hide
+LinkedIn. Revoking access also blocks an in-flight callback on its next request.
+
+The complete signed-out sign-in and invitation sign-up operations and UI are implemented
+but intentionally gated. At release, remove the account-grant condition in
+`linkedinAuthAvailable`, retaining the credential check; its shared route/UI checks will
+then admit guests. Registration still requires a valid, unused email-bound invitation.
+Removing the trial is not approval to open public registration.
+
+Authentication requests only `openid profile email`, verifies signed ID tokens, and
+binds the user-info subject to that token. LinkedIn email is never used to merge accounts.
+Existing users must link while signed in; linking does not change their LastPeek profile.
+Invitation sign-up uses the invitation email and plan, and the LinkedIn display name.
+Provider tokens are discarded, not stored; publishing and profile-photo import are not
+part of this slice. A local password is required before disconnecting LinkedIn.
+
 ### X source previews
 
 Set `X_API_BEARER_TOKEN` to enable supported source-post lookups for Pro reply/quote drafts. This is separate from the OAuth client credentials. New relationships require a successful lookup; existing drafts remain editable when a source is unavailable.

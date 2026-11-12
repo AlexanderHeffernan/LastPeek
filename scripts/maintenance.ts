@@ -25,6 +25,7 @@ try {
   await db.query("DELETE FROM x_source_posts WHERE expires_at<now()");
   await db.query("DELETE FROM x_mention_cache WHERE expires_at<now()");
   await db.query("DELETE FROM x_oauth_flows WHERE expires_at<now()");
+  await db.query("DELETE FROM linkedin_oauth_flows WHERE expires_at<now()");
   await db.query("DELETE FROM agent_codes WHERE expires_at<now()");
   await db.query("DELETE FROM agent_tokens WHERE expires_at<now()");
   await db.query("DELETE FROM agent_transfers WHERE expires_at<now()");

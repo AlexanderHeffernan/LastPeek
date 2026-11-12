@@ -9,6 +9,8 @@
     kind: "signin",
     xCancelled: data.xCancelled,
     xUnlinked: data.xUnlinked,
+    linkedinCancelled: data.linkedinCancelled,
+    linkedinUnlinked: data.linkedinUnlinked,
   }}
   {form}
 />

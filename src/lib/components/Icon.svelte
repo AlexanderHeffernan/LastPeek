@@ -20,6 +20,7 @@
   import Quotes from "phosphor-svelte/lib/Quotes";
   import ArrowBendUpLeft from "phosphor-svelte/lib/ArrowBendUpLeft";
   import XLogo from "phosphor-svelte/lib/XLogo";
+  import LinkedinLogo from "phosphor-svelte/lib/LinkedinLogo";
   import ArrowsClockwise from "phosphor-svelte/lib/ArrowsClockwise";
   import SquaresFour from "phosphor-svelte/lib/SquaresFour";
   import Users from "phosphor-svelte/lib/Users";
@@ -64,6 +65,7 @@
     weight?: "regular" | "bold" | "fill";
   } = $props();
   const icons = {
+    linkedin: LinkedinLogo,
     react: Smiley,
     send: PaperPlaneRight,
     play: Play,

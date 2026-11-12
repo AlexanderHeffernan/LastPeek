@@ -1,6 +1,12 @@
 <script lang="ts" module>
   export type Auth =
-    | { kind: "signin"; xCancelled?: boolean; xUnlinked?: boolean }
+    | {
+        kind: "signin";
+        xCancelled?: boolean;
+        xUnlinked?: boolean;
+        linkedinCancelled?: boolean;
+        linkedinUnlinked?: boolean;
+      }
     | { kind: "join"; invite: string; email: string; inviter: string | null };
 </script>
 
@@ -17,6 +23,7 @@
     auth,
     open = $bindable(false),
     xEnabled,
+    linkedinEnabled = false,
     message: serverMessage = "",
     email: serverEmail = "",
     onclose,
@@ -25,6 +32,7 @@
     auth: Auth;
     open?: boolean;
     xEnabled: boolean;
+    linkedinEnabled?: boolean;
     message?: string;
     email?: string;
     onclose: () => void;
@@ -105,6 +113,22 @@
             >
           </div>
         {/if}
+      {/if}
+      {#if linkedinEnabled}
+        <form method="POST" action="/auth/linkedin/start">
+          <Button variant="outline" type="submit" class="auth-x"
+            ><Icon name="linkedin" size={18} />Sign in with LinkedIn</Button
+          >
+        </form>
+        {#if auth.linkedinCancelled}<p class="auth-notice" role="status">
+            LinkedIn sign-in cancelled. Try again or use your password.
+          </p>{/if}
+        {#if auth.linkedinUnlinked}<p class="auth-notice" role="status">
+            This LinkedIn account isn’t linked. Sign in with your password to
+            link it from Security, or use an invitation to join.
+          </p>{/if}
+      {/if}
+      {#if xEnabled || linkedinEnabled}
         <p class="auth-divider"><span>or use your password</span></p>
       {/if}
       <form method="POST" {action} use:enhance={submit} class="auth-form">
@@ -159,6 +183,17 @@
             ><Icon name="x" size={18} />Sign up with X</Button
           >
         </form>
+      {/if}
+      {#if linkedinEnabled}
+        <form method="POST" action="/auth/linkedin/start">
+          <input type="hidden" name="invite" value={auth.invite} />
+          <input type="hidden" name="email" value={auth.email} />
+          <Button variant="outline" type="submit" class="auth-x"
+            ><Icon name="linkedin" size={18} />Sign up with LinkedIn</Button
+          >
+        </form>
+      {/if}
+      {#if xEnabled || linkedinEnabled}
         <p class="auth-divider"><span>or use a password</span></p>
       {/if}
       <form method="POST" {action} use:enhance={submit} class="auth-form">

@@ -36,7 +36,9 @@
       page.url.searchParams.has("/importX") ||
       page.url.searchParams.has("/disconnectX")
         ? "connections"
-        : page.url.searchParams.get("tab") === "password" ||
+        : page.url.searchParams.has("linkedin") ||
+            page.url.searchParams.has("/disconnectLinkedIn") ||
+            page.url.searchParams.get("tab") === "password" ||
             page.url.searchParams.has("/password") ||
             page.url.searchParams.has("/revokeSession")
           ? "security"
@@ -72,6 +74,8 @@
   let passwordBusy = $state(false);
   let passwordError = $state("");
   let passwordSaved = $state(false);
+  let linkedinBusy = $state(false),
+    linkedinError = $state("");
   let preferences = $state(
     untrack(() => ({ ...data.notificationPreferences })),
   );
@@ -789,6 +793,77 @@
         error={form?.sessionError}
         errorTarget={form?.sessionTarget}
       />
+      {#if data.linkedinEnabled}
+        <h3 class="security-password-heading">LinkedIn sign-in</h3>
+        <div class="connection-row">
+          <span class="connection-provider"
+            ><Icon name="linkedin" size={24} /></span
+          >
+          <div class="connection-identity">
+            <strong>LinkedIn</strong>
+            <span class="small muted">{data.linkedinName ?? "Not linked"}</span>
+            {#if data.linkedinName}<span class="connection-status small"
+                ><Icon name="check" size={16} />Linked for sign-in</span
+              >{/if}
+          </div>
+          {#if data.linkedinName}
+            <form
+              method="POST"
+              action="?/disconnectLinkedIn"
+              use:enhance={() => {
+                linkedinBusy = true;
+                linkedinError = "";
+                return async ({ result, update }) => {
+                  try {
+                    if (result.type === "error")
+                      linkedinError = result.error.message;
+                    else if (result.type === "failure")
+                      linkedinError = String(
+                        result.data?.linkedinError ||
+                          "Couldn’t disconnect LinkedIn. Try again.",
+                      );
+                    else await update({ navigate: false });
+                  } finally {
+                    linkedinBusy = false;
+                  }
+                };
+              }}
+            >
+              <Button
+                variant="outline"
+                type="submit"
+                disabled={!data.hasPassword || linkedinBusy}
+                aria-label="Disconnect LinkedIn"
+              >
+                {linkedinBusy ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </form>
+          {:else}
+            <form method="POST" action="/auth/linkedin/start">
+              <Button
+                variant="outline"
+                type="submit"
+                aria-label="Link LinkedIn account">Link</Button
+              >
+            </form>
+          {/if}
+        </div>
+        {#if data.linkedinName && !data.hasPassword}<p class="small muted">
+            Set a password below before disconnecting LinkedIn.
+          </p>{/if}
+        {#if linkedinError || form?.linkedinError}<p
+            class="action-error"
+            role="alert"
+          >
+            {linkedinError || form?.linkedinError}
+          </p>{/if}
+        {#if data.linkedinCancelled && !data.linkedinName}<p
+            class="action-error"
+            role="status"
+          >
+            LinkedIn sign-in cancelled. You can try linking again.
+          </p>{/if}
+      {/if}
       <h3 class="security-password-heading">Password</h3>
       <form
         method="POST"
