@@ -65,14 +65,17 @@ server-only `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`. Each origin needs
 own registered callback. Compose passes these optional credentials to the application.
 
 The `linkedin` account experiment defaults off. Grant it through the existing feature
-access controls to show LinkedIn in Settings → Security. Guests have no feature grants:
+access controls to show LinkedIn alongside X in Settings → Connections. Missing server
+credentials leave the flagged account's row visible with Connect disabled; they never
+hide it. Guests have no feature grants:
 both authentication routes reject them, and the landing/sign-in/invitation pages hide
 LinkedIn. Revoking access also blocks an in-flight callback on its next request.
 
 The complete signed-out sign-in and invitation sign-up operations and UI are implemented
 but intentionally gated. At release, remove the account-grant condition in
-`linkedinAuthAvailable`, retaining the credential check; its shared route/UI checks will
-then admit guests. Registration still requires a valid, unused email-bound invitation.
+`linkedinAuthAvailable`; its shared route/UI checks will then admit guests. Keep the
+separate credential checks in the landing page and authentication operations.
+Registration still requires a valid, unused email-bound invitation.
 Removing the trial is not approval to open public registration.
 
 Authentication requests only `openid profile email`, verifies signed ID tokens, and

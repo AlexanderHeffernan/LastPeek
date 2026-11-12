@@ -29,7 +29,9 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 
 LinkedIn is behind the default-off `linkedin` account feature grant and requires optional
 server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
-Settings → Security without changing their LastPeek profile or granting posting access.
+Settings → Connections alongside X without changing their LastPeek profile or granting posting access.
+Flagged authors still see LinkedIn when server credentials are missing, with a disabled
+Connect control and a provider-local configuration status.
 A local password is required before unlinking. Guests have no grant, so LinkedIn sign-in
 and invitation sign-up are implemented but remain hidden and server-blocked until the
 experiment gate is removed. Sign-up continues to require an unused, email-bound invitation;

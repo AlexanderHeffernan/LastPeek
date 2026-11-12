@@ -17,6 +17,7 @@ import { planUsage } from "$lib/server/plans";
 import { hasFeatureAccess } from "$lib/server/features";
 import {
   linkedinAuthAvailable,
+  linkedinAuthConfigured,
   requireLinkedInAccess,
   disconnectLinkedIn,
 } from "$lib/server/linkedin-auth";
@@ -67,6 +68,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     : null;
   return {
     linkedinEnabled,
+    linkedinConfigured: linkedinAuthConfigured(),
     linkedinName: linkedin?.name ?? null,
     linkedinCancelled:
       linkedinEnabled && url.searchParams.get("linkedin") === "cancelled",

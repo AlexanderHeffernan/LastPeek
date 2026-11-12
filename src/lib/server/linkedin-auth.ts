@@ -22,10 +22,7 @@ export const linkedinAuthConfigured = () =>
 // Guests have no experiment grants. Removing this trial check later enables
 // the already implemented sign-in/invitation flows without changing account rules.
 export async function linkedinAuthAvailable(user: Pick<User, "id"> | null) {
-  return (
-    linkedinAuthConfigured() &&
-    Boolean(user && (await hasFeatureAccess(user.id, "linkedin")))
-  );
+  return Boolean(user && (await hasFeatureAccess(user.id, "linkedin")));
 }
 
 export async function requireLinkedInAccess(event: RequestEvent) {
@@ -125,7 +122,7 @@ export async function finishLinkedInAuth(event: RequestEvent): Promise<never> {
   if (event.url.searchParams.has("error"))
     redirect(
       303,
-      `${flow.user_id ? "/settings?tab=security&" : "/login?"}linkedin=cancelled`,
+      `${flow.user_id ? "/settings?tab=connections&" : "/login?"}linkedin=cancelled`,
     );
   const code = event.url.searchParams.get("code");
   if (!code || code.length > 2048)
@@ -197,7 +194,7 @@ export async function finishLinkedInAuth(event: RequestEvent): Promise<never> {
   } catch {
     error(
       502,
-      "Couldn’t verify your LinkedIn account. Return to Security or your invitation and try again.",
+      "Couldn’t verify your LinkedIn account. Return to Connections or your invitation and try again.",
     );
   }
   // Keep no provider credentials: this flow authenticates, it cannot publish.
@@ -253,7 +250,7 @@ export async function finishLinkedInAuth(event: RequestEvent): Promise<never> {
       if (!inserted.rowCount)
         error(
           409,
-          "An account with that email already exists. Sign in to that account and link LinkedIn from Security.",
+          "An account with that email already exists. Sign in to that account and link LinkedIn from Connections.",
         );
       await client.query("UPDATE invites SET used_at=now() WHERE id=$1", [
         invite.rows[0].id,
@@ -274,7 +271,7 @@ export async function finishLinkedInAuth(event: RequestEvent): Promise<never> {
     );
   redirect(
     303,
-    flow.user_id || outcome.created ? "/settings?tab=security" : "/",
+    flow.user_id || outcome.created ? "/settings?tab=connections" : "/",
   );
 }
 

@@ -72,8 +72,8 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
     },
   });
   assert.doesNotMatch(
-    await (await client.get(`${origin}/settings?tab=security`)).text(),
-    /LinkedIn sign-in|Link LinkedIn account/,
+    await (await client.get(`${origin}/settings?tab=connections`)).text(),
+    /LinkedIn account actions|Connect LinkedIn account/,
   );
   assert.equal(
     (
@@ -95,8 +95,8 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
     [id],
   );
   assert.match(
-    await (await client.get(`${origin}/settings?tab=security`)).text(),
-    /Link LinkedIn account/,
+    await (await client.get(`${origin}/settings?tab=connections`)).text(),
+    /Connect LinkedIn account/,
   );
   assert.equal(
     (
@@ -138,7 +138,7 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
   assert.equal(cancelled.status(), 303);
   assert.equal(
     cancelled.headers().location,
-    "/settings?tab=security&linkedin=cancelled",
+    "/settings?tab=connections&linkedin=cancelled",
   );
   assert.equal(
     (

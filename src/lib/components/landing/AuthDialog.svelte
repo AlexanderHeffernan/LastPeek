@@ -125,7 +125,7 @@
           </p>{/if}
         {#if auth.linkedinUnlinked}<p class="auth-notice" role="status">
             This LinkedIn account isn’t linked. Sign in with your password to
-            link it from Security, or use an invitation to join.
+            link it from Connections, or use an invitation to join.
           </p>{/if}
       {/if}
       {#if xEnabled || linkedinEnabled}

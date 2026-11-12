@@ -150,6 +150,13 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
       [ownerId],
     );
     assert.equal(await linkedinAuthAvailable(owner), true);
+    delete process.env.LINKEDIN_CLIENT_SECRET;
+    assert.equal(await linkedinAuthAvailable(owner), true);
+    await assert.rejects(
+      startLinkedInAuth(event("/auth/linkedin/start", {}, owner)),
+      status(503),
+    );
+    process.env.LINKEDIN_CLIENT_SECRET = "test-linkedin-secret";
     await requireLinkedInAccess(event("/auth/linkedin/start", {}, owner));
     const wrongBrowser = await start({}, owner);
     cookies.set("lastpeek_linkedin_oauth", "wrong-browser");
@@ -177,7 +184,7 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
       await redirectFrom(
         callback(await start({}, owner), owner, "error=access_denied"),
       ),
-      "/settings?tab=security&linkedin=cancelled",
+      "/settings?tab=connections&linkedin=cancelled",
     );
     const before = requests;
     await assert.rejects(
@@ -216,13 +223,13 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
     const state = await start({}, owner);
     assert.equal(
       await redirectFrom(callback(state, owner)),
-      "/settings?tab=security",
+      "/settings?tab=connections",
     );
     await assert.rejects(callback(state, owner), status(400));
     bad = "multi-valid";
     assert.equal(
       await redirectFrom(callback(await start({}, owner), owner)),
-      "/settings?tab=security",
+      "/settings?tab=connections",
     );
     bad = "";
     assert.equal(
@@ -247,7 +254,7 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
     const signup = await start({ invite, email });
     assert.equal(
       await redirectFrom(callback(signup)),
-      "/settings?tab=security",
+      "/settings?tab=connections",
     );
     const joined = (
       await db.query("SELECT * FROM users WHERE email=$1", [email])
