@@ -1366,6 +1366,9 @@ progress {
   align-items: center;
   gap: 12px;
 }
+.connection-row + .connection-row {
+  margin-top: 24px;
+}
 .connection-provider,
 .connection-success {
   display: grid;

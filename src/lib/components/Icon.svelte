@@ -20,7 +20,6 @@
   import Quotes from "phosphor-svelte/lib/Quotes";
   import ArrowBendUpLeft from "phosphor-svelte/lib/ArrowBendUpLeft";
   import XLogo from "phosphor-svelte/lib/XLogo";
-  import LinkedinLogo from "phosphor-svelte/lib/LinkedinLogo";
   import ArrowsClockwise from "phosphor-svelte/lib/ArrowsClockwise";
   import SquaresFour from "phosphor-svelte/lib/SquaresFour";
   import Users from "phosphor-svelte/lib/Users";
@@ -65,7 +64,6 @@
     weight?: "regular" | "bold" | "fill";
   } = $props();
   const icons = {
-    linkedin: LinkedinLogo,
     react: Smiley,
     send: PaperPlaneRight,
     play: Play,
@@ -125,4 +123,23 @@
   const Glyph = $derived(icons[name as keyof typeof icons] || Eye);
 </script>
 
-<Glyph {size} {weight} aria-hidden="true" />
+{#if name === "linkedin"}
+  <!-- Official monochrome [in] artwork: https://brand.linkedin.com/downloads -->
+  <span
+    class="linkedin-logo"
+    style:width={`${size}px`}
+    style:height={`${size}px`}
+    aria-hidden="true"
+  ></span>
+{:else}
+  <Glyph {size} {weight} aria-hidden="true" />
+{/if}
+
+<style>
+  .linkedin-logo {
+    display: inline-block;
+    flex-shrink: 0;
+    background: currentColor;
+    mask: url("/linkedin-in.png") center / contain no-repeat;
+  }
+</style>
