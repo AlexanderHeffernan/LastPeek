@@ -356,11 +356,23 @@ workflow(
       seeded.id,
     ]);
     const shared = await publishDraft(seeded.id, id, 1);
-    await page.goto(`${baseURL}/drafts/${seeded.id}`);
+    // Presence starts after hydration. Do not cancel in-flight module imports
+    // by reloading an SSR-only page or switching it offline.
+    const hydrated = () =>
+      page.waitForResponse(
+        (response) =>
+          response.url() === `${baseURL}/api/review-presence` &&
+          response.ok() &&
+          !response.request().postDataJSON().leave,
+      );
+    await Promise.all([
+      hydrated(),
+      page.goto(`${baseURL}/drafts/${seeded.id}`),
+    ]);
     await page.evaluate(() => navigator.serviceWorker.ready);
-    await page.reload();
+    await Promise.all([hydrated(), page.reload()]);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
-    await page.goto(`${baseURL}/r/${shared.token}`);
+    await Promise.all([hydrated(), page.goto(`${baseURL}/r/${shared.token}`)]);
     await page.getByText(text, { exact: true }).waitFor();
     assert.equal(
       await page.evaluate(
@@ -404,7 +416,7 @@ workflow(
       "offline writes must not pretend to be queued saves",
     );
     await context.setOffline(false);
-    await page.reload();
+    await Promise.all([hydrated(), page.reload()]);
     await page.getByText(text, { exact: true }).waitFor();
   },
   { serviceWorkers: "allow" },
