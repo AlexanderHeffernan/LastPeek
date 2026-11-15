@@ -598,11 +598,7 @@
           >
           <div class="connection-identity">
             <strong>LinkedIn</strong>
-            <span class="small muted"
-              >{data.linkedinName ??
-                (data.linkedinConfigured
-                  ? "Not connected"
-                  : "Not configured on this server")}</span
+            <span class="small muted">{data.linkedinName ?? "Coming soon"}</span
             >
             {#if data.linkedinName}<span class="connection-status small"
                 ><Icon name="check" size={16} />Connected for sign-in</span
@@ -676,23 +672,8 @@
                   </p>{/if}
               </Popover.Content>
             </Popover.Root>
-          {:else}
-            <form method="POST" action="/auth/linkedin/start">
-              <Button
-                variant="outline"
-                type="submit"
-                disabled={!data.linkedinConfigured}
-                aria-label="Connect LinkedIn account">Connect</Button
-              >
-            </form>
           {/if}
         </div>
-        {#if data.linkedinCancelled && !data.linkedinName}<p
-            class="action-error"
-            role="status"
-          >
-            LinkedIn connection cancelled. You can try connecting again.
-          </p>{/if}
       {/if}
     </section>
     {#if data.xProfile && data.xImportPending}

@@ -73,7 +73,7 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
   });
   assert.doesNotMatch(
     await (await client.get(`${origin}/settings?tab=connections`)).text(),
-    /LinkedIn account actions|Connect LinkedIn account/,
+    /<strong>LinkedIn<\/strong>/,
   );
   assert.equal(
     (
@@ -94,10 +94,12 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
     "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
     [id],
   );
-  assert.match(
-    await (await client.get(`${origin}/settings?tab=connections`)).text(),
-    /Connect LinkedIn account/,
-  );
+  const settings = await (
+    await client.get(`${origin}/settings?tab=connections`)
+  ).text();
+  assert.match(settings, /<strong>LinkedIn<\/strong>/);
+  assert.match(settings, /Coming soon/);
+  assert.doesNotMatch(settings, /action="\/auth\/linkedin\/start"/);
   assert.equal(
     (
       await client.post(`${origin}/auth/linkedin/start`, {
