@@ -14,6 +14,7 @@ import { token } from "./auth";
 import { claimDraft, isPro } from "./plans";
 import { sourcePost } from "./x-post";
 import { X_SOURCE_UNAVAILABLE } from "../x-post";
+import { hasFeatureAccess } from "./features";
 
 export async function requireDraftAccess(
   userId: string,
@@ -36,18 +37,66 @@ export async function createDraft(
   id: string,
   userId: string,
   content: Content,
+  relatedDraftId?: string,
 ) {
   const parsed = contentSchema.safeParse(content);
   if (!parsed.success) error(400, parsed.error.issues[0].message);
   content = parsed.data;
   await requireDraftAccess(userId, content);
+  if (relatedDraftId && !(await hasFeatureAccess(userId, "linkedin")))
+    error(404, "Draft not found.");
   await transaction(async (client) => {
+    if (relatedDraftId) {
+      const related = await ownedDraft(relatedDraftId, userId, client);
+      if (
+        !(
+          await client.query(
+            "SELECT id FROM drafts WHERE id=$1 AND owner_id=$2 FOR UPDATE",
+            [relatedDraftId, userId],
+          )
+        ).rowCount
+      )
+        error(404, "Draft not found.");
+      if ((related.content.platform ?? "x") === (content.platform ?? "x"))
+        error(400, "Versions must be for different platforms.");
+      if (
+        (
+          await client.query(
+            "SELECT 1 FROM draft_versions WHERE x_draft_id=$1 OR linkedin_draft_id=$1",
+            [relatedDraftId],
+          )
+        ).rowCount
+      )
+        error(409, "This post already has a version for that platform.");
+    }
     await claimDraft(client, userId);
     await client.query(
       "INSERT INTO drafts(id,owner_id,content) VALUES($1,$2,$3)",
       [id, userId, JSON.stringify(content)],
     );
+    if (relatedDraftId)
+      await client.query(
+        "INSERT INTO draft_versions(x_draft_id,linkedin_draft_id) VALUES($1,$2)",
+        content.platform === "linkedin"
+          ? [relatedDraftId, id]
+          : [id, relatedDraftId],
+      );
   });
+}
+
+export async function relatedDraft(id: string, userId: string) {
+  if (!(await hasFeatureAccess(userId, "linkedin"))) return null;
+  return (
+    (
+      await db.query<{ id: string; platform: "x" | "linkedin" }>(
+        `SELECT other.id,COALESCE(other.content->>'platform','x') AS platform
+     FROM draft_versions v JOIN drafts self ON self.id=$1 AND self.owner_id=$2
+     JOIN drafts other ON other.id=CASE WHEN v.x_draft_id=$1 THEN v.linkedin_draft_id ELSE v.x_draft_id END AND other.owner_id=$2
+     WHERE v.x_draft_id=$1 OR v.linkedin_draft_id=$1`,
+        [id, userId],
+      )
+    ).rows[0] ?? null
+  );
 }
 
 export type Draft = {

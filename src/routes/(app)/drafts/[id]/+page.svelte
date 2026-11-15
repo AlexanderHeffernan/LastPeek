@@ -82,6 +82,21 @@
   let typeError = $state("");
   let changingType = $state(false);
   let shareError = $state("");
+  let versionError = $state("");
+  let creatingVersion = $state(false);
+  async function addVersion() {
+    if (!(await save())) return;
+    creatingVersion = true;
+    versionError = "";
+    try {
+      const created = await api({ action: "create-version" });
+      await goto(`/drafts/${created.id}`);
+    } catch (cause) {
+      versionError = (cause as Error).message;
+    } finally {
+      creatingVersion = false;
+    }
+  }
   let moreOpen = $state(false);
   let actionStrip = $state<HTMLDivElement>();
   let compactActions = $state(false);
@@ -615,6 +630,43 @@
     >
   </header>
   <section class="editor-posts" aria-label="Edit draft">
+    {#if data.linkedinEnabled && version > 0}
+      <nav class="version-links" aria-label="Post versions">
+        {#each ["x", "linkedin"] as platform}
+          {@const current = platform === (linkedin ? "linkedin" : "x")}
+          {@const target = current ? data.draft.id : data.relatedVersion?.id}
+          {#if target}
+            <Button
+              variant={current ? "secondary" : "ghost"}
+              aria-current={current ? "page" : undefined}
+              href={`/drafts/${target}`}
+            >
+              <Icon
+                name={platform === "x" ? "x" : "linkedin"}
+                size={16}
+              />{platform === "x" ? "X" : "LinkedIn"}
+            </Button>
+          {:else}
+            <Button
+              variant="ghost"
+              onclick={addVersion}
+              disabled={creatingVersion ||
+                saving ||
+                uploading ||
+                busy ||
+                deleting}
+            >
+              <Icon name="plus" size={16} />{creatingVersion
+                ? "Creating…"
+                : `Add ${platform === "x" ? "X" : "LinkedIn"} version`}
+            </Button>
+          {/if}
+        {/each}
+      </nav>
+      {#if versionError}<p class="action-error" role="alert">
+          {versionError}
+        </p>{/if}
+    {/if}
     <PostPreview
       bind:content
       {media}
@@ -1089,6 +1141,13 @@
 <ConfirmDialog bind:this={confirmation} />
 
 <style>
+  .version-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
   .owner-comment {
     border-bottom: 1px solid var(--border);
   }

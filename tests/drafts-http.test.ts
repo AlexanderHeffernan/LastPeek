@@ -166,9 +166,72 @@ test("LinkedIn drafts require trial access, preserve review history and never us
     ).status(),
     200,
   );
+  // Simultaneous clicks must create one independent version, not orphan drafts.
+  const versions = await Promise.all([
+    action({ action: "create-version" }),
+    action({ action: "create-version" }),
+  ]);
+  assert.deepEqual(versions.map((r) => r.status()).sort(), [200, 409]);
+  const pairedId = (await versions.find((r) => r.status() === 200)!.json()).id;
+  const paired = (
+    await db.query("SELECT * FROM drafts WHERE id=$1", [pairedId])
+  ).rows[0];
+  assert.equal(paired.content.platform ?? "x", "x");
+  assert.equal(paired.content.posts[0].text, "");
+  assert.deepEqual(paired.content.posts[0].media, []);
+  assert.equal(paired.share_token, null);
+  assert.equal(paired.posted_at, null);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT count(*)::int AS n FROM drafts WHERE owner_id=$1",
+        [owner],
+      )
+    ).rows[0].n,
+    2,
+  );
+  const otherContent = blankContent("LinkedIn author");
+  otherContent.posts[0].text = "A much shorter X version.";
+  assert.equal(
+    (
+      await client.post(`${origin}/api/drafts/${pairedId}`, {
+        data: { action: "save", content: otherContent, version: 1 },
+      })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (await db.query("SELECT content FROM drafts WHERE id=$1", [draft])).rows[0]
+      .content.posts[0].text,
+    content.posts[0].text,
+  );
   await db.query(
     "DELETE FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
     [owner],
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/api/drafts/${pairedId}`, {
+        data: { action: "create-version" },
+      })
+    ).status(),
+    404,
+  );
+  assert.equal(
+    (await client.get(`${origin}/drafts/${pairedId}`)).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/api/drafts/${pairedId}`, {
+        data: { action: "delete" },
+      })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM drafts WHERE id=$1", [draft])).rowCount,
+    1,
   );
   assert.equal((await client.get(`${origin}/drafts/${draft}`)).status(), 404);
   assert.equal(

@@ -38,6 +38,11 @@ Authors copy text and download attachments for manual posting, then explicitly M
 LinkedIn completion performs no X lookup or paid API operation; an optional pasted LinkedIn
 post link gives authors and reviewers View on LinkedIn. Copying alone never marks a post as posted.
 
+An enabled author can add the other platform's version from a saved draft. The website starts
+it blank; an agent can supply adapted wording through MCP. The two drafts have independent
+text, media, review links, comments and posted states, with owner-only navigation between them.
+Either version can also stand alone. Deleting one keeps the other; both count toward draft capacity.
+
 LinkedIn sign-in uses optional server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
 Settings → Connections alongside X without changing their LastPeek profile or granting posting access.
 New connections are marked Coming soon in the interface, with no Connect action while

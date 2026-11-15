@@ -12,6 +12,7 @@ import {
   draftComments,
   draftMedia,
   createDraft,
+  relatedDraft,
 } from "./drafts";
 import {
   blankContent,
@@ -237,6 +238,7 @@ export function agentServer(
         url: `${origin}/drafts/${id}`,
         content: draft.content,
         version: draft.edit_version,
+        relatedVersion: await relatedDraft(id, userId),
         revision: draft.shared_revision,
         media: (await draftMedia(id)).map((media) => ({
           ...media,
@@ -260,7 +262,7 @@ export function agentServer(
   tool(
     "create_draft",
     linkedinEnabled
-      ? "Create a draft for X (default) or LinkedIn. X accepts an ordered thread; LinkedIn accepts one post with a 3,000-character publishing limit. Adapt wording to the requested audience. Returns stable post IDs. Does not share or publish it."
+      ? "Create a draft for X (default) or LinkedIn. X accepts an ordered thread; LinkedIn accepts one post with a 3,000-character publishing limit. Adapt wording to the requested audience. Use relatedDraftId to link the other platform's owned draft as an independent version; text, attachments, reviews and posted state are not copied. Returns stable post IDs. Does not share or publish it."
       : "Create a normal text post or ordered thread. Returns stable post IDs. Does not share or publish it.",
     "drafts:write",
     {
@@ -268,10 +270,15 @@ export function agentServer(
       platform: z
         .enum(linkedinEnabled ? ["x", "linkedin"] : ["x"])
         .default("x"),
+      ...(linkedinEnabled ? { relatedDraftId: id.optional() } : {}),
       source: source.optional(),
       requestId,
     },
-    async (userId, { posts, platform, source: target }, auth) => {
+    async (
+      userId,
+      { posts, platform, relatedDraftId, source: target },
+      auth,
+    ) => {
       if (platform === "linkedin" && (posts.length !== 1 || target))
         error(
           400,
@@ -301,7 +308,12 @@ export function agentServer(
         media: [],
       }));
       const draftId = crypto.randomUUID();
-      await createDraft(draftId, userId, contentSchema.parse(content));
+      await createDraft(
+        draftId,
+        userId,
+        contentSchema.parse(content),
+        relatedDraftId as string | undefined,
+      );
       return {
         id: draftId,
         content,

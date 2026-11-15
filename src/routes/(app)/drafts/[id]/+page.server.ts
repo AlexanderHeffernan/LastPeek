@@ -1,5 +1,10 @@
 import { requireUser } from "$lib/server/auth";
-import { ownedDraft, draftMedia, draftComments } from "$lib/server/drafts";
+import {
+  ownedDraft,
+  draftMedia,
+  draftComments,
+  relatedDraft,
+} from "$lib/server/drafts";
 import { aiEnabled } from "$lib/server/openai";
 import { isPro } from "$lib/server/plans";
 import { sourcePost } from "$lib/server/x-post";
@@ -37,6 +42,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const linkedin = draft.content.platform === "linkedin";
   return {
     linkedinEnabled: await hasFeatureAccess(user.id, "linkedin"),
+    relatedVersion: fresh ? null : await relatedDraft(draft.id, user.id),
     postedLink:
       (
         await db.query<{ status: string; url: string | null }>(

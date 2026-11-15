@@ -52,6 +52,10 @@ and exactly one text item in `posts`. Omitted platform defaults to X. LinkedIn u
 drafts remain editable. `check_draft` returns `platform`, `characterLimit`, and LinkedIn
 `characterCount` (X retains `weightedLength`). Review/sharing/media tools work as usual.
 Return the draft URL for review and manual posting; no MCP tool publishes to LinkedIn.
+For an X/LinkedIn pair, create the first draft, then create the other platform's draft with
+`relatedDraftId` set to the first ID and independently adapted `posts`. `get_draft` returns
+`relatedVersion: {id, platform}` when linked. No text, media, feedback or posted state is copied.
+Each draft is reviewed and shared separately; a relationship never grants access to the other.
 
 1. Read the draft before editing. Keep stable post IDs, unchanged attachments and the exact version.
    `edit_post` changes one existing item; `update_draft` replaces the ordered posts array. A 409

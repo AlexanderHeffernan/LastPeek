@@ -15,6 +15,10 @@ creation, owned access and shared capability access. MCP discovery exposes Linke
 only to enabled accounts and domain writes recheck access. X publishing rejects LinkedIn
 before provider calls. Migration 045 stores optional, validated manual LinkedIn links separately
 from X publication/matching records. Marking a LinkedIn draft posted never claims an X read.
+Migration 046 links at most one X draft to one LinkedIn draft. Creation locks the owned source
+and claims capacity in the same transaction, rejecting duplicate or same-platform versions.
+The relationship carries no review capability and copies no content, media or state; deleting
+a draft removes its relationship, not its counterpart. Relationship reads require the owner's trial.
 
 Migration 033 adds same-draft comment reply roots, immutable attachment/time anchors and per-account
 conversation read boundaries. `feedback.ts` owns both owner and reviewer writes. Owner comments

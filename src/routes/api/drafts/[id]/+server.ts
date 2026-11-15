@@ -5,7 +5,9 @@ import {
   saveDraft,
   publishDraft,
   shareWithFriend,
+  createDraft,
 } from "$lib/server/drafts";
+import { blankContent } from "$lib/contracts";
 import { db, transaction } from "$lib/server/db";
 import { readBody } from "$lib/server/request";
 import { rm } from "node:fs/promises";
@@ -36,7 +38,14 @@ export const POST: RequestHandler = async (event) => {
       error(400, "A draft version is required.");
     return json(await saveDraft(id, user.id, body.content, body.version));
   }
-  await ownedDraft(id, user.id);
+  const draft = await ownedDraft(id, user.id);
+  if (body.action === "create-version") {
+    const content = blankContent(user.name, user.handle, user.avatar_id);
+    if (draft.content.platform !== "linkedin") content.platform = "linkedin";
+    const versionId = crypto.randomUUID();
+    await createDraft(versionId, user.id, content, id);
+    return json({ id: versionId });
+  }
   if (body.action === "comment") {
     await rateLimit(`comment:${user.id}`, 30, 600);
     const parsed = feedbackSchema.safeParse(body);

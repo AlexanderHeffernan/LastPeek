@@ -1139,10 +1139,54 @@ test("agent workflows transfer private media, preserve context and attribute rev
   );
   const linkedinText =
     "Notes from a project\n\nhttps://example.com/" + "a".repeat(320);
+  const foreignDraft = read(
+    await call("create_draft", { posts: ["Private peer draft"] }, peer),
+  );
+  assert.equal(
+    (
+      await call("create_draft", {
+        platform: "linkedin",
+        relatedDraftId: foreignDraft.id,
+        posts: [linkedinText],
+      })
+    ).isError,
+    true,
+  );
+  assert.equal(
+    (
+      await call("create_draft", {
+        relatedDraftId: created.id,
+        posts: ["Same platform"],
+      })
+    ).isError,
+    true,
+  );
   const linkedin = read(
-    await call("create_draft", { platform: "linkedin", posts: [linkedinText] }),
+    await call("create_draft", {
+      platform: "linkedin",
+      posts: [linkedinText],
+      relatedDraftId: created.id,
+    }),
   );
   assert.equal(linkedin.content.platform, "linkedin");
+  assert.deepEqual(
+    read(await call("get_draft", { id: created.id })).relatedVersion,
+    { id: linkedin.id, platform: "linkedin" },
+  );
+  assert.deepEqual(
+    read(await call("get_draft", { id: linkedin.id })).relatedVersion,
+    { id: created.id, platform: "x" },
+  );
+  assert.equal(
+    (
+      await call("create_draft", {
+        platform: "linkedin",
+        relatedDraftId: created.id,
+        posts: ["Duplicate"],
+      })
+    ).isError,
+    true,
+  );
   const linkedinChecks = read(await call("check_draft", { id: linkedin.id }));
   assert.equal(linkedinChecks.characterLimit, 3000);
   assert.equal(linkedinChecks.posts[0].characterCount, linkedinText.length);
@@ -1161,6 +1205,10 @@ test("agent workflows transfer private media, preserve context and attribute rev
     [owner],
   );
   assert.equal((await call("get_draft", { id: linkedin.id })).isError, true);
+  assert.equal(
+    read(await call("get_draft", { id: created.id })).relatedVersion,
+    null,
+  );
   assert.ok(
     !read(await call("list_drafts", {})).some(
       (draft: { id: string }) => draft.id === linkedin.id,
