@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { authenticateAgent } from "$lib/server/agent-auth";
 import { agentServer } from "$lib/server/agent-tools";
 import { rateLimit } from "$lib/server/auth";
+import { hasFeatureAccess } from "$lib/server/features";
 import type { RequestHandler } from "./$types";
 
 const handle: RequestHandler = async ({ request, url, getClientAddress }) => {
@@ -41,7 +42,12 @@ const handle: RequestHandler = async ({ request, url, getClientAddress }) => {
         },
       },
     );
-  const server = agentServer(request, url.origin, auth.scopes);
+  const server = agentServer(
+    request,
+    url.origin,
+    auth.scopes,
+    await hasFeatureAccess(auth.user_id, "linkedin"),
+  );
   const transport = new WebStandardStreamableHTTPServerTransport({
     enableJsonResponse: true,
     maxRequestBodySize: 1_000_000,

@@ -6,6 +6,7 @@ import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
 import { db } from "$lib/server/db";
 import { blankContent } from "$lib/contracts";
+import { hasFeatureAccess } from "$lib/server/features";
 import { draftReviews } from "$lib/server/ai-review";
 import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
@@ -33,19 +34,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     fresh ? [] : draftMedia(draft.id),
     fresh ? [] : draftComments(draft.id, user.id),
   ]);
+  const linkedin = draft.content.platform === "linkedin";
   return {
+    linkedinEnabled: await hasFeatureAccess(user.id, "linkedin"),
     postedLink:
       (
         await db.query<{ status: string; url: string | null }>(
-          "SELECT status,url FROM posted_x_links WHERE draft_id=$1",
+          linkedin
+            ? "SELECT 'linked' AS status,url FROM posted_linkedin_links WHERE draft_id=$1"
+            : "SELECT status,url FROM posted_x_links WHERE draft_id=$1",
           [draft.id],
         )
       ).rows[0] ?? null,
-    xPublishing: await xPublishing(
-      draft.owner_id,
-      fresh ? undefined : draft.id,
-    ),
-    mentionsEnabled: await isPro(draft.owner_id),
+    xPublishing: linkedin
+      ? { enabled: false, account: null, publication: null }
+      : await xPublishing(draft.owner_id, fresh ? undefined : draft.id),
+    mentionsEnabled: !linkedin && (await isPro(draft.owner_id)),
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     aiEnabled: aiEnabled() && (await isPro(draft.owner_id)),
     aiReviews: fresh ? [] : await draftReviews(draft.id, user.id),

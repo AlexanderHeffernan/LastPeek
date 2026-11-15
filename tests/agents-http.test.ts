@@ -1124,6 +1124,49 @@ test("agent workflows transfer private media, preserve context and attribute rev
   );
   assert.deepEqual(read(await call("list_drafts", { query: "absent" })), []);
 
+  assert.equal(
+    (
+      await call("create_draft", {
+        platform: "linkedin",
+        posts: ["Professional update"],
+      })
+    ).isError,
+    true,
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
+    [owner],
+  );
+  const linkedinText =
+    "Notes from a project\n\nhttps://example.com/" + "a".repeat(320);
+  const linkedin = read(
+    await call("create_draft", { platform: "linkedin", posts: [linkedinText] }),
+  );
+  assert.equal(linkedin.content.platform, "linkedin");
+  const linkedinChecks = read(await call("check_draft", { id: linkedin.id }));
+  assert.equal(linkedinChecks.characterLimit, 3000);
+  assert.equal(linkedinChecks.posts[0].characterCount, linkedinText.length);
+  assert.equal(linkedinChecks.posts[0].overStandardLimit, false);
+  assert.equal(
+    (
+      await call("create_draft", {
+        platform: "linkedin",
+        posts: ["One", "Two"],
+      })
+    ).isError,
+    true,
+  );
+  await db.query(
+    "DELETE FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
+    [owner],
+  );
+  assert.equal((await call("get_draft", { id: linkedin.id })).isError, true);
+  assert.ok(
+    !read(await call("list_drafts", {})).some(
+      (draft: { id: string }) => draft.id === linkedin.id,
+    ),
+  );
+
   const bytes = await sharp({
     create: { width: 24, height: 12, channels: 3, background: "coral" },
   })

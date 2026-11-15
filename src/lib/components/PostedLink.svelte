@@ -3,19 +3,25 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Popover } from "bits-ui";
   import { invalidateAll } from "$app/navigation";
-  import { xPostURLSchema } from "$lib/contracts";
+  import { xPostURLSchema, linkedinPostURLSchema } from "$lib/contracts";
   import Icon from "./Icon.svelte";
   let {
     draftId,
     link,
     confirmedURL = null,
     disabled = false,
+    platform = "x",
   }: {
     draftId: string;
     link: { status: string; url: string | null } | null;
     confirmedURL?: string | null;
     disabled?: boolean;
+    platform?: "x" | "linkedin";
   } = $props();
+  const provider = $derived(platform === "linkedin" ? "LinkedIn" : "X");
+  const urlSchema = $derived(
+    platform === "linkedin" ? linkedinPostURLSchema : xPostURLSchema,
+  );
   let busy = $state(false),
     open = $state(false),
     enterURL = $state(false),
@@ -51,10 +57,10 @@
     error = "";
     try {
       const text = await navigator.clipboard.readText();
-      const parsed = xPostURLSchema.safeParse(text);
+      const parsed = urlSchema.safeParse(text);
       if (!parsed.success) {
         enterURL = true;
-        error = "Copy an X post link, or paste it below.";
+        error = `Copy a ${provider} post link, or paste it below.`;
         return;
       }
       await choose("url", parsed.data);
@@ -69,13 +75,14 @@
     <Button
       variant="secondary"
       href={linkedURL}
-      aria-label="View on X"
+      aria-label={`View on ${provider}`}
       target="_blank"
       onclick={(event) => {
         if (matchMedia("(pointer: coarse)").matches)
           event.currentTarget.setAttribute("target", "_self");
       }}
-      rel="noopener noreferrer">View on <Icon name="x" size={16} /></Button
+      rel="noopener noreferrer"
+      >View on <Icon name={platform} size={16} /></Button
     >
   {:else if link?.status === "candidate" && link.url}
     <div class="share-actions">
@@ -134,11 +141,13 @@
         <Input
           type="url"
           bind:value={url}
-          aria-label="Posted X URL"
-          placeholder="https://x.com/…/status/…"
+          aria-label={`Posted ${provider} URL`}
+          placeholder={platform === "linkedin"
+            ? "https://www.linkedin.com/posts/…"
+            : "https://x.com/…/status/…"}
           required
           onpaste={(event) => {
-            const parsed = xPostURLSchema.safeParse(
+            const parsed = urlSchema.safeParse(
               event.clipboardData?.getData("text"),
             );
             if (parsed.success) {
@@ -151,7 +160,7 @@
         <Button
           type="submit"
           variant="secondary"
-          aria-label="Save X post link"
+          aria-label={`Save ${provider} post link`}
           disabled={busy || disabled}><Icon name="arrow" size={16} /></Button
         >
       </form>

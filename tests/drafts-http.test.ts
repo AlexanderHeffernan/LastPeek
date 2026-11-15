@@ -13,6 +13,180 @@ import { blankContent } from "../src/lib/contracts";
 const origin = process.env.TEST_BASE_URL!;
 after(() => db.end());
 
+test("LinkedIn drafts require trial access, preserve review history and never use X matching", async (t) => {
+  const owner = randomUUID(),
+    session = token(),
+    draft = randomUUID();
+  const client = await request.newContext({
+    extraHTTPHeaders: { Cookie: `lastpeek_session=${session}`, Origin: origin },
+  });
+  t.after(async () => {
+    await client.dispose();
+    await db.query("DELETE FROM drafts WHERE owner_id=$1", [owner]);
+    await db.query("DELETE FROM users WHERE id=$1", [owner]);
+  });
+  await db.query(
+    "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'LinkedIn author','unused')",
+    [owner, `${owner}@example.test`],
+  );
+  await db.query(
+    "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+    [hash(session), owner],
+  );
+  const content = {
+    ...blankContent("LinkedIn author"),
+    platform: "linkedin" as const,
+  };
+  content.posts[0].text = "A detailed LinkedIn update. " + "a".repeat(310);
+  const endpoint = `${origin}/api/drafts/${draft}`;
+  const action = (data: object) => client.post(endpoint, { data });
+  assert.equal(
+    (await action({ action: "save", content, version: 0 })).status(),
+    404,
+  );
+  assert.equal(
+    (
+      await client.post(`${origin}/?/create`, {
+        form: { platform: "linkedin" },
+        maxRedirects: 0,
+      })
+    ).status(),
+    404,
+  );
+  await db.query(
+    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
+    [owner],
+  );
+  assert.equal(
+    (await action({ action: "save", content, version: 0 })).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await action({
+        action: "save",
+        content: { ...content, platform: "x" },
+        version: 1,
+      })
+    ).status(),
+    400,
+  );
+  assert.equal(
+    (
+      await action({
+        action: "save",
+        content: {
+          ...content,
+          posts: [...content.posts, { ...content.posts[0], id: randomUUID() }],
+        },
+        version: 1,
+      })
+    ).status(),
+    400,
+  );
+  assert.equal(
+    (
+      await client.post(`${endpoint}/post-to-x`, {
+        data: { version: 1, xId: "123" },
+      })
+    ).status(),
+    400,
+  );
+  const shared = await (await action({ action: "publish", version: 1 })).json();
+  content.posts[0].text += "\n\nA new ending.";
+  assert.equal(
+    (await action({ action: "save", content, version: 1 })).status(),
+    200,
+  );
+  const revisions = (
+    await db.query(
+      "SELECT content FROM revisions WHERE draft_id=$1 ORDER BY number",
+      [draft],
+    )
+  ).rows;
+  assert.equal(revisions.length, 2);
+  assert.ok(!revisions[0].content.posts[0].text.includes("new ending"));
+  assert.equal(revisions[1].content.platform, "linkedin");
+  assert.equal(
+    (
+      await action({ action: "complete", completed: true, version: 1 })
+    ).status(),
+    409,
+  );
+  assert.equal(
+    (
+      await action({ action: "complete", completed: true, version: 2 })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM posted_x_links WHERE draft_id=$1", [draft]))
+      .rowCount,
+    0,
+  );
+  assert.equal(
+    (await db.query("SELECT 1 FROM api_usage WHERE user_id=$1", [owner]))
+      .rowCount,
+    0,
+  );
+  for (const url of [
+    "https://x.com/a/status/123",
+    "https://www.linkedin.com.evil.test/posts/a-activity-123-abcd",
+  ]) {
+    assert.equal(
+      (await action({ action: "posted-link", choice: "url", url })).status(),
+      400,
+    );
+  }
+  const url = "https://www.linkedin.com/feed/update/urn:li:activity:123456789/";
+  assert.equal(
+    (
+      await action({
+        action: "posted-link",
+        choice: "url",
+        url: `${url}?utm_source=copy`,
+      })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT url FROM posted_linkedin_links WHERE draft_id=$1",
+        [draft],
+      )
+    ).rows[0].url,
+    url,
+  );
+  assert.equal(
+    (
+      await client.get(`${origin}/r/${shared.token}`, {
+        headers: { Cookie: "" },
+      })
+    ).status(),
+    200,
+  );
+  await db.query(
+    "DELETE FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
+    [owner],
+  );
+  assert.equal((await client.get(`${origin}/drafts/${draft}`)).status(), 404);
+  assert.equal(
+    (
+      await action({ action: "complete", completed: true, version: 2 })
+    ).status(),
+    404,
+  );
+  assert.equal(
+    (
+      await client.get(`${origin}/r/${shared.token}`, {
+        headers: { Cookie: "" },
+      })
+    ).status(),
+    404,
+  );
+});
+
 // These used to run inside browser journeys. Exercise the real HTTP boundary
 // once: forged ownership, lost concurrent edits and leaked/revoked media.
 test("draft HTTP protects ownership, origin, concurrent edits and private media", async (t) => {

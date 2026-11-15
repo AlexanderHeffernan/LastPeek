@@ -15,11 +15,32 @@ import { claimDraft, isPro } from "./plans";
 import { sourcePost } from "./x-post";
 import { X_SOURCE_UNAVAILABLE } from "../x-post";
 
+export async function requireDraftAccess(
+  userId: string,
+  content: Content,
+  client: Pool | PoolClient = db,
+) {
+  if (
+    content.platform === "linkedin" &&
+    !(
+      await client.query(
+        "SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
+        [userId],
+      )
+    ).rowCount
+  )
+    error(404, "Draft not found.");
+}
+
 export async function createDraft(
   id: string,
   userId: string,
   content: Content,
 ) {
+  const parsed = contentSchema.safeParse(content);
+  if (!parsed.success) error(400, parsed.error.issues[0].message);
+  content = parsed.data;
+  await requireDraftAccess(userId, content);
   await transaction(async (client) => {
     await claimDraft(client, userId);
     await client.query(
@@ -48,11 +69,12 @@ export async function sharedDraft(shareToken: string, userId?: string) {
       `SELECT d.id,d.owner_id,d.shared_revision,r.content,(d.friend_token=$1) IS TRUE AS private,d.posted_at,
        CASE WHEN d.posted_at IS NOT NULL THEN COALESCE(
          'https://x.com/' || COALESCE(NULLIF(x.profile->>'username',''),'i/web') || '/status/' || p.post_id,
-         l.url) END AS posted_url
+         CASE WHEN d.content->>'platform'='linkedin' THEN li.url ELSE l.url END) END AS posted_url
        FROM drafts d
        JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
        LEFT JOIN x_publications p ON p.draft_id=d.id AND p.status='posted'
        LEFT JOIN posted_x_links l ON l.draft_id=d.id AND l.status='linked'
+       LEFT JOIN posted_linkedin_links li ON li.draft_id=d.id
        LEFT JOIN x_accounts x ON x.user_id=d.owner_id
        WHERE d.share_token=$1 OR (d.friend_token=$1 AND
          (d.owner_id=$2 OR EXISTS (SELECT 1 FROM friend_reviews fr
@@ -63,6 +85,7 @@ export async function sharedDraft(shareToken: string, userId?: string) {
   ).rows[0];
   if (!row)
     error(404, "This review link is unavailable. It may have been revoked.");
+  await requireDraftAccess(row.owner_id, row.content);
   return {
     id: row.id as string,
     owner_id: row.owner_id as string,
@@ -84,6 +107,7 @@ export async function ownedDraft(
     [id, ownerId],
   );
   if (!result.rows[0]) error(404, "Draft not found.");
+  await requireDraftAccess(ownerId, result.rows[0].content, client);
   return result.rows[0];
 }
 export async function validateContent(
@@ -146,6 +170,7 @@ export async function saveDraft(
       if (!/^[0-9a-f-]{36}$/i.test(id)) error(400, "Invalid draft ID.");
       const parsed = contentSchema.safeParse(raw);
       if (!parsed.success) error(400, parsed.error.issues[0].message);
+      await requireDraftAccess(userId, parsed.data, client);
       if (parsed.data.source)
         error(400, "Create replies and quotes from an X post link.");
       await claimDraft(client, userId);
@@ -172,6 +197,8 @@ export async function saveDraft(
     )
       error(409, "Draft type cannot change after publishing has started.");
     const content = await validateContent(raw, id, client);
+    if ((content.platform ?? "x") !== (current.content.platform ?? "x"))
+      error(400, "Create a separate version for another platform.");
     const profile = await client.query(
       "SELECT u.name,COALESCE(x.profile->>'username','') AS handle,u.avatar_id AS avatar FROM users u LEFT JOIN x_accounts x ON x.user_id=u.id WHERE u.id=$1",
       [userId],

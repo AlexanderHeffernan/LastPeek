@@ -46,8 +46,8 @@ export async function reviewDraft(
   userId: string,
   body: unknown,
 ): Promise<AIReviewRun> {
-  await ownedDraft(draftId, userId);
-  const result = await reviewText(userId, body);
+  const draft = await ownedDraft(draftId, userId);
+  const result = await reviewText(userId, body, draft.content.platform ?? "x");
   const input = reviewInputSchema.parse(body);
   const id = crypto.randomUUID();
   const saved = await db.query<{ created_at: Date }>(
@@ -72,7 +72,11 @@ export async function reviewDraft(
 }
 
 // Both browser and delegated requests use the same provider and allowance boundary.
-export async function reviewText(userId: string, input: unknown) {
+export async function reviewText(
+  userId: string,
+  input: unknown,
+  platform: "x" | "linkedin" = "x",
+) {
   if (!(await isPro(userId))) error(403, "AI review requires Pro.");
   if (!aiEnabled()) error(503, "AI review is not configured on this instance.");
   const parsed = reviewInputSchema.safeParse(input);
@@ -87,7 +91,7 @@ export async function reviewText(userId: string, input: unknown) {
   const review = await generateStructured(
     aiReviewResultSchema,
     "draft_review",
-    `You are LastPeek's careful second pair of eyes before an author posts on X.
+    `You are LastPeek's careful second pair of eyes before an author posts on ${platform === "linkedin" ? "LinkedIn" : "X"}.
 Review mode: ${reviewTypes[parsed.data.type ?? "quick"].instruction}
 Return a brief summary and at most five specific, actionable findings, most important first.
 Be an independent editor, not a cheerleader. Assess the wording rather than agreeing with the author's opinions. No praise sandwich, flattery, generic encouragement or invented faults to fill the finding limit.

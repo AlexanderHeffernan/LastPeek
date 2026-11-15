@@ -25,10 +25,20 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 - Settings → Personalisation offers Auto, Dark and Light. The preference belongs to the account; Auto follows the current device's appearance. Signed-out and offline pages retain the last browser choice. The composer and preview keep X-like typography, spacing, thread connectors, link treatment, weighted counts and media layouts in both appearances. Keep LastPeek's identity in the surrounding interface. Rendering can differ across devices; document limitations rather than adding blanket disclaimers to the preview. Link cards, polls, Premium formatting and automatic video transcoding are outside this MVP.
 - The entire application, accounts, database, media and maintenance run on one host. No required third-party application service. Portable container deployment; the official invite-only service runs on a Raspberry Pi, with optional Cloudflare Tunnel ingress.
 
-## LinkedIn authentication trial
+## LinkedIn trial
 
-LinkedIn is behind the default-off `linkedin` account feature grant and requires optional
-server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
+The `linkedin` account grant enables LinkedIn drafts without any provider credentials.
+Authors choose New LinkedIn post from New post options; existing drafts remain X drafts.
+A LinkedIn draft has one post, no X reply/quote or X handle, and a plain 3,000-character
+counter rather than X's weighted count. Over-limit writing remains saveable for editing.
+The same private media, review links, feedback and immutable revisions apply. Guests can
+review an enabled author's shared LinkedIn draft without a LinkedIn account or trial grant.
+Revoking the author's trial hides their LinkedIn drafts and blocks draft/review operations.
+Authors copy text and download attachments for manual posting, then explicitly Mark as posted.
+LinkedIn completion performs no X lookup or paid API operation; an optional pasted LinkedIn
+post link gives authors and reviewers View on LinkedIn. Copying alone never marks a post as posted.
+
+LinkedIn sign-in uses optional server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
 Settings → Connections alongside X without changing their LastPeek profile or granting posting access.
 New connections are marked Coming soon in the interface, with no Connect action while
 developer-app setup is deferred. Existing linked identities can still be disconnected.

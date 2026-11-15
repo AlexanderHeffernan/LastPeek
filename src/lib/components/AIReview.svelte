@@ -98,7 +98,7 @@
 
 <div class="ai-results">
   <div class="review-modes" role="group" aria-label="Review type">
-    {#each Object.entries(reviewTypes) as [key, mode]}
+    {#each Object.entries(reviewTypes).filter(([key]) => content.platform !== "linkedin" || key !== "flow") as [key, mode]}
       <Button
         variant="outline"
         size="sm"

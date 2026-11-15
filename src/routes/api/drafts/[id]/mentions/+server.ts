@@ -9,7 +9,9 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = async (event) => {
   sameOrigin(event);
   const user = requireUser(event.locals);
-  await ownedDraft(event.params.id, user.id);
+  const draft = await ownedDraft(event.params.id, user.id);
+  if (draft.content.platform === "linkedin")
+    error(400, "X mention lookup is unavailable for LinkedIn drafts.");
   const body = await readBody(event.request, 256);
   let input: unknown;
   try {

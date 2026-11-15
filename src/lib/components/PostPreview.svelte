@@ -59,6 +59,8 @@
     mentionsURL?: string;
     mentionsReady?: boolean;
   } = $props();
+  const linkedin = $derived(content.platform === "linkedin");
+  const characterLimit = $derived(linkedin ? 3000 : 280);
   // Like X's composer, only the post being written shows its tools.
   let activeId = $state(content.posts.at(-1)?.id);
   let confirmation = $state<ConfirmDialog>();
@@ -95,6 +97,7 @@
     const parts: { text: string; href?: string }[] = [];
     let cursor = 0;
     for (const entity of twitter.extractEntitiesWithIndices(text)) {
+      if (linkedin && !("url" in entity)) continue;
       const [start, end] = entity.indices;
       parts.push({ text: text.slice(cursor, start) });
       const label = text.slice(start, end);
@@ -145,7 +148,7 @@
     }
   }}
 />
-<section aria-label="Post thread">
+<section aria-label={linkedin ? "LinkedIn post" : "Post thread"}>
   {#if content.source?.kind === "reply" && !timeline}
     <div class="reply-source">
       <span class="source-label"
@@ -197,7 +200,9 @@
         <div class="post-author" class:timeline-author={timeline}>
           <strong>{content.author.name || "Your name"}</strong
           >{#if !timeline}<span class="author-break"
-            ></span>{/if}{#if content.author.handle}<span class="handle"
+            ></span>{/if}{#if linkedin}<span class="handle"
+              ><Icon name="linkedin" size={12} /> LinkedIn</span
+            >{:else if content.author.handle}<span class="handle"
               >@{content.author.handle.replace(/^@/, "")}</span
             >{/if}{#if updatedAt}<span
               class="post-time-separator"
@@ -243,7 +248,11 @@
               enabled={mentionsReady}
               id={`post-text-${post.id}`}
               label={`Post ${index + 1} text`}
-              placeholder={index ? "Add another post" : "What’s happening?"}
+              placeholder={linkedin
+                ? "What would you like to share?"
+                : index
+                  ? "Add another post"
+                  : "What’s happening?"}
               {onchange}
             />{:else if editing}<Textarea
               class="post-editor"
@@ -251,7 +260,11 @@
               aria-label={`Post ${index + 1} text`}
               bind:value={post.text}
               oninput={onchange}
-              placeholder={index ? "Add another post" : "What’s happening?"}
+              placeholder={linkedin
+                ? "What would you like to share?"
+                : index
+                  ? "Add another post"
+                  : "What’s happening?"}
               maxlength={25000}
               rows={1}
             ></Textarea>{/if}
@@ -378,7 +391,9 @@
           {/if}
         {/if}
         {#if (editing && (post.id === active || (publishing && index === content.posts.length - 1))) || (!editing && (oncopy || onfocuspost))}{@const count =
-            twitter.parseTweet(post.text).weightedLength}
+            linkedin
+              ? post.text.length
+              : twitter.parseTweet(post.text).weightedLength}
           <div class="post-tools">
             <div class="post-action-icons">
               {#if onfocuspost}<Button
@@ -418,20 +433,24 @@
                     cy="12"
                     r="10"
                     class="count-fill"
-                    class:over={count > 280}
+                    class:over={count > characterLimit}
                     stroke-dasharray="62.832"
-                    stroke-dashoffset={62.832 * (1 - Math.min(count / 280, 1))}
+                    stroke-dashoffset={62.832 *
+                      (1 - Math.min(count / characterLimit, 1))}
                   />
                 </svg>
                 <span
                   class="counter"
-                  class:over={count > 280}
-                  aria-label={`${count} of 280 characters${count > 280 ? ". X Premium required" : ""}`}
-                  title={count > 280 ? "X Premium required" : "Character count"}
-                  >{count}/280</span
+                  class:over={count > characterLimit}
+                  aria-label={`${count} of ${characterLimit} characters${count > characterLimit ? (linkedin ? ". LinkedIn limit exceeded" : ". X Premium required") : ""}`}
+                  title={count > characterLimit
+                    ? linkedin
+                      ? "LinkedIn limit exceeded"
+                      : "X Premium required"
+                    : "Character count"}>{count}/{characterLimit}</span
                 >
                 <div class="post-submit-actions">
-                  {#if content.posts.length < 25}<Button
+                  {#if !linkedin && content.posts.length < 25}<Button
                       variant="outline"
                       class="icon-button add-post"
                       aria-label="Add post to thread"

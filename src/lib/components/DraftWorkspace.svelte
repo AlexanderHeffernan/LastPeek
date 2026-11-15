@@ -161,7 +161,7 @@
   location = "primary",
 )}
   <div class="share-actions">
-    {#if location !== "floating" || !data.xSourcesEnabled}
+    {#if location !== "floating" || !(data.xSourcesEnabled || data.linkedinEnabled)}
       <form
         method="POST"
         action="?/create"
@@ -183,11 +183,13 @@
             size={location === "floating" ? 28 : 16}
           />{#if location !== "floating"}{busy
               ? "Opening…"
-              : label}{/if}</Button
+              : data.linkedinEnabled && label === "New post"
+                ? "New X post"
+                : label}{/if}</Button
         >
       </form>
     {/if}
-    {#if options && data.xSourcesEnabled}<Popover.Root
+    {#if options && (data.xSourcesEnabled || data.linkedinEnabled)}<Popover.Root
         open={createOpen === location}
         onOpenChange={(open) => openCreation(open, location)}
       >
@@ -217,69 +219,7 @@
           role="dialog"
           aria-label="New post actions"
         >
-          {#if clipboardURL}
-            <div class="clipboard-source">
-              <strong>From X</strong>
-              <p>
-                <Icon name="link" size={16} /><span
-                  >{clipboardURL.replace("https://", "")}</span
-                >
-              </p>
-            </div>
-            {#each ["reply", "quote"] as sourceKind}
-              <form
-                method="POST"
-                action="?/create"
-                use:enhance={() => {
-                  busy = true;
-                  createError = "";
-                  return async ({ result, update }) => {
-                    busy = false;
-                    if (result.type === "failure" || result.type === "error") {
-                      createError =
-                        result.type === "failure"
-                          ? (result.data?.error as string) ||
-                            "Couldn’t create your post. Try again."
-                          : "Couldn’t create your post. Try again.";
-                    } else {
-                      createOpen = null;
-                      await update();
-                    }
-                  };
-                }}
-              >
-                <input type="hidden" name="kind" value={sourceKind} />
-                <input type="hidden" name="url" value={clipboardURL} />
-                <Button variant="ghost" type="submit" disabled={busy}>
-                  <Icon name={sourceKind} size={18} />{sourceKind === "reply"
-                    ? "New reply"
-                    : "New quote"}
-                </Button>
-              </form>
-            {/each}
-            {#if createError}<p class="clipboard-error" role="alert">
-                {createError}
-              </p>{/if}
-          {:else}
-            <Button
-              variant="ghost"
-              onclick={() => readClipboard()}
-              aria-label={pasteMessage || "Paste to reply or quote"}
-            >
-              <Icon name="copy" size={18} />
-              <span class="paste-label">
-                <span class:paste-hidden={!!pasteMessage}
-                  >Paste to reply or quote</span
-                >
-                <span
-                  class="paste-message"
-                  class:paste-hidden={!pasteMessage}
-                  aria-hidden="true">{pasteMessage}</span
-                >
-              </span>
-            </Button>
-            <span class="sr-only" role="status">{pasteMessage}</span>
-            <div class="creation-divider"></div>
+          {#if data.linkedinEnabled}
             <form
               method="POST"
               action="?/create"
@@ -292,8 +232,102 @@
                 };
               }}
             >
+              <input type="hidden" name="platform" value="linkedin" />
               <Button type="submit" variant="ghost" disabled={busy}
-                ><Icon name="plus" size={16} />New post</Button
+                ><Icon name="linkedin" size={18} />New LinkedIn post</Button
+              >
+            </form>
+          {/if}
+          {#if data.xSourcesEnabled}
+            {#if clipboardURL}
+              <div class="clipboard-source">
+                <strong>From X</strong>
+                <p>
+                  <Icon name="link" size={16} /><span
+                    >{clipboardURL.replace("https://", "")}</span
+                  >
+                </p>
+              </div>
+              {#each ["reply", "quote"] as sourceKind}
+                <form
+                  method="POST"
+                  action="?/create"
+                  use:enhance={() => {
+                    busy = true;
+                    createError = "";
+                    return async ({ result, update }) => {
+                      busy = false;
+                      if (
+                        result.type === "failure" ||
+                        result.type === "error"
+                      ) {
+                        createError =
+                          result.type === "failure"
+                            ? (result.data?.error as string) ||
+                              "Couldn’t create your post. Try again."
+                            : "Couldn’t create your post. Try again.";
+                      } else {
+                        createOpen = null;
+                        await update();
+                      }
+                    };
+                  }}
+                >
+                  <input type="hidden" name="kind" value={sourceKind} />
+                  <input type="hidden" name="url" value={clipboardURL} />
+                  <Button variant="ghost" type="submit" disabled={busy}>
+                    <Icon name={sourceKind} size={18} />{sourceKind === "reply"
+                      ? "New reply"
+                      : "New quote"}
+                  </Button>
+                </form>
+              {/each}
+              {#if createError}<p class="clipboard-error" role="alert">
+                  {createError}
+                </p>{/if}
+            {:else}
+              <Button
+                variant="ghost"
+                onclick={() => readClipboard()}
+                aria-label={pasteMessage || "Paste to reply or quote"}
+              >
+                <Icon name="copy" size={18} />
+                <span class="paste-label">
+                  <span class:paste-hidden={!!pasteMessage}
+                    >Paste to reply or quote</span
+                  >
+                  <span
+                    class="paste-message"
+                    class:paste-hidden={!pasteMessage}
+                    aria-hidden="true">{pasteMessage}</span
+                  >
+                </span>
+              </Button>
+              <span class="sr-only" role="status">{pasteMessage}</span>
+              <div class="creation-divider"></div>
+              <form
+                method="POST"
+                action="?/create"
+                use:enhance={() => {
+                  busy = true;
+                  return async ({ update }) => {
+                    await update();
+                    busy = false;
+                    createOpen = null;
+                  };
+                }}
+              >
+                <Button type="submit" variant="ghost" disabled={busy}
+                  ><Icon name="x" size={16} />{data.linkedinEnabled
+                    ? "New X post"
+                    : "New post"}</Button
+                >
+              </form>
+            {/if}
+          {:else}
+            <form method="POST" action="?/create" use:enhance>
+              <Button type="submit" variant="ghost" disabled={busy}
+                ><Icon name="x" size={18} />New X post</Button
               >
             </form>
           {/if}
@@ -365,7 +399,7 @@
             <div class="empty-mascot"><Brand markOnly decorative /></div>
             <h2>Start something worth sharing.</h2>
             <p>Nothing to peek at. Yet. Let’s change that.</p>
-            {@render newPost("Write your first post")}
+            {@render newPost("Write your first post", false, true, "empty")}
           </div>
         {:else}
           <div class="draft-feed" aria-label="Drafts" bind:this={draftList}>

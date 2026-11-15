@@ -185,7 +185,10 @@ export async function reviewPreview(content: Content, media: Media[]) {
     left: 140,
     top: 52,
   });
-  const handle = content.author.handle.replace(/^@/, "");
+  const handle =
+    content.platform === "linkedin"
+      ? ""
+      : content.author.handle.replace(/^@/, "");
   if (handle)
     layers.push({
       input: await text(`@${handle}`, 940, 24, "#71767b", 36),

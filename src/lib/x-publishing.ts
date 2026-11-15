@@ -2,6 +2,8 @@ import twitter from "twitter-text";
 import type { Content } from "./contracts";
 
 export function postingProblem(content: Content) {
+  if (content.platform === "linkedin")
+    return "LinkedIn drafts cannot be published to X.";
   for (const [index, post] of content.posts.entries()) {
     if (
       (!post.text.trim() && !post.media.length) ||

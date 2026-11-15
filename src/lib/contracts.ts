@@ -42,6 +42,7 @@ export const contentSchema = z
   .object({
     // Keep legacy metadata compatible with stored drafts and the previous app version.
     title: z.string().trim().max(120).default(""),
+    platform: z.enum(["x", "linkedin"]).optional(),
     author: authorSchema,
     posts: z.array(postSchema).min(1).max(25),
     source: z
@@ -49,6 +50,15 @@ export const contentSchema = z
       .optional(),
   })
   .superRefine((content, ctx) => {
+    if (
+      content.platform === "linkedin" &&
+      (content.posts.length !== 1 || content.source)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "LinkedIn drafts contain one post, without an X reply or quote.",
+      });
     if (new Set(content.posts.map((p) => p.id)).size !== content.posts.length)
       ctx.addIssue({
         code: "custom",
@@ -62,6 +72,18 @@ export const contentSchema = z
   });
 export type Content = z.infer<typeof contentSchema>;
 export type Post = Content["posts"][number];
+export const linkedinPostURLSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .regex(
+    /^https:\/\/(?:www\.)?linkedin\.com\/(?:feed\/update\/urn:li:(?:activity|share|ugcPost):[1-9][0-9]*\/?|posts\/[A-Za-z0-9_-]+-activity-[1-9][0-9]*-[A-Za-z0-9_-]+\/?)(?:\?[^#]*)?$/,
+    "Enter a LinkedIn post link.",
+  )
+  .transform((value) => {
+    const url = new URL(value);
+    return `https://www.linkedin.com${url.pathname}`;
+  });
 export type Media = {
   id: string;
   mime: string;

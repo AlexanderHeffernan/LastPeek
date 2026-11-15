@@ -96,7 +96,9 @@ export async function postToX(
   version: number,
   xId: string,
 ) {
-  await ownedDraft(draftId, userId);
+  const target = await ownedDraft(draftId, userId);
+  if (target.content.platform === "linkedin")
+    error(400, "This is a LinkedIn draft, not an X post.");
   if (!xAuthEnabled()) error(503, "X posting isn’t configured.");
   if (!(await isPro(userId))) error(403, "X posting requires Pro.");
   await rateLimit(`x-posting:${userId}`, 1200, 900);

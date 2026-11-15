@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
-import { xPostURLSchema } from "../contracts";
+import { xPostURLSchema, linkedinPostURLSchema } from "../contracts";
 import { db, transaction } from "./db";
 import { reserveXBudget } from "./x-budget";
 import { ownedDraft } from "./drafts";
@@ -74,6 +74,7 @@ export async function markPosted(
     );
     if (!updated.rowCount)
       error(409, "This draft changed. Reload before marking it as posted.");
+    if (draft.content.platform === "linkedin") return null;
     if (
       (
         await client.query(
@@ -226,6 +227,16 @@ export async function linkPostedX(
 ) {
   const draft = await ownedDraft(draftId, userId);
   if (!draft.posted_at) error(409, "Mark this post as posted first.");
+  if (draft.content.platform === "linkedin") {
+    const parsed = linkedinPostURLSchema.safeParse(url);
+    if (choice !== "url" || !parsed.success)
+      error(400, "Paste a valid LinkedIn post link.");
+    await db.query(
+      "INSERT INTO posted_linkedin_links(draft_id,url) VALUES($1,$2) ON CONFLICT(draft_id) DO UPDATE SET url=EXCLUDED.url",
+      [draftId, parsed.data],
+    );
+    return;
+  }
   if (choice === "yes") {
     const result = await db.query(
       "UPDATE posted_x_links SET status='linked' WHERE draft_id=$1 AND status='candidate' RETURNING draft_id",

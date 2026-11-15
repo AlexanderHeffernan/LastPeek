@@ -46,6 +46,13 @@ There are no draft titles or per-thread-item external reply targets.
 
 ## Draft and review workflows
 
+With the `linkedin` account trial enabled, `create_draft` accepts `platform: "linkedin"`
+and exactly one text item in `posts`. Omitted platform defaults to X. LinkedIn uses a
+3,000-character publishing limit, with no X URL weighting or reply/quote source; over-limit
+drafts remain editable. `check_draft` returns `platform`, `characterLimit`, and LinkedIn
+`characterCount` (X retains `weightedLength`). Review/sharing/media tools work as usual.
+Return the draft URL for review and manual posting; no MCP tool publishes to LinkedIn.
+
 1. Read the draft before editing. Keep stable post IDs, unchanged attachments and the exact version.
    `edit_post` changes one existing item; `update_draft` replaces the ordered posts array. A 409
    requires rereading and reconciling, not substituting a newer version blindly.

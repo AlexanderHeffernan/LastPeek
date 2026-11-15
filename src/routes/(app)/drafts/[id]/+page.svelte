@@ -21,7 +21,7 @@
   import UserIdentity from "$lib/components/UserIdentity.svelte";
   import AIReview from "$lib/components/AIReview.svelte";
   import XPublish from "$lib/components/XPublish.svelte";
-  import PostedOnX from "$lib/components/PostedOnX.svelte";
+  import PostedLink from "$lib/components/PostedLink.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -50,6 +50,7 @@
     }),
     media: Media[] = $state(initial.media);
   let version = $state(initial.draft.edit_version);
+  const linkedin = $derived(content.platform === "linkedin");
   let touched = $state(false);
   let inFlightSave: Promise<boolean> | undefined;
   let saved = $state(JSON.stringify(initialContent)),
@@ -132,7 +133,9 @@
       ? "Reply"
       : content.source?.kind === "quote"
         ? "Quote"
-        : "Post",
+        : linkedin
+          ? "LinkedIn post"
+          : "Post",
   );
   let confirmation: ConfirmDialog;
   let deleting = $state(false);
@@ -557,8 +560,9 @@
 <svelte:head><title>{postKind} · LastPeek</title></svelte:head>
 {#snippet publishingControls()}
   {#if data.draft.posted_at}
-    <PostedOnX
+    <PostedLink
       draftId={data.draft.id}
+      platform={linkedin ? "linkedin" : "x"}
       link={data.postedLink}
       confirmedURL={data.xPublishing.publication?.status === "posted"
         ? data.xPublishing.publication.url
@@ -762,7 +766,7 @@
                 align="end"
                 aria-label="More draft actions"
               >
-                {#if !data.draft.posted_at && !data.xPublishing.publication}<Button
+                {#if !linkedin && !data.draft.posted_at && !data.xPublishing.publication}<Button
                     variant="ghost"
                     onclick={() => {
                       moreOpen = false;

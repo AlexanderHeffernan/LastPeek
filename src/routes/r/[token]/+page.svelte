@@ -38,7 +38,9 @@
       ? "Reply"
       : data.content.source?.kind === "quote"
         ? "Quote"
-        : "Post",
+        : data.content.platform === "linkedin"
+          ? "LinkedIn post"
+          : "Post",
   );
   const previewTitle = $derived(
     `${data.content.author.name} · ${data.content.posts.length > 1 ? "Thread" : "Post"} for review`,
@@ -140,13 +142,19 @@
       <Button
         variant="secondary"
         href={data.postedURL}
-        aria-label="View on X"
+        aria-label={data.content.platform === "linkedin"
+          ? "View on LinkedIn"
+          : "View on X"}
         target="_blank"
         onclick={(event) => {
           if (matchMedia("(pointer: coarse)").matches)
             event.currentTarget.setAttribute("target", "_self");
         }}
-        rel="noopener noreferrer">View on <Icon name="x" size={16} /></Button
+        rel="noopener noreferrer"
+        >View on <Icon
+          name={data.content.platform === "linkedin" ? "linkedin" : "x"}
+          size={16}
+        /></Button
       >
     {/if}
   </header>
