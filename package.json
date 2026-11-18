@@ -47,7 +47,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@sveltejs/adapter-node": "^6.0.0",
-    "@sveltejs/kit": "^3.1.0",
+    "@sveltejs/kit": "^3.3.1",
     "better-auth": "^1.7.14",
     "bits-ui": "^2.20.2",
     "clsx": "^2.1.1",
@@ -64,5 +64,9 @@
     "twitter-text": "^3.1.0",
     "web-push": "^3.6.7",
     "zod": "^4.6.7"
+  },
+  "overrides": {
+    "@sveltejs/kit": "$@sveltejs/kit",
+    "picomatch": "npm:@ryotsu/picomatch@4.0.7-a"
   }
 }
