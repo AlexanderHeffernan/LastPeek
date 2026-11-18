@@ -320,6 +320,7 @@ test("X source lookups preserve public context, cache safely and bound paid atte
     CREATE TABLE x_accounts(user_id uuid PRIMARY KEY,x_id text,profile jsonb NOT NULL DEFAULT '{}');
     CREATE TABLE x_publications(draft_id uuid PRIMARY KEY,status text);`);
   await db.query(await readFile("migrations/024_posted_x_links.sql", "utf8"));
+  await db.query(await readFile("migrations/046_draft_versions.sql", "utf8"));
   const author = randomUUID(),
     outsider = randomUUID();
   await db.query("INSERT INTO users(id,plan)VALUES($1,'pro'),($2,'free')", [

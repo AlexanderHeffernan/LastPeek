@@ -13,6 +13,8 @@ import {
   draftMedia,
   createDraft,
   relatedDraft,
+  removeRecipient,
+  revokeSharing,
 } from "./drafts";
 import {
   blankContent,
@@ -42,7 +44,6 @@ export function agentServer(
   request: Request,
   origin: string,
   scopes: AgentScope[],
-  linkedinEnabled = false,
 ) {
   const server = new McpServer(
     { name: "LastPeek", version: "1.1.0" },
@@ -218,7 +219,6 @@ export function agentServer(
           `SELECT id,content,edit_version,posted_at,updated_at FROM drafts WHERE owner_id=$1
            AND ($4='' OR EXISTS(SELECT 1 FROM jsonb_array_elements(content->'posts') p WHERE strpos(lower(p->>'text'),lower($4))>0))
            AND ($5='all' OR ($5='posted')=(posted_at IS NOT NULL))
-           AND (COALESCE(content->>'platform','x')!='linkedin' OR EXISTS(SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature='linkedin'))
            ORDER BY updated_at DESC,id LIMIT $2 OFFSET $3`,
           [userId, limit, offset, query, status],
         )
@@ -261,16 +261,12 @@ export function agentServer(
   );
   tool(
     "create_draft",
-    linkedinEnabled
-      ? "Create a draft for X (default) or LinkedIn. X accepts an ordered thread; LinkedIn accepts one post with a 3,000-character publishing limit. Adapt wording to the requested audience. Use relatedDraftId to link the other platform's owned draft as an independent version; text, attachments, reviews and posted state are not copied. Returns stable post IDs. Does not share or publish it."
-      : "Create a normal text post or ordered thread. Returns stable post IDs. Does not share or publish it.",
+    "Create a draft for X (default) or LinkedIn. X accepts an ordered thread; LinkedIn accepts one post with a 3,000-character publishing limit. Use relatedDraftId to link the other platform's owned draft. Text, attachments and feedback remain separate; sharing and manual completion apply to both versions. Returns stable post IDs. Does not share or publish it.",
     "drafts:write",
     {
       posts: z.array(z.string().max(25000)).min(1).max(25),
-      platform: z
-        .enum(linkedinEnabled ? ["x", "linkedin"] : ["x"])
-        .default("x"),
-      ...(linkedinEnabled ? { relatedDraftId: id.optional() } : {}),
+      platform: z.enum(["x", "linkedin"]).default("x"),
+      relatedDraftId: id.optional(),
       source: source.optional(),
       requestId,
     },
@@ -381,7 +377,6 @@ export function agentServer(
     JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
     JOIN drafts d ON d.id=fr.draft_id AND d.friend_token IS NOT NULL
     JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision WHERE fr.recipient_id=$1
-    AND (COALESCE(d.content->>'platform','x')!='linkedin' OR EXISTS(SELECT 1 FROM feature_grants WHERE user_id=d.owner_id AND feature='linkedin'))
     AND ($4='all' OR ($4='done')=EXISTS(SELECT 1 FROM comments c WHERE c.draft_id=d.id AND c.user_id=$1 AND c.revision=d.shared_revision))
     ORDER BY fr.created_at DESC,d.id LIMIT $2 OFFSET $3`,
           [userId, limit, offset, status],
@@ -483,7 +478,7 @@ export function agentServer(
   );
   tool(
     "share_draft",
-    "Share an owned draft. audience=link creates an unlisted bearer link; audience=friend requires friendId and invites an accepted friend. Each preserves the other audience’s access. Only do this on user instruction.",
+    "Share an owned draft and its nonempty linked platform version. audience=link creates unlisted bearer links; audience=friend requires friendId and invites an accepted friend to both. Each preserves the other audience’s access. Only do this on user instruction.",
     ["sharing:links", "sharing:people"],
     {
       id,
@@ -657,15 +652,11 @@ export function agentServer(
   );
   tool(
     "remove_recipient",
-    "Remove one friend’s access to your draft, preserving other recipients and feedback.",
+    "Remove one friend’s access to your draft and its linked platform version, preserving other recipients and feedback.",
     "sharing:people",
     { id, friendId: id },
     async (userId, { id, friendId }) => {
-      await ownedDraft(id, userId);
-      await db.query(
-        "DELETE FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
-        [id, friendId],
-      );
+      await removeRecipient(id, userId, friendId);
       return { removed: true };
     },
   );
@@ -685,7 +676,6 @@ export function agentServer(
           `SELECT c.id,c.draft_id,c.revision,c.post_id,COALESCE(u.name,c.name) AS name,c.body,c.quote,c.resolved,c.created_at,c.agent_name,
       c.revision IS DISTINCT FROM d.shared_revision AS earlier FROM comments c JOIN drafts d ON d.id=c.draft_id LEFT JOIN users u ON u.id=c.user_id
       WHERE d.owner_id=$1 AND c.deleted_at IS NULL AND ($4='all' OR ($4='resolved')=c.resolved)
-      AND (COALESCE(d.content->>'platform','x')!='linkedin' OR EXISTS(SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature='linkedin'))
       AND ($5='' OR strpos(lower(concat_ws(' ',c.body,COALESCE(u.name,c.name),c.quote)),lower($5))>0)
       AND ($6::timestamptz IS NULL OR c.created_at>$6) ORDER BY c.created_at DESC,c.id DESC LIMIT $2 OFFSET $3`,
           [userId, limit, offset, status, query, since ?? null],
@@ -795,7 +785,7 @@ export function agentServer(
   );
   tool(
     "revoke_sharing",
-    "Remove review-link or friend-only access from an owned draft. audience defaults to all, which needs both sharing permissions. Choose link or friends to remove only that audience. Existing feedback is kept.",
+    "Remove review-link or friend-only access from an owned draft and its linked platform version. audience defaults to all, which needs both sharing permissions. Choose link or friends to remove only that audience. Existing feedback is kept.",
     ["sharing:links", "sharing:people"],
     { id, audience: z.enum(["all", "link", "friends"]).default("all") },
     async (userId, { id, audience }, auth) => {
@@ -804,22 +794,7 @@ export function agentServer(
         (audience !== "link" && !auth.scopes.includes("sharing:people"))
       )
         error(403, "This connection cannot remove access for that audience.");
-      return transaction(async (client) => {
-        await ownedDraft(id, userId, client);
-        const changed = await client.query(
-          `UPDATE drafts SET
-           share_token=CASE WHEN $3 IN ('all','link') THEN NULL ELSE share_token END,
-           friend_token=CASE WHEN $3 IN ('all','friends') THEN NULL ELSE friend_token END
-           WHERE id=$1 AND owner_id=$2
-           RETURNING share_token IS NOT NULL OR friend_token IS NOT NULL AS shared`,
-          [id, userId, audience],
-        );
-        if (audience !== "link")
-          await client.query("DELETE FROM friend_reviews WHERE draft_id=$1", [
-            id,
-          ]);
-        return changed.rows[0];
-      });
+      return revokeSharing(id, userId, audience);
     },
   );
   return server;

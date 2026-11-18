@@ -11,7 +11,6 @@ import { sourcePost } from "$lib/server/x-post";
 import { xPublishing } from "$lib/server/x-publishing";
 import { db } from "$lib/server/db";
 import { blankContent } from "$lib/contracts";
-import { hasFeatureAccess } from "$lib/server/features";
 import { draftReviews } from "$lib/server/ai-review";
 import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
@@ -40,9 +39,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     fresh ? [] : draftComments(draft.id, user.id),
   ]);
   const linkedin = draft.content.platform === "linkedin";
+  const relatedVersion = fresh ? null : await relatedDraft(draft.id, user.id);
   return {
-    linkedinEnabled: await hasFeatureAccess(user.id, "linkedin"),
-    relatedVersion: fresh ? null : await relatedDraft(draft.id, user.id),
+    relatedVersion,
+    relatedPosted: relatedVersion
+      ? Boolean(
+          (
+            await db.query(
+              "SELECT posted_at FROM drafts WHERE id=$1 AND owner_id=$2",
+              [relatedVersion.id, user.id],
+            )
+          ).rows[0]?.posted_at,
+        )
+      : false,
     postedLink:
       (
         await db.query<{ status: string; url: string | null }>(

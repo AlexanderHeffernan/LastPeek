@@ -36,6 +36,7 @@
   beforeNavigate((navigation) => {
     if (
       navigation.willUnload ||
+      navigation.to?.route.id === "/r/[token]" ||
       navigation.to?.url.pathname === page.url.pathname
     )
       return;

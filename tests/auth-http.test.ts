@@ -9,7 +9,7 @@ import { hash, token, passwordHash } from "../src/lib/server/auth";
 const origin = process.env.TEST_BASE_URL!;
 after(() => db.end());
 
-test("LinkedIn trial gates UI, start, callback and disconnect for guests and ungranted accounts", async (t) => {
+test("LinkedIn auth is available without a grant and still binds callbacks to the browser", async (t) => {
   const id = randomUUID(),
     session = token();
   let client = await request.newContext({
@@ -27,9 +27,9 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
     "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
     [hash(session), id],
   );
-  assert.doesNotMatch(
+  assert.match(
     await (await client.get(`${origin}/login?linkedin=cancelled`)).text(),
-    /Sign in with LinkedIn|LinkedIn sign-in cancelled/,
+    /Sign in with LinkedIn/,
   );
   assert.equal(
     (
@@ -38,7 +38,7 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
         maxRedirects: 0,
       })
     ).status(),
-    404,
+    303,
   );
   assert.equal(
     (
@@ -47,7 +47,7 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
         { maxRedirects: 0 },
       )
     ).status(),
-    404,
+    400,
   );
   await client.dispose();
   client = await request.newContext({
@@ -71,29 +71,6 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
       origins: [],
     },
   });
-  assert.doesNotMatch(
-    await (await client.get(`${origin}/settings?tab=connections`)).text(),
-    /<strong>LinkedIn<\/strong>/,
-  );
-  assert.equal(
-    (
-      await client.post(`${origin}/auth/linkedin/start`, {
-        form: {},
-        maxRedirects: 0,
-      })
-    ).status(),
-    404,
-  );
-  assert.equal(
-    (
-      await client.post(`${origin}/settings?/disconnectLinkedIn`, { form: {} })
-    ).status(),
-    404,
-  );
-  await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
-    [id],
-  );
   const settings = await (
     await client.get(`${origin}/settings?tab=connections`)
   ).text();
@@ -119,20 +96,6 @@ test("LinkedIn trial gates UI, start, callback and disconnect for guests and ung
   assert.equal(url.origin, "https://www.linkedin.com");
   assert.equal(url.searchParams.get("scope"), "openid profile email");
   const state = url.searchParams.get("state")!;
-  await db.query("DELETE FROM feature_grants WHERE user_id=$1", [id]);
-  assert.equal(
-    (
-      await client.get(
-        `${origin}/auth/linkedin/callback?state=${state}&error=access_denied`,
-        { maxRedirects: 0 },
-      )
-    ).status(),
-    404,
-  );
-  await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
-    [id],
-  );
   const cancelled = await client.get(
     `${origin}/auth/linkedin/callback?state=${state}&error=access_denied`,
     { maxRedirects: 0 },

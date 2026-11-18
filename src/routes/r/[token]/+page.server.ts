@@ -3,6 +3,7 @@ import { rateLimit } from "$lib/server/auth";
 import { draftComments, draftMedia, sharedDraft } from "$lib/server/drafts";
 import { mediaIds } from "$lib/contracts";
 import { sourcePost } from "$lib/server/x-post";
+import { db } from "$lib/server/db";
 import {
   feedbackSchema,
   sendFeedback,
@@ -24,7 +25,27 @@ export const load: PageServerLoad = async ({
   );
   for (const comment of comments)
     if (comment.media_id) allowedIds.add(comment.media_id);
+  // A relationship alone never grants access. Only expose the matching audience's
+  // current capability, and recheck private recipient access before returning it.
+  const relatedVersion =
+    (
+      await db.query<{ platform: "x" | "linkedin"; token: string }>(
+        `SELECT COALESCE(other.content->>'platform','x') AS platform,
+       CASE WHEN $3 THEN other.friend_token ELSE other.share_token END AS token
+       FROM draft_versions v JOIN drafts other ON other.id=CASE
+         WHEN v.x_draft_id=$1 THEN v.linkedin_draft_id ELSE v.x_draft_id END
+       WHERE (v.x_draft_id=$1 OR v.linkedin_draft_id=$1) AND other.owner_id=$2
+       AND other.shared_revision IS NOT NULL AND
+       (CASE WHEN $3 THEN other.friend_token IS NOT NULL AND
+         (other.owner_id=$4 OR EXISTS(SELECT 1 FROM friend_reviews fr
+           JOIN friendships f ON f.id=fr.friendship_id AND f.accepted_at IS NOT NULL
+           WHERE fr.draft_id=other.id AND fr.recipient_id=$4))
+        ELSE other.share_token IS NOT NULL END)`,
+        [draft.id, draft.owner_id, draft.private, locals.user?.id ?? null],
+      )
+    ).rows[0] ?? null;
   return {
+    relatedVersion,
     sourcePost: await sourcePost(draft.owner_id, draft.content.source?.url),
     token: params.token,
     ownerId: draft.owner_id,

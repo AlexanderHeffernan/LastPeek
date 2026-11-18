@@ -326,8 +326,9 @@
     if (
       !(await confirmation.ask({
         title: "Revoke this link?",
-        description:
-          "This link will stop working, including for attachments. Invited reviewers keep their access. Feedback will stay.",
+        description: data.relatedVersion
+          ? "Review links for both X and LinkedIn will stop working, including for attachments. Invited reviewers keep their access. Feedback will stay."
+          : "This link will stop working, including for attachments. Invited reviewers keep their access. Feedback will stay.",
         confirmLabel: "Revoke link",
         cancelLabel: "Keep link",
       }))
@@ -352,11 +353,23 @@
     }
   }
   async function copyLink() {
-    if (await copy(`${origin}/r/${shareToken}`)) {
-      copied = true;
-      setTimeout(() => (copied = false), 2500);
-    } else {
-      error = `Couldn’t copy the link. Copy this address: ${origin}/r/${shareToken}`;
+    busy = true;
+    try {
+      if (!(await save())) throw new Error(error || "Save your draft first.");
+      const result = await api({ action: "publish", version });
+      shareToken = result.token;
+      sharedRevision = result.revision;
+      await invalidateAll();
+      if (await copy(`${origin}/r/${shareToken}`)) {
+        copied = true;
+        setTimeout(() => (copied = false), 2500);
+      } else {
+        error = `Couldn’t copy the link. Copy this address: ${origin}/r/${shareToken}`;
+      }
+    } catch (cause) {
+      shareError = (cause as Error).message;
+    } finally {
+      busy = false;
     }
   }
   function focusComment(id: string, quote: string) {
@@ -630,7 +643,7 @@
     >
   </header>
   <section class="editor-posts" aria-label="Edit draft">
-    {#if data.linkedinEnabled && version > 0}
+    {#if version > 0}
       <nav class="version-links" aria-label="Post versions">
         {#each ["x", "linkedin"] as platform}
           {@const current = platform === (linkedin ? "linkedin" : "x")}
@@ -663,6 +676,9 @@
           {/if}
         {/each}
       </nav>
+      {#if data.draft.posted_at && data.relatedPosted}
+        <p class="small muted">Posted on X and LinkedIn</p>
+      {/if}
       {#if versionError}<p class="action-error" role="alert">
           {versionError}
         </p>{/if}
@@ -781,8 +797,12 @@
             {#if !data.draft.posted_at}<Button
                 variant="secondary"
                 class="icon-button"
-                title="Mark as posted"
-                aria-label="Mark as posted"
+                title={data.relatedVersion
+                  ? "Mark both as posted"
+                  : "Mark as posted"}
+                aria-label={data.relatedVersion
+                  ? "Mark both as posted"
+                  : "Mark as posted"}
                 disabled={busy || saving || uploading || deleting}
                 onclick={() => completeDraft()}
                 ><Icon name="done" size={20} /></Button
@@ -838,7 +858,9 @@
                           void completeDraft();
                         }}
                       >
-                        <Icon name="done" size={16} />Mark as posted
+                        <Icon name="done" size={16} />{data.relatedVersion
+                          ? "Mark both as posted"
+                          : "Mark as posted"}
                       </Button>
                     {/if}
                     <Button

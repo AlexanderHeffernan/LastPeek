@@ -10,15 +10,17 @@ SvelteKit renders the website and handles forms/API endpoints; adapter-node runs
 
 Draft content optionally records `platform: "x" | "linkedin"`; an absent value means X,
 including all existing snapshots. Platform cannot change on an existing draft. LinkedIn
-contains one post without an X source; `drafts.ts` checks the owner's `linkedin` grant on
-creation, owned access and shared capability access. MCP discovery exposes LinkedIn creation
-only to enabled accounts and domain writes recheck access. X publishing rejects LinkedIn
+contains one post without an X source and is available without a feature grant.
+Ownership and review capabilities still authorize every operation. X publishing rejects LinkedIn
 before provider calls. Migration 045 stores optional, validated manual LinkedIn links separately
 from X publication/matching records. Marking a LinkedIn draft posted never claims an X read.
 Migration 046 links at most one X draft to one LinkedIn draft. Creation locks the owned source
 and claims capacity in the same transaction, rejecting duplicate or same-platform versions.
-The relationship carries no review capability and copies no content, media or state; deleting
-a draft removes its relationship, not its counterpart. Relationship reads require the owner's trial.
+The relationship copies no content, media or feedback; deleting a draft removes its relationship,
+not its counterpart. Explicit sharing snapshots both nonempty versions and creates separate
+capabilities for the requested audience. Reviewer navigation exposes only an authorized counterpart
+for that same audience. Revocation and manual completion apply to both versions under ordered
+row locks; native X publishing still marks only X posted.
 
 Migration 033 adds same-draft comment reply roots, immutable attachment/time anchors and per-account
 conversation read boundaries. `feedback.ts` owns both owner and reviewer writes. Owner comments

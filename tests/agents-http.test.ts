@@ -1131,11 +1131,7 @@ test("agent workflows transfer private media, preserve context and attribute rev
         posts: ["Professional update"],
       })
     ).isError,
-    true,
-  );
-  await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
-    [owner],
+    undefined,
   );
   const linkedinText =
     "Notes from a project\n\nhttps://example.com/" + "a".repeat(320);
@@ -1200,17 +1196,16 @@ test("agent workflows transfer private media, preserve context and attribute rev
     ).isError,
     true,
   );
-  await db.query(
-    "DELETE FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
-    [owner],
-  );
-  assert.equal((await call("get_draft", { id: linkedin.id })).isError, true);
   assert.equal(
+    (await call("get_draft", { id: linkedin.id })).isError,
+    undefined,
+  );
+  assert.deepEqual(
     read(await call("get_draft", { id: created.id })).relatedVersion,
-    null,
+    { id: linkedin.id, platform: "linkedin" },
   );
   assert.ok(
-    !read(await call("list_drafts", {})).some(
+    read(await call("list_drafts", {})).some(
       (draft: { id: string }) => draft.id === linkedin.id,
     ),
   );
@@ -1452,9 +1447,11 @@ test("agent workflows transfer private media, preserve context and attribute rev
     read(await call("get_sharing", { id: created.id })).recipients[0].id,
     reviewer,
   );
-  assert.equal(
-    read(await call("list_reviews", { status: "pending" }, peer))[0].id,
-    created.id,
+  assert.deepEqual(
+    read(await call("list_reviews", { status: "pending" }, peer))
+      .map((review: { id: string }) => review.id)
+      .sort(),
+    [created.id, linkedin.id].sort(),
   );
   const review = read(await call("get_review", { token: shared.token }, peer));
   assert.equal(review.media[0].id, media.id);

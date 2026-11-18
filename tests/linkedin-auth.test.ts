@@ -6,8 +6,6 @@ import { isHttpError, isRedirect, type RequestEvent } from "@sveltejs/kit";
 import { db } from "../src/lib/server/db";
 import { hash, token, type User } from "../src/lib/server/auth";
 import {
-  linkedinAuthAvailable,
-  requireLinkedInAccess,
   startLinkedInAuth,
   finishLinkedInAuth,
   disconnectLinkedIn,
@@ -139,25 +137,12 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
       .rows[0] as User;
     const other = (await db.query("SELECT * FROM users WHERE id=$1", [otherId]))
       .rows[0] as User;
-    assert.equal(await linkedinAuthAvailable(null), false);
-    assert.equal(await linkedinAuthAvailable(owner), false);
-    await assert.rejects(
-      requireLinkedInAccess(event("/auth/linkedin/start", {}, owner)),
-      status(404),
-    );
-    await db.query(
-      "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
-      [ownerId],
-    );
-    assert.equal(await linkedinAuthAvailable(owner), true);
     delete process.env.LINKEDIN_CLIENT_SECRET;
-    assert.equal(await linkedinAuthAvailable(owner), true);
     await assert.rejects(
       startLinkedInAuth(event("/auth/linkedin/start", {}, owner)),
       status(503),
     );
     process.env.LINKEDIN_CLIENT_SECRET = "test-linkedin-secret";
-    await requireLinkedInAccess(event("/auth/linkedin/start", {}, owner));
     const wrongBrowser = await start({}, owner);
     cookies.set("lastpeek_linkedin_oauth", "wrong-browser");
     await assert.rejects(callback(wrongBrowser, owner), status(400));
@@ -317,11 +302,6 @@ test("LinkedIn validates OIDC and browser identity, links without merging, and r
       hash(revoked),
     ]);
     await assert.rejects(callback(revokedState), status(400));
-    await db.query("DELETE FROM feature_grants WHERE user_id=$1", [ownerId]);
-    await assert.rejects(
-      requireLinkedInAccess(event("/auth/linkedin/callback", {}, owner)),
-      status(404),
-    );
     const pending = await start({}, owner);
     await disconnectLinkedIn(ownerId);
     await assert.rejects(callback(pending, owner), status(400));

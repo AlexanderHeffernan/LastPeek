@@ -2,15 +2,7 @@ import { error, redirect, type RequestEvent } from "@sveltejs/kit";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { db, transaction } from "./db";
-import {
-  createSession,
-  hash,
-  passwordHash,
-  rateLimit,
-  token,
-  type User,
-} from "./auth";
-import { hasFeatureAccess } from "./features";
+import { createSession, hash, passwordHash, rateLimit, token } from "./auth";
 
 const cookie = "lastpeek_linkedin_oauth";
 const issuer = "https://www.linkedin.com/oauth";
@@ -19,19 +11,6 @@ const callbackPath = "/auth/linkedin/callback";
 export const linkedinAuthConfigured = () =>
   Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);
 
-// Guests have no experiment grants. Removing this trial check later enables
-// the already implemented sign-in/invitation flows without changing account rules.
-export async function linkedinAuthAvailable(user: Pick<User, "id"> | null) {
-  return Boolean(user && (await hasFeatureAccess(user.id, "linkedin")));
-}
-
-export async function requireLinkedInAccess(event: RequestEvent) {
-  if (!(await linkedinAuthAvailable(event.locals.user)))
-    error(404, "Not found");
-}
-
-// Routes own the experiment gate; these operations also implement the guest
-// flows for release, while retaining all browser/session/invitation checks.
 export async function startLinkedInAuth(event: RequestEvent): Promise<never> {
   if (!linkedinAuthConfigured())
     error(503, "LinkedIn sign-in isn’t configured yet.");
@@ -294,7 +273,7 @@ export async function disconnectLinkedIn(userId: string) {
         [userId],
       )
     ).rows[0];
-    // Password is always usable even if the LinkedIn trial is subsequently revoked.
+    // Disconnecting must leave a usable sign-in method.
     if (!account.has_password)
       error(
         400,

@@ -6,7 +6,7 @@
   import { enhance } from "$app/forms";
   import { getContext, tick } from "svelte";
   import type { Writable } from "svelte/store";
-  import { beforeNavigate } from "$app/navigation";
+  import { beforeNavigate, afterNavigate } from "$app/navigation";
   import PostPreview from "$lib/components/PostPreview.svelte";
   import FeedbackList from "$lib/components/FeedbackList.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -54,12 +54,17 @@
   );
   beforeNavigate(({ cancel, willUnload }) => {
     if (
-      data.reviewer &&
       !willUnload &&
       (body || replyBody) &&
       !confirm("Leave without sending your feedback?")
     )
       cancel();
+  });
+  afterNavigate(() => {
+    body = replyBody = postId = quote = mediaId = "";
+    parent = null;
+    feedbackRevision = replyRevision = mediaTime = null;
+    sent = false;
   });
   function focusPost(id: string, selected: string) {
     postId = id;
@@ -159,6 +164,21 @@
     {/if}
   </header>
   <section class="editor-posts" aria-label="Post for review">
+    {#if data.relatedVersion}
+      <nav class="version-links" aria-label="Post versions">
+        {#each ["x", "linkedin"] as platform}
+          {@const current = platform === (data.content.platform ?? "x")}
+          <Button
+            variant={current ? "secondary" : "ghost"}
+            aria-current={current ? "page" : undefined}
+            href={`/r/${current ? data.token : data.relatedVersion.token}`}
+          >
+            <Icon name={platform === "x" ? "x" : "linkedin"} size={16} />
+            {platform === "x" ? "X" : "LinkedIn"}
+          </Button>
+        {/each}
+      </nav>
+    {/if}
     <PostPreview
       content={data.content}
       media={data.media}
@@ -320,6 +340,13 @@
 </main>
 
 <style>
+  .version-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
   .discussion-heading {
     font-size: 16px;
     display: flex;

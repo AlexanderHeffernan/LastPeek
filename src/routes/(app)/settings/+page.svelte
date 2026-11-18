@@ -591,90 +591,86 @@
           </form>
         {/if}
       </div>
-      {#if data.linkedinEnabled}
-        <div class="connection-row">
-          <span class="connection-provider"
-            ><Icon name="linkedin" size={24} /></span
-          >
-          <div class="connection-identity">
-            <strong>LinkedIn</strong>
-            <span class="small muted">{data.linkedinName ?? "Coming soon"}</span
-            >
-            {#if data.linkedinName}<span class="connection-status small"
-                ><Icon name="check" size={16} />Connected for sign-in</span
-              >{/if}
-          </div>
-          {#if data.linkedinName}
-            <Popover.Root bind:open={linkedinActionsOpen}>
-              <Popover.Trigger>
-                {#snippet child({ props })}
-                  <Button
-                    {...props}
-                    variant="ghost"
-                    class="icon-button"
-                    aria-label="LinkedIn account actions"
-                    aria-busy={linkedinBusy}
-                    ><Icon name="more" size={24} /></Button
-                  >
-                {/snippet}
-              </Popover.Trigger>
-              <Popover.Content
-                class="share-menu"
-                align="end"
-                sideOffset={8}
-                aria-label="LinkedIn account actions"
-              >
-                <form
-                  method="POST"
-                  action="?/disconnectLinkedIn"
-                  use:enhance={() => {
-                    linkedinBusy = true;
-                    linkedinError = "";
-                    return async ({ result, update }) => {
-                      try {
-                        if (result.type === "error")
-                          linkedinError = result.error.message;
-                        else if (result.type === "failure")
-                          linkedinError = String(
-                            result.data?.linkedinError ||
-                              "Couldn’t disconnect LinkedIn. Try again.",
-                          );
-                        else {
-                          await update({ navigate: false });
-                          linkedinActionsOpen = false;
-                        }
-                      } finally {
-                        linkedinBusy = false;
-                      }
-                    };
-                  }}
-                >
-                  <Button
-                    variant="ghost"
-                    class="danger"
-                    type="submit"
-                    disabled={!data.hasPassword || linkedinBusy}
-                    ><Icon name="link" size={16} />{linkedinBusy
-                      ? "Disconnecting…"
-                      : "Disconnect LinkedIn"}</Button
-                  >
-                </form>
-                {#if !data.hasPassword}<p class="small muted">
-                    Set a password in <a href="/settings?tab=security"
-                      >Security</a
-                    > before disconnecting LinkedIn.
-                  </p>{/if}
-                {#if linkedinError || form?.linkedinError}<p
-                    class="action-error"
-                    role="alert"
-                  >
-                    {linkedinError || form?.linkedinError}
-                  </p>{/if}
-              </Popover.Content>
-            </Popover.Root>
-          {/if}
+      <div class="connection-row">
+        <span class="connection-provider"
+          ><Icon name="linkedin" size={24} /></span
+        >
+        <div class="connection-identity">
+          <strong>LinkedIn</strong>
+          <span class="small muted">{data.linkedinName ?? "Coming soon"}</span>
+          {#if data.linkedinName}<span class="connection-status small"
+              ><Icon name="check" size={16} />Connected for sign-in</span
+            >{/if}
         </div>
-      {/if}
+        {#if data.linkedinName}
+          <Popover.Root bind:open={linkedinActionsOpen}>
+            <Popover.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="ghost"
+                  class="icon-button"
+                  aria-label="LinkedIn account actions"
+                  aria-busy={linkedinBusy}
+                  ><Icon name="more" size={24} /></Button
+                >
+              {/snippet}
+            </Popover.Trigger>
+            <Popover.Content
+              class="share-menu"
+              align="end"
+              sideOffset={8}
+              aria-label="LinkedIn account actions"
+            >
+              <form
+                method="POST"
+                action="?/disconnectLinkedIn"
+                use:enhance={() => {
+                  linkedinBusy = true;
+                  linkedinError = "";
+                  return async ({ result, update }) => {
+                    try {
+                      if (result.type === "error")
+                        linkedinError = result.error.message;
+                      else if (result.type === "failure")
+                        linkedinError = String(
+                          result.data?.linkedinError ||
+                            "Couldn’t disconnect LinkedIn. Try again.",
+                        );
+                      else {
+                        await update({ navigate: false });
+                        linkedinActionsOpen = false;
+                      }
+                    } finally {
+                      linkedinBusy = false;
+                    }
+                  };
+                }}
+              >
+                <Button
+                  variant="ghost"
+                  class="danger"
+                  type="submit"
+                  disabled={!data.hasPassword || linkedinBusy}
+                  ><Icon name="link" size={16} />{linkedinBusy
+                    ? "Disconnecting…"
+                    : "Disconnect LinkedIn"}</Button
+                >
+              </form>
+              {#if !data.hasPassword}<p class="small muted">
+                  Set a password in <a href="/settings?tab=security">Security</a
+                  > before disconnecting LinkedIn.
+                </p>{/if}
+              {#if linkedinError || form?.linkedinError}<p
+                  class="action-error"
+                  role="alert"
+                >
+                  {linkedinError || form?.linkedinError}
+                </p>{/if}
+            </Popover.Content>
+          </Popover.Root>
+        {/if}
+      </div>
     </section>
     {#if data.xProfile && data.xImportPending}
       <dialog

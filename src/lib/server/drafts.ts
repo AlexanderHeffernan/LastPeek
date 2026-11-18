@@ -14,24 +14,6 @@ import { token } from "./auth";
 import { claimDraft, isPro } from "./plans";
 import { sourcePost } from "./x-post";
 import { X_SOURCE_UNAVAILABLE } from "../x-post";
-import { hasFeatureAccess } from "./features";
-
-export async function requireDraftAccess(
-  userId: string,
-  content: Content,
-  client: Pool | PoolClient = db,
-) {
-  if (
-    content.platform === "linkedin" &&
-    !(
-      await client.query(
-        "SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
-        [userId],
-      )
-    ).rowCount
-  )
-    error(404, "Draft not found.");
-}
 
 export async function createDraft(
   id: string,
@@ -42,9 +24,6 @@ export async function createDraft(
   const parsed = contentSchema.safeParse(content);
   if (!parsed.success) error(400, parsed.error.issues[0].message);
   content = parsed.data;
-  await requireDraftAccess(userId, content);
-  if (relatedDraftId && !(await hasFeatureAccess(userId, "linkedin")))
-    error(404, "Draft not found.");
   await transaction(async (client) => {
     if (relatedDraftId) {
       const related = await ownedDraft(relatedDraftId, userId, client);
@@ -85,7 +64,6 @@ export async function createDraft(
 }
 
 export async function relatedDraft(id: string, userId: string) {
-  if (!(await hasFeatureAccess(userId, "linkedin"))) return null;
   return (
     (
       await db.query<{ id: string; platform: "x" | "linkedin" }>(
@@ -134,7 +112,6 @@ export async function sharedDraft(shareToken: string, userId?: string) {
   ).rows[0];
   if (!row)
     error(404, "This review link is unavailable. It may have been revoked.");
-  await requireDraftAccess(row.owner_id, row.content);
   return {
     id: row.id as string,
     owner_id: row.owner_id as string,
@@ -156,7 +133,6 @@ export async function ownedDraft(
     [id, ownerId],
   );
   if (!result.rows[0]) error(404, "Draft not found.");
-  await requireDraftAccess(ownerId, result.rows[0].content, client);
   return result.rows[0];
 }
 export async function validateContent(
@@ -219,7 +195,6 @@ export async function saveDraft(
       if (!/^[0-9a-f-]{36}$/i.test(id)) error(400, "Invalid draft ID.");
       const parsed = contentSchema.safeParse(raw);
       if (!parsed.success) error(400, parsed.error.issues[0].message);
-      await requireDraftAccess(userId, parsed.data, client);
       if (parsed.data.source)
         error(400, "Create replies and quotes from an X post link.");
       await claimDraft(client, userId);
@@ -297,25 +272,86 @@ export async function snapshotDraft(client: PoolClient, draft: Draft) {
   }
   return number;
 }
+
+// Pair-wide actions lock in stable order, including when opened from opposite versions.
+export async function lockDraftVersions(
+  client: PoolClient,
+  id: string,
+  userId: string,
+) {
+  await ownedDraft(id, userId, client);
+  const result = await client.query<Draft>(
+    `SELECT d.* FROM drafts d WHERE d.owner_id=$2 AND (d.id=$1 OR d.id IN (
+      SELECT CASE WHEN x_draft_id=$1 THEN linkedin_draft_id ELSE x_draft_id END
+      FROM draft_versions WHERE x_draft_id=$1 OR linkedin_draft_id=$1
+    )) ORDER BY d.id FOR UPDATE`,
+    [id, userId],
+  );
+  return result.rows;
+}
+
+export async function revokeSharing(
+  id: string,
+  userId: string,
+  audience: "all" | "link" | "friends",
+) {
+  return transaction(async (client) => {
+    const drafts = await lockDraftVersions(client, id, userId);
+    const ids = drafts.map((draft) => draft.id);
+    const changed = await client.query(
+      `UPDATE drafts SET
+       share_token=CASE WHEN $3 IN ('all','link') THEN NULL ELSE share_token END,
+       friend_token=CASE WHEN $3 IN ('all','friends') THEN NULL ELSE friend_token END
+       WHERE id=ANY($1::uuid[]) AND owner_id=$2
+       RETURNING id,share_token IS NOT NULL OR friend_token IS NOT NULL AS shared`,
+      [ids, userId, audience],
+    );
+    if (audience !== "link")
+      await client.query(
+        "DELETE FROM friend_reviews WHERE draft_id=ANY($1::uuid[])",
+        [ids],
+      );
+    return { shared: changed.rows.find((draft) => draft.id === id)!.shared };
+  });
+}
+
+export async function removeRecipient(
+  id: string,
+  userId: string,
+  recipientId: string,
+) {
+  await transaction(async (client) => {
+    const drafts = await lockDraftVersions(client, id, userId);
+    await client.query(
+      "DELETE FROM friend_reviews WHERE draft_id=ANY($1::uuid[]) AND recipient_id=$2",
+      [drafts.map((draft) => draft.id), recipientId],
+    );
+  });
+}
+
 export async function publishDraft(
   id: string,
   userId: string,
   version: number,
 ) {
   return transaction(async (client) => {
-    await client.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [id]);
-    const draft = await ownedDraft(id, userId, client);
+    const drafts = await lockDraftVersions(client, id, userId);
+    const draft = drafts.find((draft) => draft.id === id)!;
     if (draft.edit_version !== version)
       error(409, "The draft changed. Save your latest edits before sharing.");
     if (!hasContent(draft.content))
       error(400, "Write a post or add media before sharing.");
-    const number = await snapshotDraft(client, draft);
-    const shareToken = draft.share_token ?? token();
-    await client.query(
-      "UPDATE drafts SET share_token=$1,shared_revision=$2 WHERE id=$3",
-      [shareToken, number, id],
-    );
-    return { token: shareToken, revision: number };
+    let result!: { token: string; revision: number };
+    for (const item of drafts.filter((item) => hasContent(item.content))) {
+      const number = await snapshotDraft(client, item);
+      const shareToken = item.share_token ?? token();
+      await client.query(
+        "UPDATE drafts SET share_token=$1,shared_revision=$2 WHERE id=$3",
+        [shareToken, number, item.id],
+      );
+      if (item.id === id) result = { token: shareToken, revision: number };
+    }
+    return result;
   });
 }
 export async function shareWithFriend(
@@ -325,8 +361,8 @@ export async function shareWithFriend(
   recipientId: string,
 ) {
   return transaction(async (client) => {
-    await client.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [id]);
-    const draft = await ownedDraft(id, userId, client);
+    const drafts = await lockDraftVersions(client, id, userId);
+    const draft = drafts.find((draft) => draft.id === id)!;
     if (draft.edit_version !== version)
       error(409, "Save your latest edits before sharing.");
     if (!hasContent(draft.content))
@@ -339,25 +375,31 @@ export async function shareWithFriend(
       )
     ).rows[0];
     if (!friendship) error(400, "Choose an accepted friend.");
-    const revision = await snapshotDraft(client, draft);
-    const key = draft.friend_token ?? token();
-    await client.query(
-      "UPDATE drafts SET friend_token=$1,shared_revision=$2 WHERE id=$3",
-      [key, revision, id],
-    );
-    const added = await client.query(
-      `INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)
-      ON CONFLICT DO NOTHING RETURNING draft_id`,
-      [id, recipientId, friendship.id],
-    );
-    if (added.rowCount)
+    let result!: { token: string; revision: number };
+    let added = false;
+    for (const item of drafts.filter((item) => hasContent(item.content))) {
+      const revision = await snapshotDraft(client, item);
+      const key = item.friend_token ?? token();
+      await client.query(
+        "UPDATE drafts SET friend_token=$1,shared_revision=$2 WHERE id=$3",
+        [key, revision, item.id],
+      );
+      const invitation = await client.query(
+        `INSERT INTO friend_reviews(draft_id,recipient_id,friendship_id) VALUES($1,$2,$3)
+        ON CONFLICT DO NOTHING RETURNING draft_id`,
+        [item.id, recipientId, friendship.id],
+      );
+      added ||= Boolean(invitation.rowCount);
+      if (item.id === id) result = { token: key, revision };
+    }
+    if (added)
       await notify(client, {
         userId: recipientId,
         actorId: userId,
         kind: "shared_draft",
         draftId: id,
       });
-    return { token: key, revision };
+    return result;
   });
 }
 export async function draftMedia(id: string): Promise<Media[]> {

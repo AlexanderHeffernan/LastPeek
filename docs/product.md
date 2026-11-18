@@ -25,31 +25,34 @@ LastPeek is a focused website for preparing social posts and getting feedback fr
 - Settings → Personalisation offers Auto, Dark and Light. The preference belongs to the account; Auto follows the current device's appearance. Signed-out and offline pages retain the last browser choice. The composer and preview keep X-like typography, spacing, thread connectors, link treatment, weighted counts and media layouts in both appearances. Keep LastPeek's identity in the surrounding interface. Rendering can differ across devices; document limitations rather than adding blanket disclaimers to the preview. Link cards, polls, Premium formatting and automatic video transcoding are outside this MVP.
 - The entire application, accounts, database, media and maintenance run on one host. No required third-party application service. Portable container deployment; the official invite-only service runs on a Raspberry Pi, with optional Cloudflare Tunnel ingress.
 
-## LinkedIn trial
+## LinkedIn
 
-The `linkedin` account grant enables LinkedIn drafts without any provider credentials.
+LinkedIn drafts are available to every author without provider credentials or a feature grant.
 Authors choose New LinkedIn post from New post options; existing drafts remain X drafts.
 A LinkedIn draft has one post, no X reply/quote or X handle, and a plain 3,000-character
 counter rather than X's weighted count. Over-limit writing remains saveable for editing.
 The same private media, review links, feedback and immutable revisions apply. Guests can
-review an enabled author's shared LinkedIn draft without a LinkedIn account or trial grant.
-Revoking the author's trial hides their LinkedIn drafts and blocks draft/review operations.
+review a shared LinkedIn draft without a LinkedIn account.
 Authors copy text and download attachments for manual posting, then explicitly Mark as posted.
 LinkedIn completion performs no X lookup or paid API operation; an optional pasted LinkedIn
 post link gives authors and reviewers View on LinkedIn. Copying alone never marks a post as posted.
 
-An enabled author can add the other platform's version from a saved draft. The website starts
+An author can add the other platform's version from a saved draft. The website starts
 it blank; an agent can supply adapted wording through MCP. The two drafts have independent
-text, media, review links, comments and posted states, with owner-only navigation between them.
+text, media and comments. Creating or copying a review link shares both nonempty versions;
+inviting a friend grants that friend both nonempty versions. Reviewers switch platforms at the
+top of the post. Removing a link or invitation applies to both versions for that audience.
+Existing links expose the other version only when it is also shared for the same audience.
+Manual Mark both as posted completes both versions atomically; actual X publishing completes
+only X. Optional published URLs remain platform-specific.
 Either version can also stand alone. Deleting one keeps the other; both count toward draft capacity.
 
-LinkedIn sign-in uses optional server credentials. Enabled authors can link/unlink a LinkedIn sign-in identity in
+LinkedIn sign-in uses optional server credentials. Authors can unlink a LinkedIn sign-in identity in
 Settings → Connections alongside X without changing their LastPeek profile or granting posting access.
 New connections are marked Coming soon in the interface, with no Connect action while
 developer-app setup is deferred. Existing linked identities can still be disconnected.
-A local password is required before unlinking. Guests have no grant, so LinkedIn sign-in
-and invitation sign-up are implemented but remain hidden and server-blocked until the
-experiment gate is removed. Sign-up continues to require an unused, email-bound invitation;
+A local password is required before unlinking. LinkedIn sign-in and invitation sign-up
+appear when provider credentials are configured. Sign-up still requires an unused, email-bound invitation;
 matching provider emails never merge or claim existing accounts. X and local auth are unchanged.
 
 ## Guest review access

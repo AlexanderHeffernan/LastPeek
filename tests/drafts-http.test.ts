@@ -13,7 +13,7 @@ import { blankContent } from "../src/lib/contracts";
 const origin = process.env.TEST_BASE_URL!;
 after(() => db.end());
 
-test("LinkedIn drafts require trial access, preserve review history and never use X matching", async (t) => {
+test("LinkedIn drafts preserve review history and never use X matching without requiring a grant", async (t) => {
   const owner = randomUUID(),
     session = token(),
     draft = randomUUID();
@@ -41,21 +41,14 @@ test("LinkedIn drafts require trial access, preserve review history and never us
   const endpoint = `${origin}/api/drafts/${draft}`;
   const action = (data: object) => client.post(endpoint, { data });
   assert.equal(
-    (await action({ action: "save", content, version: 0 })).status(),
-    404,
-  );
-  assert.equal(
     (
       await client.post(`${origin}/?/create`, {
+        headers: { Accept: "text/html" },
         form: { platform: "linkedin" },
         maxRedirects: 0,
       })
     ).status(),
-    404,
-  );
-  await db.query(
-    "INSERT INTO feature_grants(user_id,feature) VALUES($1,'linkedin')",
-    [owner],
+    303,
   );
   assert.equal(
     (await action({ action: "save", content, version: 0 })).status(),
@@ -188,7 +181,7 @@ test("LinkedIn drafts require trial access, preserve review history and never us
         [owner],
       )
     ).rows[0].n,
-    2,
+    3,
   );
   const otherContent = blankContent("LinkedIn author");
   otherContent.posts[0].text = "A much shorter X version.";
@@ -205,17 +198,82 @@ test("LinkedIn drafts require trial access, preserve review history and never us
       .content.posts[0].text,
     content.posts[0].text,
   );
-  await db.query(
-    "DELETE FROM feature_grants WHERE user_id=$1 AND feature='linkedin'",
-    [owner],
+  const pairShare = await action({ action: "publish", version: 2 });
+  assert.equal(pairShare.status(), 200);
+  const linked = (
+    await db.query("SELECT share_token FROM drafts WHERE id=$1", [pairedId])
+  ).rows[0].share_token;
+  const review = await client.get(`${origin}/r/${shared.token}`, {
+    headers: { Cookie: "" },
+  });
+  assert.equal(review.status(), 200);
+  assert.ok((await review.text()).includes(`/r/${linked}`));
+  assert.equal(
+    (
+      await client.get(`${origin}/r/${linked}`, { headers: { Cookie: "" } })
+    ).status(),
+    200,
   );
+  // A stale completion must not mark either version. One valid action marks both.
+  await db.query("UPDATE drafts SET posted_at=NULL WHERE id=ANY($1::uuid[])", [
+    [draft, pairedId],
+  ]);
+  assert.equal(
+    (
+      await action({ action: "complete", completed: true, version: 1 })
+    ).status(),
+    409,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT id FROM drafts WHERE id=ANY($1::uuid[]) AND posted_at IS NOT NULL",
+        [[draft, pairedId]],
+      )
+    ).rowCount,
+    0,
+  );
+  assert.equal(
+    (
+      await action({ action: "complete", completed: true, version: 2 })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT id FROM drafts WHERE id=ANY($1::uuid[]) AND posted_at IS NOT NULL",
+        [[draft, pairedId]],
+      )
+    ).rowCount,
+    2,
+  );
+  // Revocation from either version closes both bearer URLs.
+  assert.equal(
+    (
+      await client.post(`${origin}/api/drafts/${pairedId}`, {
+        data: { action: "revoke" },
+      })
+    ).status(),
+    200,
+  );
+  for (const key of [shared.token, linked])
+    assert.equal(
+      (
+        await client.get(`${origin}/r/${key}`, { headers: { Cookie: "" } })
+      ).status(),
+      404,
+    );
+  const reshared = await (
+    await action({ action: "publish", version: 2 })
+  ).json();
   assert.equal(
     (
       await client.post(`${origin}/api/drafts/${pairedId}`, {
         data: { action: "create-version" },
       })
     ).status(),
-    404,
+    409,
   );
   assert.equal(
     (await client.get(`${origin}/drafts/${pairedId}`)).status(),
@@ -233,20 +291,155 @@ test("LinkedIn drafts require trial access, preserve review history and never us
     (await db.query("SELECT 1 FROM drafts WHERE id=$1", [draft])).rowCount,
     1,
   );
-  assert.equal((await client.get(`${origin}/drafts/${draft}`)).status(), 404);
+  assert.equal((await client.get(`${origin}/drafts/${draft}`)).status(), 200);
   assert.equal(
     (
       await action({ action: "complete", completed: true, version: 2 })
     ).status(),
-    404,
+    200,
   );
   assert.equal(
     (
-      await client.get(`${origin}/r/${shared.token}`, {
+      await client.get(`${origin}/r/${reshared.token}`, {
         headers: { Cookie: "" },
       })
     ).status(),
+    200,
+  );
+});
+
+test("paired friend reviews preserve audience privacy and revoke both versions", async (t) => {
+  const owner = randomUUID(),
+    friend = randomUUID(),
+    stranger = randomUUID();
+  const ids = [owner, friend, stranger];
+  const sessions = ids.map(() => token());
+  const clients = await Promise.all(
+    sessions.map((session) =>
+      request.newContext({
+        extraHTTPHeaders: {
+          Cookie: `lastpeek_session=${session}`,
+          Origin: origin,
+        },
+      }),
+    ),
+  );
+  t.after(async () => {
+    await Promise.all(clients.map((client) => client.dispose()));
+    await db.query("DELETE FROM drafts WHERE owner_id=ANY($1::uuid[])", [ids]);
+    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [ids]);
+  });
+  for (const [index, id] of ids.entries()) {
+    await db.query(
+      "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Pair author','unused')",
+      [id, `${id}@example.test`],
+    );
+    await db.query(
+      "INSERT INTO sessions(hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')",
+      [hash(sessions[index]), id],
+    );
+  }
+  await db.query(
+    "INSERT INTO friendships(id,requester_id,recipient_id,accepted_at) VALUES($1,$2,$3,now())",
+    [randomUUID(), owner, friend],
+  );
+  const x = randomUUID();
+  const content = blankContent("Pair author");
+  content.posts[0].text = "Short X version";
+  const action = (id: string, data: object) =>
+    clients[0].post(`${origin}/api/drafts/${id}`, { data });
+  assert.equal(
+    (await action(x, { action: "save", content, version: 0 })).status(),
+    200,
+  );
+  const li = (await (await action(x, { action: "create-version" })).json()).id;
+  const linkedin = { ...blankContent("Pair author"), platform: "linkedin" };
+  linkedin.posts[0].text = "Longer LinkedIn version for colleagues";
+  assert.equal(
+    (
+      await action(li, { action: "save", content: linkedin, version: 1 })
+    ).status(),
+    200,
+  );
+  const publicLink = await (
+    await action(x, { action: "publish", version: 1 })
+  ).json();
+  const invite = await (
+    await action(li, { action: "friend", version: 2, userId: friend })
+  ).json();
+  const pair = (
+    await db.query(
+      "SELECT id,share_token,friend_token FROM drafts WHERE id=ANY($1::uuid[])",
+      [[x, li]],
+    )
+  ).rows;
+  const xRow = pair.find((row) => row.id === x)!;
+  const liRow = pair.find((row) => row.id === li)!;
+  assert.equal(
+    (await clients[2].get(`${origin}/r/${invite.token}`)).status(),
     404,
+  );
+  const privatePage = await clients[1].get(`${origin}/r/${invite.token}`);
+  assert.equal(privatePage.status(), 200);
+  const html = await privatePage.text();
+  assert.ok(html.includes(`/r/${xRow.friend_token}`));
+  assert.ok(!html.includes(xRow.share_token));
+  assert.ok(!html.includes(liRow.share_token));
+  // Removing just one legacy invitation must not expose its counterpart through the other.
+  await db.query(
+    "DELETE FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
+    [x, friend],
+  );
+  assert.ok(
+    !(
+      await (await clients[1].get(`${origin}/r/${invite.token}`)).text()
+    ).includes(`/r/${xRow.friend_token}`),
+  );
+  assert.equal(
+    (
+      await action(li, { action: "friend", version: 2, userId: friend })
+    ).status(),
+    200,
+  );
+  assert.equal((await action(x, { action: "revoke" })).status(), 200);
+  for (const row of pair) {
+    assert.equal(
+      (await clients[1].get(`${origin}/r/${row.friend_token}`)).status(),
+      200,
+    );
+    assert.equal(
+      (await clients[1].get(`${origin}/r/${row.share_token}`)).status(),
+      404,
+    );
+  }
+  assert.equal(
+    (await action(x, { action: "unshare-friend", userId: friend })).status(),
+    200,
+  );
+  for (const row of pair)
+    assert.equal(
+      (await clients[1].get(`${origin}/r/${row.friend_token}`)).status(),
+      404,
+    );
+  assert.equal(
+    (await clients[0].get(`${origin}/r/${publicLink.token}`)).status(),
+    404,
+  );
+  // Invoking completion from X also completes LinkedIn, without changing either text.
+  assert.equal(
+    (
+      await action(x, { action: "complete", completed: true, version: 1 })
+    ).status(),
+    200,
+  );
+  assert.equal(
+    (
+      await db.query(
+        "SELECT id FROM drafts WHERE id=ANY($1::uuid[]) AND posted_at IS NOT NULL",
+        [[x, li]],
+      )
+    ).rowCount,
+    2,
   );
 });
 

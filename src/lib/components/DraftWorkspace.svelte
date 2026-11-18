@@ -161,7 +161,7 @@
   location = "primary",
 )}
   <div class="share-actions">
-    {#if location !== "floating" || !(data.xSourcesEnabled || data.linkedinEnabled)}
+    {#if location !== "floating"}
       <form
         method="POST"
         action="?/create"
@@ -183,13 +183,13 @@
             size={location === "floating" ? 28 : 16}
           />{#if location !== "floating"}{busy
               ? "Opening…"
-              : data.linkedinEnabled && label === "New post"
+              : label === "New post"
                 ? "New X post"
                 : label}{/if}</Button
         >
       </form>
     {/if}
-    {#if options && (data.xSourcesEnabled || data.linkedinEnabled)}<Popover.Root
+    {#if options}<Popover.Root
         open={createOpen === location}
         onOpenChange={(open) => openCreation(open, location)}
       >
@@ -219,25 +219,23 @@
           role="dialog"
           aria-label="New post actions"
         >
-          {#if data.linkedinEnabled}
-            <form
-              method="POST"
-              action="?/create"
-              use:enhance={() => {
-                busy = true;
-                return async ({ update }) => {
-                  await update();
-                  busy = false;
-                  createOpen = null;
-                };
-              }}
+          <form
+            method="POST"
+            action="?/create"
+            use:enhance={() => {
+              busy = true;
+              return async ({ update }) => {
+                await update();
+                busy = false;
+                createOpen = null;
+              };
+            }}
+          >
+            <input type="hidden" name="platform" value="linkedin" />
+            <Button type="submit" variant="ghost" disabled={busy}
+              ><Icon name="linkedin" size={18} />New LinkedIn post</Button
             >
-              <input type="hidden" name="platform" value="linkedin" />
-              <Button type="submit" variant="ghost" disabled={busy}
-                ><Icon name="linkedin" size={18} />New LinkedIn post</Button
-              >
-            </form>
-          {/if}
+          </form>
           {#if data.xSourcesEnabled}
             {#if clipboardURL}
               <div class="clipboard-source">
@@ -318,9 +316,7 @@
                 }}
               >
                 <Button type="submit" variant="ghost" disabled={busy}
-                  ><Icon name="x" size={16} />{data.linkedinEnabled
-                    ? "New X post"
-                    : "New post"}</Button
+                  ><Icon name="x" size={16} />New X post</Button
                 >
               </form>
             {/if}
@@ -434,6 +430,22 @@
                     </p>{/if}
                 </a>
                 <div class="draft-meta">
+                  <span
+                    class="platform-label"
+                    aria-label={draft.content.platform === "linkedin"
+                      ? "LinkedIn post"
+                      : "X post"}
+                    title={draft.content.platform === "linkedin"
+                      ? "LinkedIn post"
+                      : "X post"}
+                  >
+                    <Icon
+                      name={draft.content.platform === "linkedin"
+                        ? "linkedin"
+                        : "x"}
+                      size={18}
+                    />
+                  </span>
                   <Button
                     variant="ghost"
                     class="draft-stat stat-thread"
@@ -903,6 +915,11 @@
     gap: 8px;
     margin: 0 16px 0 68px;
     padding-bottom: 8px;
+  }
+  .platform-label {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted-foreground);
   }
   .draft-meta :global(.draft-stat) {
     --stat-color: var(--x-blue);

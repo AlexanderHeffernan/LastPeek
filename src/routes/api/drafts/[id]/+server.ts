@@ -6,6 +6,8 @@ import {
   publishDraft,
   shareWithFriend,
   createDraft,
+  revokeSharing,
+  removeRecipient,
 } from "$lib/server/drafts";
 import { blankContent } from "$lib/contracts";
 import { db, transaction } from "$lib/server/db";
@@ -71,10 +73,7 @@ export const POST: RequestHandler = async (event) => {
     return json(await publishDraft(id, user.id, body.version));
   }
   if (body.action === "revoke") {
-    await db.query(
-      "UPDATE drafts SET share_token=NULL WHERE id=$1 AND owner_id=$2",
-      [id, user.id],
-    );
+    await revokeSharing(id, user.id, "link");
     return json({ ok: true });
   }
   if (body.action === "friend") {
@@ -92,10 +91,7 @@ export const POST: RequestHandler = async (event) => {
       !/^[0-9a-f-]{36}$/i.test(body.userId)
     )
       error(400, "Choose a friend.");
-    await db.query(
-      "DELETE FROM friend_reviews WHERE draft_id=$1 AND recipient_id=$2",
-      [id, body.userId],
-    );
+    await removeRecipient(id, user.id, body.userId);
     return json({ ok: true });
   }
   if (body.action === "resolve") {

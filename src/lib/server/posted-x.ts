@@ -4,7 +4,7 @@ import { z } from "zod";
 import { xPostURLSchema, linkedinPostURLSchema } from "../contracts";
 import { db, transaction } from "./db";
 import { reserveXBudget } from "./x-budget";
-import { ownedDraft } from "./drafts";
+import { ownedDraft, lockDraftVersions } from "./drafts";
 import { isPro, reserveAPI } from "./plans";
 import { finishXRead, xPricingBasis, xReadRates } from "./x-usage";
 
@@ -67,10 +67,13 @@ export async function markPosted(
   version: number,
 ) {
   const claim = await transaction(async (client) => {
-    const draft = await ownedDraft(draftId, userId, client);
+    const drafts = await lockDraftVersions(client, draftId, userId);
+    const draft = drafts.find((draft) => draft.id === draftId)!;
+    if (draft.edit_version !== version)
+      error(409, "This draft changed. Reload before marking it as posted.");
     const updated = await client.query(
-      "UPDATE drafts SET posted_at=COALESCE(posted_at,now()) WHERE id=$1 AND owner_id=$2 AND edit_version=$3 RETURNING posted_at",
-      [draftId, userId, version],
+      "UPDATE drafts SET posted_at=COALESCE(posted_at,now()) WHERE id=ANY($1::uuid[]) AND owner_id=$2 RETURNING id,posted_at",
+      [drafts.map((draft) => draft.id), userId],
     );
     if (!updated.rowCount)
       error(409, "This draft changed. Reload before marking it as posted.");
@@ -89,7 +92,11 @@ export async function markPosted(
       [draftId, version],
     );
     return inserted.rowCount
-      ? { content: draft.content, postedAt: updated.rows[0].posted_at as Date }
+      ? {
+          content: draft.content,
+          postedAt: updated.rows.find((draft) => draft.id === draftId)!
+            .posted_at as Date,
+        }
       : null;
   });
   if (!claim) return;

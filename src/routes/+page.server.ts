@@ -1,7 +1,6 @@
 import { fail, redirect, isHttpError } from "@sveltejs/kit";
 import { db, transaction } from "$lib/server/db";
 import { createDraft } from "$lib/server/drafts";
-import { hasFeatureAccess } from "$lib/server/features";
 import { requireUser } from "$lib/server/auth";
 import { landing } from "$lib/server/landing";
 import { sourcePost } from "$lib/server/x-post";
@@ -39,7 +38,6 @@ async function home(user: User) {
     (d.share_token IS NOT NULL OR EXISTS (SELECT 1 FROM friend_reviews fr WHERE fr.draft_id=d.id)) AS shared,
     (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND c.deleted_at IS NULL) AS feedback
     FROM drafts d WHERE owner_id=$1
-    AND (COALESCE(d.content->>'platform','x')!='linkedin' OR EXISTS(SELECT 1 FROM feature_grants WHERE user_id=$1 AND feature='linkedin'))
     ORDER BY updated_at DESC`,
     [user.id],
   );
@@ -62,7 +60,6 @@ async function home(user: User) {
      JOIN drafts d ON d.id=fr.draft_id AND d.friend_token IS NOT NULL
      JOIN revisions r ON r.draft_id=d.id AND r.number=d.shared_revision
      WHERE fr.recipient_id=$1
-     AND (COALESCE(d.content->>'platform','x')!='linkedin' OR EXISTS(SELECT 1 FROM feature_grants WHERE user_id=d.owner_id AND feature='linkedin'))
      ORDER BY fr.created_at DESC`,
     [user.id],
   );
@@ -101,7 +98,6 @@ async function home(user: User) {
       created_at: c.created_at.toISOString(),
     })),
     xSourcesEnabled: await isPro(user.id),
-    linkedinEnabled: await hasFeatureAccess(user.id, "linkedin"),
     media: media.rows,
     reviews: reviews.rows.map((r) => ({
       ...r,
@@ -138,11 +134,6 @@ export const actions = {
     const platform = form.get("platform") ?? "x";
     if (platform !== "x" && platform !== "linkedin")
       return fail(400, { error: "Choose X or LinkedIn.", kind: null });
-    if (
-      platform === "linkedin" &&
-      !(await hasFeatureAccess(user.id, "linkedin"))
-    )
-      return fail(404, { error: "Not found.", kind: null });
     const content = blankContent(user.name, user.handle, user.avatar_id);
     if (platform === "linkedin") content.platform = "linkedin";
     if (kind !== null) {

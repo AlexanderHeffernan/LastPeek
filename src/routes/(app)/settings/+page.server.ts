@@ -15,11 +15,7 @@ import {
 } from "$lib/server/browser-sessions";
 import { planUsage } from "$lib/server/plans";
 import { hasFeatureAccess } from "$lib/server/features";
-import {
-  linkedinAuthAvailable,
-  requireLinkedInAccess,
-  disconnectLinkedIn,
-} from "$lib/server/linkedin-auth";
+import { disconnectLinkedIn } from "$lib/server/linkedin-auth";
 import {
   notificationPreferences,
   pushDevices,
@@ -56,17 +52,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     )
   ).rows[0].bytes;
   const usage = await planUsage(user.id);
-  const linkedinEnabled = await linkedinAuthAvailable(user);
-  const linkedin = linkedinEnabled
-    ? (
-        await db.query<{ name: string }>(
-          "SELECT name FROM linkedin_accounts WHERE user_id=$1",
-          [user.id],
-        )
-      ).rows[0]
-    : null;
+  const linkedin = (
+    await db.query<{ name: string }>(
+      "SELECT name FROM linkedin_accounts WHERE user_id=$1",
+      [user.id],
+    )
+  ).rows[0];
   return {
-    linkedinEnabled,
     linkedinName: linkedin?.name ?? null,
     browserSessions: await browserSessions(user.id, locals.pushSession!),
     agentsEnabled: await hasFeatureAccess(user.id, "agents"),
@@ -95,7 +87,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 export const actions: Actions = {
   disconnectLinkedIn: async (event) => {
     sameOrigin(event);
-    await requireLinkedInAccess(event);
     try {
       await disconnectLinkedIn(requireUser(event.locals).id);
     } catch (cause) {
