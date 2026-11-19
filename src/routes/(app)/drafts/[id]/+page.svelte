@@ -672,7 +672,7 @@
       aria-label="Back to drafts"><Icon name="back" size={20} /></Button
     >
     <h1>{postKind}</h1>
-    {#if version > 0}<ReviewPresence draftId={data.draft.id} />{/if}
+    {#if version > 0}<ReviewPresence draftId={data.draft.id} {version} />{/if}
     <Button
       variant="ghost"
       class="edit-shortcut"

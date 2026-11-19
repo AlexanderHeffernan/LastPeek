@@ -5,7 +5,11 @@
   import { fade, scale } from "svelte/transition";
   import UserIdentity from "./UserIdentity.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
-  let { draftId, token }: { draftId?: string; token?: string } = $props();
+  let {
+    draftId,
+    token,
+    version,
+  }: { draftId?: string; token?: string; version?: number } = $props();
   const name = getContext<Writable<string>>("guest-name");
   let viewers = $state<
     { id: string; name: string; avatar_id: string | null; guest: boolean }[]
@@ -21,6 +25,7 @@
   $effect(() => {
     const [kind, value] = targetKey.split(":");
     const target = kind === "token" ? { token: value } : { draftId: value };
+    const initialVersion = untrack(() => version);
     const connection = crypto.randomUUID();
     let disposed = false,
       busy = false,
@@ -50,9 +55,15 @@
         const next = await response.json();
         if (disposed) return;
         viewers = next.viewers;
-        // Also reconcile the first heartbeat: a write can land between the
-        // server-rendered page and this request.
-        if (activity !== next.activity) await invalidateAll();
+        // Reconcile a write between page load and the first heartbeat, but
+        // don't invalidate an already-current new draft during its first save.
+        if (
+          activity
+            ? activity !== next.activity
+            : initialVersion !== undefined &&
+              Number(next.activity.split(":")[0]) !== initialVersion
+        )
+          await invalidateAll();
         activity = next.activity;
       } catch {
         if (!disposed) viewers = [];
