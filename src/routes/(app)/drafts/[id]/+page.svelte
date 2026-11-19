@@ -166,6 +166,41 @@
     JSON.stringify(content) !== saved || (version === 0 && touched),
   );
   const uploading = $derived(pending.some((p) => p.active));
+  const changedElsewhere = $derived(data.draft.edit_version > version);
+  function useIncomingDraft() {
+    clearTimeout(timer);
+    content = contentSchema.parse(structuredClone(data.draft.content));
+    media = data.media;
+    version = data.draft.edit_version;
+    saved = JSON.stringify(content);
+    sharedRevision = data.draft.shared_revision;
+    shareToken = data.draft.share_token;
+    touched = false;
+    error = "";
+    status = "All changes saved";
+  }
+  $effect(() => {
+    // Feedback refreshes must not reset typing, uploads or an in-flight save.
+    if (!changedElsewhere || saving || busy || pending.length) return;
+    if (dirty) {
+      clearTimeout(timer);
+      return;
+    }
+    untrack(useIncomingDraft);
+  });
+  async function acceptIncomingDraft() {
+    if (
+      !(await confirmation.ask({
+        title: "Use the latest version?",
+        description:
+          "Your unsaved post edits will be replaced by the version saved elsewhere. Your unsent discussion text will stay.",
+        confirmLabel: "Use latest version",
+        cancelLabel: "Keep my edits",
+      }))
+    )
+      return;
+    useIncomingDraft();
+  }
   onMount(() => {
     origin = location.origin;
     if (dirty) changed();
@@ -226,6 +261,7 @@
   }
   async function persist(): Promise<boolean> {
     clearTimeout(timer);
+    if (changedElsewhere) return false;
     if (!dirty) {
       status = "All changes saved";
       return true;
@@ -255,6 +291,9 @@
     } catch (e) {
       error = (e as Error).message;
       status = "Not saved";
+      // A write may race the heartbeat. Fetch its current version without
+      // retrying with a newer version and overwriting somebody else's edits.
+      void invalidateAll().catch(() => {});
       return false;
     } finally {
       saving = false;
@@ -878,7 +917,18 @@
           </div>{/if}
       </div>
       <span class="sr-only" role="status">{status}</span>
-      {#if error}<div class="action-error" role="alert">
+      {#if changedElsewhere && !saving && !busy}<div
+          class="action-error"
+          role="alert"
+        >
+          This draft changed elsewhere. Your unsaved edits are kept here.
+          <Button
+            variant="ghost"
+            disabled={pending.length > 0}
+            onclick={acceptIncomingDraft}>Use latest version</Button
+          >
+        </div>
+      {:else if error}<div class="action-error" role="alert">
           {error}{#if status === "Not saved"}<Button
               variant="ghost"
               onclick={() => save()}>Retry save</Button

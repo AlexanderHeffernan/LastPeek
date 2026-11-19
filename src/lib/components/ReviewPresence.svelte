@@ -11,13 +11,16 @@
     { id: string; name: string; avatar_id: string | null; guest: boolean }[]
   >([]);
   let expanded = $state<string | null>(null);
+  // Page-data invalidation replaces objects, not the draft being viewed.
+  const targetKey = $derived(token ? `token:${token}` : `draft:${draftId}`);
   $effect(() => {
     if (!expanded) return;
     const timer = setTimeout(() => (expanded = null), 3500);
     return () => clearTimeout(timer);
   });
   $effect(() => {
-    const target = token ? { token } : { draftId };
+    const [kind, value] = targetKey.split(":");
+    const target = kind === "token" ? { token: value } : { draftId: value };
     const connection = crypto.randomUUID();
     let disposed = false,
       busy = false,
@@ -47,7 +50,9 @@
         const next = await response.json();
         if (disposed) return;
         viewers = next.viewers;
-        if (activity && activity !== next.activity) await invalidateAll();
+        // Also reconcile the first heartbeat: a write can land between the
+        // server-rendered page and this request.
+        if (activity !== next.activity) await invalidateAll();
         activity = next.activity;
       } catch {
         if (!disposed) viewers = [];
@@ -73,12 +78,14 @@
     void refresh();
     const timer = setInterval(refresh, 5000);
     document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("focus", refresh);
     window.addEventListener("pagehide", leave);
     return () => {
       disposed = true;
       // Bounded keepalive requests finish across navigation without WebKit errors.
       clearInterval(timer);
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", refresh);
       window.removeEventListener("pagehide", leave);
       leave();
     };
