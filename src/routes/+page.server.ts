@@ -33,8 +33,13 @@ async function home(user: User) {
     shared_revision: number | null;
     feedback: number;
     posted_at: Date | null;
+    related_id: string | null;
   }>(
     `SELECT d.id,d.content,d.updated_at,d.created_at,d.shared_revision,d.posted_at,
+    (SELECT CASE WHEN v.x_draft_id=d.id THEN v.linkedin_draft_id ELSE v.x_draft_id END
+     FROM draft_versions v JOIN drafts counterpart
+       ON counterpart.id=CASE WHEN v.x_draft_id=d.id THEN v.linkedin_draft_id ELSE v.x_draft_id END
+     WHERE (v.x_draft_id=d.id OR v.linkedin_draft_id=d.id) AND counterpart.owner_id=$1) AS related_id,
     (d.share_token IS NOT NULL OR EXISTS (SELECT 1 FROM friend_reviews fr WHERE fr.draft_id=d.id)) AS shared,
     (SELECT count(*)::int FROM comments c WHERE c.draft_id=d.id AND c.deleted_at IS NULL) AS feedback
     FROM drafts d WHERE owner_id=$1

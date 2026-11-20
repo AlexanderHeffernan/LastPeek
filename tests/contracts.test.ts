@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { operatorCommand } from "../src/lib/operator";
+import { groupDraftVersions } from "../src/lib/draft-feed";
 import {
   blankContent,
   contentSchema,
@@ -9,6 +10,44 @@ import {
   mediaIds,
   presenceLabel,
 } from "../src/lib/contracts";
+
+test("draft feed groups linked versions with X first and the latest edit time", () => {
+  const x = {
+    id: "x",
+    related_id: "li",
+    content: blankContent("Author"),
+    updated_at: "2026-11-20T01:00:00Z",
+  };
+  const linkedin = {
+    ...x,
+    id: "li",
+    related_id: "x",
+    content: { ...blankContent("Author"), platform: "linkedin" as const },
+    updated_at: "2026-11-20T03:00:00Z",
+  };
+  const standalone = {
+    ...x,
+    id: "standalone",
+    related_id: null,
+    updated_at: "2026-11-20T02:00:00Z",
+  };
+  for (const input of [
+    [x, standalone, linkedin],
+    [linkedin, standalone, x],
+  ]) {
+    const grouped = groupDraftVersions(input);
+    assert.deepEqual(
+      grouped.map((draft) => draft.id),
+      ["x", "standalone"],
+    );
+    assert.equal(grouped[0].updated_at, linkedin.updated_at);
+    assert.deepEqual(grouped[0].versions, [x, linkedin]);
+    assert.deepEqual(grouped[1].versions, [standalone]);
+  }
+  // Filtering a posted counterpart out of a queue must retain the remaining version.
+  assert.deepEqual(groupDraftVersions([linkedin])[0].versions, [linkedin]);
+  assert.deepEqual(groupDraftVersions([]), []);
+});
 
 test("presence expires at five minutes and distinguishes unavailable activity", () => {
   const now = Date.parse("2026-11-02T12:00:00Z");

@@ -13,6 +13,7 @@
   import UserIdentity from "$lib/components/UserIdentity.svelte";
   import FriendControl from "$lib/components/FriendControl.svelte";
   import { relativeTime, xPostURLSchema } from "$lib/contracts";
+  import { groupDraftVersions } from "$lib/draft-feed";
   import type { PageData, ActionData } from "../../routes/$types";
   let {
     data,
@@ -115,26 +116,35 @@
     { value: "review", label: "To review", icon: "review" },
     { value: "done", label: "Done", icon: "done" },
   ];
+  const activeDrafts = $derived(
+    groupDraftVersions(data.drafts.filter((d) => !d.posted_at)),
+  );
+  const postedDrafts = $derived(
+    groupDraftVersions(data.drafts.filter((d) => d.posted_at)),
+  );
+  const reviews = $derived(data.reviews.map((r) => ({ ...r, versions: [r] })));
   const counts = $derived({
-    drafts: data.drafts.filter((d) => !d.posted_at).length,
+    drafts: activeDrafts.length,
     review: data.reviews.filter((r) => !r.completed_at && !r.posted_at).length,
   });
   const visible = $derived(
     (filter === "review"
-      ? data.reviews.filter((r) => !r.completed_at && !r.posted_at)
+      ? reviews.filter((r) => !r.completed_at && !r.posted_at)
       : filter === "done"
         ? [
-            ...data.drafts.filter((d) => d.posted_at),
-            ...data.reviews.filter((r) => r.completed_at || r.posted_at),
+            ...postedDrafts,
+            ...reviews.filter((r) => r.completed_at || r.posted_at),
           ].sort((a, b) =>
             (b.posted_at ?? b.completed_at!).localeCompare(
               a.posted_at ?? a.completed_at!,
             ),
           )
-        : data.drafts.filter((d) => !d.posted_at)
+        : activeDrafts
     ).filter((draft) =>
-      draft.content.posts.some((post) =>
-        post.text.toLocaleLowerCase().includes(search),
+      draft.versions.some((version) =>
+        version.content.posts.some((post) =>
+          post.text.toLocaleLowerCase().includes(search),
+        ),
       ),
     ),
   );
@@ -430,22 +440,50 @@
                     </p>{/if}
                 </a>
                 <div class="draft-meta">
-                  <span
-                    class="platform-label"
-                    aria-label={draft.content.platform === "linkedin"
-                      ? "LinkedIn post"
-                      : "X post"}
-                    title={draft.content.platform === "linkedin"
-                      ? "LinkedIn post"
-                      : "X post"}
-                  >
-                    <Icon
-                      name={draft.content.platform === "linkedin"
-                        ? "linkedin"
-                        : "x"}
-                      size={18}
-                    />
-                  </span>
+                  {#if draft.versions.length > 1}
+                    <div
+                      class="platform-versions"
+                      aria-label="X and LinkedIn versions"
+                    >
+                      {#each draft.versions as version (version.id)}
+                        <Button
+                          variant="ghost"
+                          class="version-link"
+                          href={`/drafts/${version.id}`}
+                          aria-label={version.content.platform === "linkedin"
+                            ? "Open LinkedIn version"
+                            : "Open X version"}
+                          title={version.content.platform === "linkedin"
+                            ? "Open LinkedIn version"
+                            : "Open X version"}
+                        >
+                          <Icon
+                            name={version.content.platform === "linkedin"
+                              ? "linkedin"
+                              : "x"}
+                            size={18}
+                          />
+                        </Button>
+                      {/each}
+                    </div>
+                  {:else}
+                    <span
+                      class="platform-label"
+                      aria-label={draft.content.platform === "linkedin"
+                        ? "LinkedIn post"
+                        : "X post"}
+                      title={draft.content.platform === "linkedin"
+                        ? "LinkedIn post"
+                        : "X post"}
+                    >
+                      <Icon
+                        name={draft.content.platform === "linkedin"
+                          ? "linkedin"
+                          : "x"}
+                        size={18}
+                      />
+                    </span>
+                  {/if}
                   <Button
                     variant="ghost"
                     class="draft-stat stat-thread"
@@ -921,6 +959,16 @@
     align-items: center;
     color: var(--muted-foreground);
   }
+  .platform-versions {
+    display: flex;
+    align-items: center;
+  }
+  .platform-versions :global(.version-link) {
+    width: 40px;
+    height: 44px;
+    padding: 0;
+    color: var(--muted-foreground);
+  }
   .draft-meta :global(.draft-stat) {
     --stat-color: var(--x-blue);
     position: relative;
@@ -1093,6 +1141,10 @@
     .draft-placeholder {
       margin-left: 62px;
       margin-right: 12px;
+    }
+    .draft-meta:has(.platform-versions) {
+      flex-wrap: wrap;
+      column-gap: 0;
     }
   }
   @media (max-width: 360px) {
